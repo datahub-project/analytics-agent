@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160">
+  <title>Analytics Agent Logo</title>
+  <desc>Two opposing speech-bubble arcs in dialogue with three conversation dots — the logo for Analytics Agent, a DataHub talk-to-data agent.</desc>
+  <!-- Left arc (blue) — represents the user -->
+  <path d="M30 108 A88 88 0 0 1 175 30" fill="none" stroke="#0078D4" stroke-width="16" stroke-linecap="round"/>
+  <!-- Right arc (amber) — represents the data -->
+  <path d="M190 108 A88 88 0 0 0 45 30" fill="none" stroke="#E8A030" stroke-width="16" stroke-linecap="round"/>
+  <!-- Conversation dots (coral/red) -->
+  <circle cx="85" cy="73" r="7.5" fill="#D44B20"/>
+  <circle cx="110" cy="73" r="7.5" fill="#D44B20"/>
+  <circle cx="135" cy="73" r="7.5" fill="#D44B20"/>
+  <!-- Left speech tail (blue) -->
+  <path d="M30 108 L18 136 L54 114" fill="none" stroke="#0078D4" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Right speech tail (amber) -->
+  <path d="M190 108 L202 136 L166 114" fill="none" stroke="#E8A030" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

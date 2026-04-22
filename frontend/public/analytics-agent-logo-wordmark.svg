@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 120" width="520" height="120">
+  <title>Analytics Agent Logo with Wordmark</title>
+  <desc>Analytics Agent logo mark with the analytics-agent wordmark and tagline — Talk to your data.</desc>
+  <!-- Logo mark -->
+  <path d="M22 82 A66 66 0 0 1 131 22" fill="none" stroke="#0078D4" stroke-width="13" stroke-linecap="round"/>
+  <path d="M143 82 A66 66 0 0 0 34 22" fill="none" stroke="#E8A030" stroke-width="13" stroke-linecap="round"/>
+  <circle cx="62" cy="55" r="6" fill="#D44B20"/>
+  <circle cx="82" cy="55" r="6" fill="#D44B20"/>
+  <circle cx="102" cy="55" r="6" fill="#D44B20"/>
+  <path d="M22 82 L12 104 L42 87" fill="none" stroke="#0078D4" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M143 82 L153 104 L123 87" fill="none" stroke="#E8A030" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Wordmark -->
+  <text x="185" y="56" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="44" font-weight="500" fill="#1A1A1A" letter-spacing="-0.5">analytics-agent</text>
+  <!-- Tagline -->
+  <text x="187" y="80" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#666666" letter-spacing="2">TALK TO YOUR DATA</text>
+</svg>

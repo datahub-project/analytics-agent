@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <title>Analytics Agent Favicon</title>
+  <desc>Compact Analytics Agent logo optimized for favicon and small icon use.</desc>
+  <path d="M8 42 A30 30 0 0 1 52 10" fill="none" stroke="#0078D4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M56 42 A30 30 0 0 0 12 10" fill="none" stroke="#E8A030" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="24" cy="28" r="3.5" fill="#D44B20"/>
+  <circle cx="32" cy="28" r="3.5" fill="#D44B20"/>
+  <circle cx="40" cy="28" r="3.5" fill="#D44B20"/>
+  <path d="M8 42 L3 54 L17 45" fill="none" stroke="#0078D4" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M56 42 L61 54 L47 45" fill="none" stroke="#E8A030" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

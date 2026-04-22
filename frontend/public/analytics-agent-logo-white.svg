@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="240" height="160">
+  <title>Analytics Agent Logo — Reversed (White)</title>
+  <desc>White variant of the Analytics Agent logo for dark backgrounds.</desc>
+  <path d="M30 108 A88 88 0 0 1 175 30" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round"/>
+  <path d="M190 108 A88 88 0 0 0 45 30" fill="none" stroke="#FFFFFF" stroke-width="16" stroke-linecap="round" opacity="0.7"/>
+  <circle cx="85" cy="73" r="7.5" fill="#FFFFFF"/>
+  <circle cx="110" cy="73" r="7.5" fill="#FFFFFF"/>
+  <circle cx="135" cy="73" r="7.5" fill="#FFFFFF"/>
+  <path d="M30 108 L18 136 L54 114" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M190 108 L202 136 L166 114" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+</svg>

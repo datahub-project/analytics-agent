@@ -1,0 +1,41 @@
+# config.yaml — deployment topology (copy to config.yaml, do not commit config.yaml)
+#
+# Secrets stay in .env via ${VAR} substitution. This file declares *what* to
+# connect to; .env declares *how* to authenticate.
+
+# ── Context platforms ─────────────────────────────────────────────────────────
+# DataHub provides metadata, lineage, and governance tools to the agent.
+context_platforms:
+  - type: datahub
+    name: default
+    label: "DataHub"
+    url: "${DATAHUB_GMS_URL}"       # set DATAHUB_GMS_URL in .env
+    token: "${DATAHUB_GMS_TOKEN}"   # set DATAHUB_GMS_TOKEN in .env
+
+# ── SQL engines ───────────────────────────────────────────────────────────────
+# Define the data sources the agent can query. Remove or comment out any you
+# don't need. Additional connections can also be added via the Settings UI.
+engines: []
+
+# Snowflake example:
+# engines:
+#   - type: snowflake
+#     name: prod
+#     connection:
+#       account: "${SNOWFLAKE_ACCOUNT}"
+#       user: "${SNOWFLAKE_USER}"
+#       warehouse: "${SNOWFLAKE_WAREHOUSE}"
+#       database: "${SNOWFLAKE_DATABASE}"
+#       schema: "${SNOWFLAKE_SCHEMA}"
+
+# MySQL example:
+#   - type: mysql
+#     name: olist_ecommerce
+#     connection:
+#       dialect: mysql+pymysql
+#       host: "${MYSQL_HOST}"
+#       port: 3306
+#       user: "${MYSQL_USER}"
+#       password: "${MYSQL_PASSWORD}"
+#       database: "${MYSQL_DATABASE}"
+

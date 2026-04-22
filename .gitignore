@@ -1,0 +1,36 @@
+*.env
+!.env.example
+.env.quickstart
+config.yaml
+!config.yaml.example
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+data/
+*.db
+
+# Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Logs
+*.log
+nohup.out
+
+# Playwright MCP test artifacts
+.playwright-mcp/
+*.png
