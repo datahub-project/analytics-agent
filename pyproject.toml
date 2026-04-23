@@ -20,11 +20,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 requires-python = ">=3.11"
-
-[project.urls]
-Homepage = "https://github.com/datahub-project/analytics-agent"
-Repository = "https://github.com/datahub-project/analytics-agent"
-"Bug Tracker" = "https://github.com/datahub-project/analytics-agent/issues"
 dependencies = [
     # Web
     "fastapi>=0.115.0",
@@ -64,6 +59,11 @@ dependencies = [
     "keyring>=25.7.0",
     "langchain-google-genai>=4.2.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/datahub-project/analytics-agent"
+Repository = "https://github.com/datahub-project/analytics-agent"
+"Bug Tracker" = "https://github.com/datahub-project/analytics-agent/issues"
 
 [project.optional-dependencies]
 dev = [
