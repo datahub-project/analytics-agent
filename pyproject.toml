@@ -3,9 +3,22 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "datahub-talk-to-data"
+name = "datahub-analytics-agent"
 version = "0.1.0"
-description = "LangGraph-based talk-to-data agent with DataHub context and pluggable query engines"
+description = "Open-source talk-to-data agent with DataHub context and pluggable query engines"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "DataHub Project" }]
+keywords = ["datahub", "analytics", "agent", "llm", "text-to-sql", "langgraph"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 requires-python = ">=3.11"
 dependencies = [
     # Web
@@ -46,6 +59,11 @@ dependencies = [
     "keyring>=25.7.0",
     "langchain-google-genai>=4.2.2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/datahub-project/analytics-agent"
+Repository = "https://github.com/datahub-project/analytics-agent"
+"Bug Tracker" = "https://github.com/datahub-project/analytics-agent/issues"
 
 [project.optional-dependencies]
 dev = [
