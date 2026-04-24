@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Open-source talk-to-data agent with DataHub context and pluggable query engines"
 readme = "README.md"
 license = { text = "Apache-2.0" }
-authors = [{ name = "DataHub Project", email = "datahub-project@acryldata.io" }]
+authors = [{ name = "DataHub Project" }]
 keywords = ["datahub", "analytics", "agent", "llm", "text-to-sql", "langgraph"]
 classifiers = [
     "Development Status :: 4 - Beta",
