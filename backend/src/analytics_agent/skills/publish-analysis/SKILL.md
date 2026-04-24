@@ -9,7 +9,7 @@ license: MIT
 compatibility: Requires DataHub write-back enabled in Settings → Connections
 allowed-tools: search_documents, get_entities, publish_analysis
 metadata:
-  author: talkster
+  author: analytics-agent
   version: "1.0"
 ---
 
