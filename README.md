@@ -24,8 +24,6 @@
 ## ⚡ Quickstart
 
 > **Requires:** Docker, DataHub CLI (`pip install acryl-datahub`), `uv`, Python 3.11+
->
-> **Manual setup also requires:** `node` and `just` (`brew install node just`)
 
 ```bash
 git clone https://github.com/datahub-project/analytics-agent.git
@@ -69,6 +67,8 @@ Open the browser — a setup wizard walks you through naming your agent, picking
 ---
 
 ## Manual setup (without quickstart.sh)
+
+> **Manual setup also requires:** `node` and `just` (`brew install node just`)
 
 ### 1. Clone and install
 
