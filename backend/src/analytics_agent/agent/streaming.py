@@ -68,6 +68,14 @@ async def stream_graph_events(
     final_state: dict[str, Any] = {}
     chart_emitted = False  # guard against double-emitting CHART
 
+    # Track active tool runs by run_id -> tool_name so we can detect when a
+    # wrapped tool (e.g. MCP UI wrapper) invokes an inner tool of the same name.
+    # LangGraph v2 fires on_tool_start/on_tool_end for both the outer StructuredTool
+    # and the inner delegated tool, which would otherwise double-record TOOL_CALL
+    # and emit a redundant TOOL_RESULT alongside the MCP_APP bubble.
+    active_tool_runs: dict[str, str] = {}
+    suppressed_tool_runs: set[str] = set()
+
     try:
         from analytics_agent.config import settings as _settings
 
@@ -78,6 +86,7 @@ async def stream_graph_events(
             data: dict[str, Any] = event.get("data", {})
             name: str = event.get("name", "")
             run_id: str = event.get("run_id", "")
+            parent_ids: list[str] = event.get("parent_ids", []) or []
             node: str = event.get("metadata", {}).get("langgraph_node", "")
 
             # ── TEXT ──
@@ -88,12 +97,16 @@ async def stream_graph_events(
                 if getattr(chunk, "tool_call_chunks", None):
                     continue
                 content = chunk.content if hasattr(chunk, "content") else ""
+                # Each chunk gets its own unique message_id. All other event
+                # types already do this (uuid4). Sharing run_id across chunks
+                # collides on the Message.id primary key in persistence and
+                # silently drops every chunk after the first (see chat.py).
                 if isinstance(content, str) and content:
                     final_text_parts.append(content)
                     yield {
                         "event": "TEXT",
                         "conversation_id": conversation_id,
-                        "message_id": run_id,
+                        "message_id": str(uuid.uuid4()),
                         "payload": {"text": content},
                     }
                 elif isinstance(content, list):
@@ -105,13 +118,19 @@ async def stream_graph_events(
                                 yield {
                                     "event": "TEXT",
                                     "conversation_id": conversation_id,
-                                    "message_id": run_id,
+                                    "message_id": str(uuid.uuid4()),
                                     "payload": {"text": text},
                                 }
 
             # ── TOOL_CALL ──
             elif event_type == "on_tool_start":
                 tool_input = data.get("input", {})
+                # Suppress inner tool calls nested under a same-named outer tool
+                # (MCP UI wrapper pattern) so the bubble/history isn't duplicated.
+                if any(active_tool_runs.get(pid) == name for pid in parent_ids):
+                    suppressed_tool_runs.add(run_id)
+                    continue
+                active_tool_runs[run_id] = name
                 if name == "execute_sql":
                     pending_sql[run_id] = tool_input.get("sql", "")
                 # create_chart renders as a CHART event — don't show a tool call bubble
@@ -126,6 +145,11 @@ async def stream_graph_events(
 
             # ── TOOL_ERROR (unhandled exception from tool) ──
             elif event_type == "on_tool_error":
+                if run_id in suppressed_tool_runs:
+                    suppressed_tool_runs.discard(run_id)
+                    active_tool_runs.pop(run_id, None)
+                    pending_sql.pop(run_id, None)
+                    continue
                 error_msg = str(data.get("error", "Tool failed"))
                 yield {
                     "event": "TOOL_RESULT",
@@ -138,9 +162,16 @@ async def stream_graph_events(
                     },
                 }
                 pending_sql.pop(run_id, None)
+                active_tool_runs.pop(run_id, None)
 
             # ── SQL / TOOL_RESULT / CHART ──
             elif event_type == "on_tool_end":
+                if run_id in suppressed_tool_runs:
+                    suppressed_tool_runs.discard(run_id)
+                    active_tool_runs.pop(run_id, None)
+                    pending_sql.pop(run_id, None)
+                    continue
+                active_tool_runs.pop(run_id, None)
                 output = data.get("output", "")
                 if hasattr(output, "content"):
                     output = output.content
@@ -182,6 +213,32 @@ async def stream_graph_events(
                                 "tool_name": name,
                                 "result": output_str[:2000],
                                 "is_error": True,
+                            },
+                        }
+                elif output_str.startswith("MCP_APP_READY:"):
+                    # Pop the PendingApp from the side-channel and emit an MCP_APP event.
+                    # HTML is never included in the SSE payload — the frontend fetches
+                    # it via GET .../mcp-app/{message_id}/ui (prefetch warms the cache).
+                    app_id = output_str.split(":", 1)[1].split()[0].strip()
+                    from analytics_agent.agent.mcp_app_tool import _pending_apps
+
+                    pending_app = _pending_apps.pop(app_id, None)
+                    if pending_app:
+                        yield {
+                            "event": "MCP_APP",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": {
+                                "app_id": app_id,
+                                "connection_key": pending_app.connection_key,
+                                "server_name": pending_app.server_name,
+                                "tool_name": pending_app.tool_name,
+                                "tool_input": pending_app.tool_input,
+                                "tool_result": pending_app.tool_result,
+                                "resource_uri": pending_app.resource_uri,
+                                "csp": pending_app.csp,
+                                "permissions": pending_app.permissions,
+                                "allowed_tools": pending_app.allowed_tools,
                             },
                         }
                 elif name == "create_chart":

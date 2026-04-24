@@ -70,6 +70,15 @@ class MCPQueryEngine(QueryEngine):
 
         client = MultiServerMCPClient({"engine": conn})  # type: ignore[dict-item]
         tools = await client.get_tools()
+
+        from analytics_agent.context.mcp_ui import wrap_tools_with_ui_resources
+
+        # Use a stable key derived from the MCP config so multiple MCP engines
+        # can coexist in the same process without registry collisions.
+        engine_label = self._mcp_cfg.get("name") or self._mcp_cfg.get("url", "engine")
+        connection_key = f"engine:{engine_label}"
+        tools = await wrap_tools_with_ui_resources(connection_key, client, "engine", tools)
+
         logger.info("MCP engine provided %d tools", len(tools))
         return tools
 

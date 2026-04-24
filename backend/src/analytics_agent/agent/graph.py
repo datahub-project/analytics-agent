@@ -43,6 +43,7 @@ def build_graph(
     enabled_mutations: set[str] | None = None,
     context_tools: list | None = None,  # pre-built from DB context platforms at request time
     engine_tools: list | None = None,  # pre-built for MCP data sources (bypasses QueryEngine)
+    suppress_business_context_skill: bool = False,
 ):
     from analytics_agent.agent.chart_generator import chart_node
     from analytics_agent.engines.factory import get_registry
@@ -64,7 +65,10 @@ def build_graph(
     # Always-on skills (context search etc.) + opt-in write-back skills
     from analytics_agent.skills.loader import build_always_on_skill_tools, build_skill_tools
 
-    skill_tools = build_always_on_skill_tools() + build_skill_tools(enabled_mutations or set())
+    always_on_skills = build_always_on_skill_tools()
+    if suppress_business_context_skill:
+        always_on_skills = [t for t in always_on_skills if t.name != "search_business_context"]
+    skill_tools = always_on_skills + build_skill_tools(enabled_mutations or set())
 
     # Engine tools — MCP data sources supply pre-built tools; native engines use QueryEngine
     if engine_tools is not None:
@@ -87,12 +91,17 @@ def build_graph(
         )
 
         system_prompt = system_prompt_override.format(engine_name=engine_name)
-        system_prompt += get_search_business_context_section()
+        if not suppress_business_context_skill:
+            system_prompt += get_search_business_context_section()
         system_prompt += get_improve_context_prompt_section()
         if enabled_mutations:
             system_prompt += get_skill_system_prompt_section(enabled_mutations)
     else:
-        system_prompt = build_system_prompt(engine_name, enabled_skills=enabled_mutations)
+        system_prompt = build_system_prompt(
+            engine_name,
+            enabled_skills=enabled_mutations,
+            include_business_context=not suppress_business_context_skill,
+        )
 
     # Enable per-tool error handling so validation errors (e.g. hallucinated
     # arguments like filter= on get_entities) are returned as tool messages

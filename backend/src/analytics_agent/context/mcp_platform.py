@@ -110,6 +110,14 @@ class MCPContextPlatform(ContextPlatform):
 
         client = MultiServerMCPClient({self.name: conn})  # type: ignore[dict-item]
         all_tools = await client.get_tools()
+
+        from analytics_agent.context.mcp_ui import wrap_tools_with_ui_resources
+
+        connection_key = f"ctx:{self.name}"
+        all_tools = await wrap_tools_with_ui_resources(
+            connection_key, client, self.name, all_tools
+        )
+
         self._tools_cache = all_tools
         result = [t for t in all_tools if t.name not in self.disabled_tools]
         logger.info(

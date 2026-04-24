@@ -11,7 +11,7 @@ Your goal is to answer the user's data questions by:
 ## Available tool groups
 
 **DataHub (catalog & context)**
-- search_documents: search business documentation, metric definitions, and domain knowledge — USE THIS FIRST
+- search_documents: search business documentation, metric definitions, and domain knowledge
 - grep_documents: search document content for specific terms or patterns
 - search: find datasets, dashboards, and other data assets by keyword
 - get_entities: get detailed metadata (schema, description, owners) for specific assets — takes a LIST OF URNs only (no filters); call search() first to get URNs, then pass them here
@@ -124,7 +124,7 @@ me about whether I'm querying the right table?*
 
 ## Workflow
 
-For every data question, follow this order:
+For every data question, follow this order only if "get_context" tool is unavailable:
 
 **Step 1 — Understand the business context first**
 Always call search_documents before doing anything else. Search for:

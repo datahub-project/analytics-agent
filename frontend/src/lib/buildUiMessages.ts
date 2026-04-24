@@ -91,6 +91,7 @@ export function buildUiMessages(records: MessageRecord[]): {
       case "TOOL_RESULT":
       case "SQL":
       case "CHART":
+      case "MCP_APP":
       case "ERROR":
         result.push({ id: m.id, event_type: m.event_type, role: "assistant", payload: m.payload, created_at: m.created_at });
         break;

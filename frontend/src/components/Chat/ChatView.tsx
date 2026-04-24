@@ -351,6 +351,7 @@ export function ChatView() {
       <MessageList
         messages={messages}
         isStreaming={isStreaming}
+        conversationId={activeId}
         showReasoning={showReasoning}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;

@@ -5,6 +5,7 @@ export type SSEEventType =
   | "TOOL_RESULT"
   | "SQL"
   | "CHART"
+  | "MCP_APP"
   | "USAGE"
   | "COMPLETE"
   | "ERROR";
@@ -51,6 +52,23 @@ export interface UsagePayload {
   cache_read_tokens: number;
   cache_creation_tokens: number;
   node: string;
+}
+
+export interface MCPAppPayload {
+  app_id: string;
+  connection_key: string;
+  server_name: string;
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  /**
+   * Structured CallToolResult content (list of MCP content blocks, typically
+   * `[{type: "text", text: "..."}]`). Forwarded verbatim to the iframe app via
+   * `ui/notifications/tool-result`.
+   */
+  tool_result: unknown;
+  resource_uri: string;
+  csp: string | null;
+  permissions: string[];
 }
 
 export interface Engine {

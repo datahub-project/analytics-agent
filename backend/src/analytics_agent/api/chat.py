@@ -74,6 +74,16 @@ async def _compute_quality_background(conv_id: str, factory) -> None:
 
 class ChatMessageRequest(BaseModel):
     text: str
+    # Phase 2: MCP App iframe-originated turns include these for auditing and
+    # frontend rendering (source="mcp_app" rows render as SelectionChip, not a
+    # user bubble; origin_message_id anchors the chip under its selector iframe).
+    source: str | None = None  # e.g. "mcp_app"
+    app_id: str | None = None
+    origin_message_id: str | None = None
+    # Short human-readable label shown on the SelectionChip; `text` may be a
+    # richer agent-facing message (e.g. includes URN + instruction to prevent
+    # redundant disambiguation tool calls).
+    display_text: str | None = None
 
 
 async def _persist_message(
@@ -83,9 +93,10 @@ async def _persist_message(
     role: str,
     payload: dict,
     sequence: int,
+    message_id: str | None = None,
 ) -> None:
     msg = Message(
-        id=str(uuid.uuid4()),
+        id=message_id or str(uuid.uuid4()),
         conversation_id=conversation_id,
         event_type=event_type,
         role=role,
@@ -103,6 +114,10 @@ async def _run_and_broadcast(
     user_text: str,
     engine_name: str,
     keepalive_interval: int,
+    source: str | None = None,
+    app_id: str | None = None,
+    origin_message_id: str | None = None,
+    display_text: str | None = None,
 ) -> None:
     """
     Background task: runs the full agent pipeline independently of the HTTP
@@ -123,8 +138,17 @@ async def _run_and_broadcast(
             msg_repo = MessageRepo(session)
             sequence = await msg_repo.next_sequence(conversation_id)
 
+            user_payload: dict = {"text": user_text}
+            if source:
+                user_payload["source"] = source
+            if app_id:
+                user_payload["app_id"] = app_id
+            if origin_message_id:
+                user_payload["origin_message_id"] = origin_message_id
+            if display_text:
+                user_payload["display_text"] = display_text
             await _persist_message(
-                session, conversation_id, "TEXT", "user", {"text": user_text}, sequence
+                session, conversation_id, "TEXT", "user", user_payload, sequence
             )
             await session.commit()
             sequence += 1
@@ -238,6 +262,10 @@ async def _run_and_broadcast(
             try:
                 context_tools: list = []
                 include_mutations = bool(enabled_mutations)
+                suppress_business_context_skill = False
+
+                # Each platform owns its disabled_tools and include_mutations state.
+                # build_platform() reads from DB config; get_tools() filters internally.
                 for row in all_cp_rows:
                     platform = build_platform(
                         row,
@@ -248,6 +276,12 @@ async def _run_and_broadcast(
                         continue
                     tools = await platform.get_tools()
                     context_tools.extend(tools)
+                    # If a datahub-mcp server advertises `get_context`, it supersedes
+                    # the packaged `search_business_context` skill. Check post-filter
+                    # so an operator who explicitly disabled `get_context` keeps the
+                    # packaged skill active.
+                    if row.type == "datahub-mcp" and any(t.name == "get_context" for t in tools):
+                        suppress_business_context_skill = True
 
                 logger.info(
                     "Total context_tools=%d for conversation %s",
@@ -268,6 +302,7 @@ async def _run_and_broadcast(
                     enabled_mutations=enabled_mutations,
                     context_tools=context_tools,
                     engine_tools=engine_tools,
+                    suppress_business_context_skill=suppress_business_context_skill,
                 )
             except Exception as exc:
                 for _evt in cast(
@@ -310,7 +345,7 @@ async def _run_and_broadcast(
                 history=history,
             ):
                 if evt.get("event") not in (None, "KEEPALIVE"):
-                    with contextlib.suppress(Exception):
+                    try:
                         await _persist_message(
                             session,
                             conversation_id,
@@ -318,9 +353,24 @@ async def _run_and_broadcast(
                             "assistant",
                             evt.get("payload", {}),
                             sequence,
+                            message_id=evt.get("message_id"),
                         )
                         await session.commit()
                         sequence += 1
+                    except Exception as persist_exc:
+                        # A failed commit (e.g. duplicate PK) leaves the async
+                        # session in a doomed transaction — every subsequent
+                        # commit on it would also fail until we rollback.
+                        # Without this, one bad insert silently drops every
+                        # later event in the same turn (incl. COMPLETE).
+                        logger.warning(
+                            "Persist failed for %s event in conv %s: %s",
+                            evt.get("event"),
+                            conversation_id,
+                            persist_exc,
+                        )
+                        with contextlib.suppress(Exception):
+                            await session.rollback()
 
                     if evt.get("event") == "TOOL_RESULT":
                         tool_name = evt.get("payload", {}).get("tool_name", "")
@@ -405,6 +455,14 @@ async def send_message(
     if not body.text.strip():
         raise HTTPException(status_code=422, detail="Message text cannot be empty")
 
+    if body.source:
+        logger.info(
+            "Message in conv %s sourced from %s (app_id=%s)",
+            conversation_id,
+            body.source,
+            body.app_id,
+        )
+
     stream = ConvStream(task=None)
     _active_streams[conversation_id] = stream
     stream.task = asyncio.create_task(
@@ -414,6 +472,10 @@ async def send_message(
             body.text.strip(),
             conv.engine_name,
             settings.sse_keepalive_interval,
+            source=body.source,
+            app_id=body.app_id,
+            origin_message_id=body.origin_message_id,
+            display_text=body.display_text,
         )
     )
 

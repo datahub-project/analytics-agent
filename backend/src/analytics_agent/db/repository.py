@@ -90,6 +90,9 @@ class MessageRepo:
         await self._session.commit()
         return message
 
+    async def get_by_id(self, message_id: str) -> Message | None:
+        return await self._session.get(Message, message_id)
+
     async def list_for_conversation(self, conversation_id: str) -> list[Message]:
         result = await self._session.execute(
             select(Message)

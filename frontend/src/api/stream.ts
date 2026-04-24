@@ -33,12 +33,14 @@ export async function* reattachStream(
 export async function* streamMessage(
   conversationId: string,
   text: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Extra body fields forwarded verbatim (e.g. source, app_id for auditing). */
+  extraBody?: Record<string, unknown>
 ): AsyncIterator<SSEEvent> {
   const res = await fetch(`/api/conversations/${conversationId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...extraBody }),
     signal,
   });
 

@@ -11,6 +11,7 @@ def get_prompt_template() -> str:
 def build_system_prompt(
     engine_name: str,
     enabled_skills: set[str] | None = None,
+    include_business_context: bool = True,
 ) -> str:
     from analytics_agent.skills.loader import (
         get_improve_context_prompt_section,
@@ -21,8 +22,10 @@ def build_system_prompt(
     today = date.today().strftime("%B %d, %Y")
     base = get_prompt_template().format(engine_name=engine_name, today=today)
 
-    # Always inject always-on meta-skills
-    base = base + get_search_business_context_section()
+    # Always inject always-on meta-skills. `search_business_context` is skipped
+    # when a richer `get_context` tool is in play (see build_graph).
+    if include_business_context:
+        base = base + get_search_business_context_section()
     base = base + get_improve_context_prompt_section()
 
     if enabled_skills:

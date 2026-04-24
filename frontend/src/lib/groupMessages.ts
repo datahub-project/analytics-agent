@@ -1,6 +1,6 @@
 import type { UIMessage, TurnUsage } from "@/types";
 
-const WORK_TYPES = new Set(["TOOL_CALL", "TOOL_RESULT", "SQL", "CHART", "ERROR", "THINKING"]);
+const WORK_TYPES = new Set(["TOOL_CALL", "TOOL_RESULT", "SQL", "CHART", "MCP_APP", "ERROR", "THINKING"]);
 
 export interface TurnGroup {
   key: string;
