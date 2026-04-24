@@ -68,6 +68,8 @@ Open the browser — a setup wizard walks you through naming your agent, picking
 
 ## Manual setup (without quickstart.sh)
 
+> **Manual setup also requires:** `node` and `just` (`brew install node just`)
+
 ### 1. Clone and install
 
 ```bash
