@@ -5,6 +5,7 @@ export type SSEEventType =
   | "TOOL_RESULT"
   | "SQL"
   | "CHART"
+  | "USAGE"
   | "COMPLETE"
   | "ERROR";
 
@@ -43,6 +44,15 @@ export interface ChartPayload {
   chart_type: string;
 }
 
+export interface UsagePayload {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  node: string;
+}
+
 export interface Engine {
   name: string;
   type: string;
@@ -78,4 +88,5 @@ export interface UIMessage {
   payload: Record<string, unknown>;
   isStreaming?: boolean;
   isThinking?: boolean; // TEXT message that precedes a tool call
+  usage?: UsagePayload;
 }

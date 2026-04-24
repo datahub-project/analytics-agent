@@ -6,6 +6,7 @@ import { ToolCallMessage, ToolResultMessage } from "./messages/ToolCallMessage";
 import { SqlMessage } from "./messages/SqlMessage";
 import { ChartMessage } from "./messages/ChartMessage";
 import { ErrorMessage } from "./messages/ErrorMessage";
+import { TokenBadge } from "./messages/TokenBadge";
 
 interface Props {
   messages: UIMessage[];
@@ -33,7 +34,7 @@ export function MessageList({ messages, showReasoning = true, onChartError }: Pr
       {messages.map((msg) => (
         <div
           key={msg.id}
-          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+          className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
           data-print-role={msg.role}
           data-print-hide={msg.event_type === "TOOL_CALL" || msg.event_type === "TOOL_RESULT" ? "" : undefined}
         >
@@ -67,6 +68,11 @@ export function MessageList({ messages, showReasoning = true, onChartError }: Pr
           )}
           {msg.event_type === "ERROR" && (
             <ErrorMessage payload={msg.payload as never} />
+          )}
+          {msg.usage && msg.role === "assistant" && !msg.isStreaming && (
+            <div className="mt-1">
+              <TokenBadge usage={msg.usage} />
+            </div>
           )}
         </div>
       ))}

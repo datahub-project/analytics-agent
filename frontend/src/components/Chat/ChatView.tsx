@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, useRef } from "react";
-import type { MessageRecord } from "@/types";
+import type { MessageRecord, UsagePayload } from "@/types";
 import { streamMessage } from "@/api/stream";
 import { generateTitle, getConversation, createConversation } from "@/api/conversations";
 import { Download, X } from "lucide-react";
@@ -20,8 +20,26 @@ import type { UIMessage } from "@/types";
  * - TEXT chunks before a TOOL_CALL are marked isThinking=true
  * - COMPLETE events themselves are not rendered (they're just metadata)
  */
-function buildUiMessages(records: MessageRecord[]): UIMessage[] {
+function buildUiMessages(records: MessageRecord[]): {
+  messages: UIMessage[];
+  totals: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    calls: number;
+  };
+} {
   const result: UIMessage[] = [];
+  const totals = {
+    input_tokens: 0,
+    output_tokens: 0,
+    total_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    calls: 0,
+  };
 
   // Group by turn: collect blocks between user messages
   let pendingTextChunks: { id: string; text: string }[] = [];
@@ -82,6 +100,24 @@ function buildUiMessages(records: MessageRecord[]): UIMessage[] {
         result.push({ id: m.id, event_type: m.event_type, role: "assistant", payload: m.payload });
         break;
 
+      case "USAGE": {
+        const u = m.payload as unknown as import("@/types").UsagePayload;
+        totals.input_tokens += u.input_tokens || 0;
+        totals.output_tokens += u.output_tokens || 0;
+        totals.total_tokens += u.total_tokens || 0;
+        totals.cache_read_tokens += u.cache_read_tokens || 0;
+        totals.cache_creation_tokens += u.cache_creation_tokens || 0;
+        totals.calls += 1;
+        for (let j = result.length - 1; j >= 0; j--) {
+          const r = result[j];
+          if (r.role === "assistant" && (r.event_type === "TEXT" || r.event_type === "TOOL_CALL")) {
+            r.usage = u;
+            break;
+          }
+        }
+        break;
+      }
+
       // Skip other internal events
       default:
         break;
@@ -91,7 +127,7 @@ function buildUiMessages(records: MessageRecord[]): UIMessage[] {
   // Flush any trailing text (incomplete turn)
   flushText(seenToolCallAfterText);
 
-  return result;
+  return { messages: result, totals };
 }
 
 export function ChatView() {
@@ -110,6 +146,11 @@ export function ChatView() {
     setStreaming,
     updateConversationTitle,
     conversations,
+    usageTotals,
+    setUsageTotals,
+    addUsage,
+    attachUsageToMessage,
+    finalizeStreaming,
   } = useConversationsStore();
 
   const activeConv = conversations.find((c) => c.id === activeId);
@@ -132,7 +173,9 @@ export function ChatView() {
       return;
     }
     getConversation(activeId).then((detail) => {
-      setMessages(buildUiMessages(detail.messages));
+      const { messages: uiMsgs, totals } = buildUiMessages(detail.messages);
+      setMessages(uiMsgs);
+      setUsageTotals(totals);
     });
   }, [activeId]);
 
@@ -192,6 +235,15 @@ export function ChatView() {
             role: "assistant",
             payload: event.payload,
           });
+        } else if (event.event === "USAGE") {
+          const usage = event.payload as unknown as UsagePayload;
+          addUsage(usage);
+          // Attach to the current streaming TEXT message if any; else the last assistant message.
+          const state = useConversationsStore.getState();
+          const targetId =
+            state.streamingTextId ??
+            [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
+          if (targetId) attachUsageToMessage(targetId, usage);
         } else if (event.event !== "COMPLETE") {
           appendMessage({
             id: event.message_id,
@@ -210,6 +262,7 @@ export function ChatView() {
         payload: { error: String(err) },
       });
     } finally {
+      finalizeStreaming();
       setStreaming(false);
       // Fire-and-forget title generation after the turn completes
       generateTitle(activeId).then((r) => {
@@ -247,6 +300,55 @@ export function ChatView() {
           {activeConv?.title ?? "Conversation"}
         </span>
         <div className="flex items-center gap-2">
+          {usageTotals.calls > 0 && (
+            <div className="relative group" data-print-hide>
+              <span
+                className="text-[11px] text-muted-foreground font-mono px-2 py-0.5
+                           rounded border border-border cursor-default"
+              >
+                ↑{usageTotals.input_tokens.toLocaleString()} ↓
+                {usageTotals.output_tokens.toLocaleString()}
+              </span>
+              <div
+                className="pointer-events-none absolute top-full right-0 mt-1 z-10
+                           min-w-[180px] px-2.5 py-1.5 rounded-md
+                           bg-foreground text-background text-[11px] font-mono
+                           opacity-0 group-hover:opacity-100 transition-opacity duration-150
+                           shadow-lg"
+              >
+                <div className="flex justify-between gap-4 mb-1 pb-1 border-b border-background/20 opacity-70">
+                  <span>Session</span>
+                  <span>
+                    {usageTotals.calls} call{usageTotals.calls === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="opacity-70">Input</span>
+                  <span>{usageTotals.input_tokens.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span className="opacity-70">Output</span>
+                  <span>{usageTotals.output_tokens.toLocaleString()}</span>
+                </div>
+                {usageTotals.cache_read_tokens > 0 && (
+                  <div className="flex justify-between gap-4">
+                    <span className="opacity-70">Cache read</span>
+                    <span>{usageTotals.cache_read_tokens.toLocaleString()}</span>
+                  </div>
+                )}
+                {usageTotals.cache_creation_tokens > 0 && (
+                  <div className="flex justify-between gap-4">
+                    <span className="opacity-70">Cache write</span>
+                    <span>{usageTotals.cache_creation_tokens.toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-background/20 font-semibold">
+                  <span className="opacity-70">Total</span>
+                  <span>{usageTotals.total_tokens.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+          )}
           {messages.length > 0 && (
             <button
               onClick={() => setExportModalOpen(true)}
