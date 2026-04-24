@@ -44,25 +44,53 @@ Format each proposal clearly, like this:
 
 Keep each proposal to 1–2 sentences. Be specific about what to add or change.
 
-### Step 4 — Ask for approval
+### Step 4 — Present proposals via tool
 
-Present the numbered list and ask: **"Which of these would you like me to publish? Reply with the numbers, 'all', or 'none'."**
+Call `present_proposals` with a short framing `prompt` and the `proposals` list you drafted in Step 3. The UI will render a review card with checkboxes — do **not** print a markdown numbered list yourself.
 
-Do NOT call any write-back tools until the user explicitly approves.
+Each proposal must include:
+- `id`: a string like `"1"`, `"2"`, `"3"` matching the Step 3 draft order
+- `kind`: one of `"new_doc"`, `"update_doc"`, `"fix_description"`
+- `title`: short label (e.g. `"Revenue Metrics Guide"`)
+- `detail`: 1–2 sentence description of what to add or change
+- `target` (optional): `{"urn": "...", "field_path": "..."}` for fix_description proposals that target a known entity
 
-### Step 5 — Execute approved changes
+Example call:
+```
+present_proposals(
+    prompt="I found 3 documentation improvements based on our conversation:",
+    proposals=[
+        {"id": "1", "kind": "new_doc", "title": "Revenue Metrics Guide",
+         "detail": "Define net ARR vs gross ARR and specify the revenue table as source of truth."},
+        {"id": "2", "kind": "update_doc", "title": "Orders FAQ",
+         "detail": "Add: deleted_at IS NULL means the order is active; non-null means soft-deleted."},
+        {"id": "3", "kind": "fix_description", "title": "orders.status column",
+         "detail": "Current description is empty. Values: pending, confirmed, shipped, cancelled, refunded.",
+         "target": {"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,orders,PROD)", "field_path": "status"}},
+    ]
+)
+```
 
-For each approved proposal, follow the `save_correction` skill instructions to
-confirm the change with the user before writing:
+Do **not** call any write-back tools until the user explicitly selects proposals and submits.
 
-- **New doc** → Use `save_correction` Mode 3: find the right parent folder first
-  via `search_documents`, then call with `doc_title`, `doc_body`, `parent_doc_urn`
-- **Update existing doc** → Use `save_correction` Mode 2: call with `doc_urn`,
-  `doc_title`, `doc_body` (full updated body)
-- **Fix description** → Use `save_correction` Mode 1: call with `entity_urn`,
-  `corrected_description`, and `field_path` if field-level
+### Step 5 — Execute approved changes directly
 
-After each write, report the URN and location so the user can find it in DataHub.
+> **Note: the user has already approved these changes via the proposals card; do NOT ask for another confirmation.**
+
+The user's submission of the proposals card is the final confirmation. Do **NOT** ask for any further confirmation. Do **NOT** print the doc body for review before writing.
+
+For each approved proposal (and only the approved ones, in order):
+
+1. **Draft the full content now:**
+   - `new_doc` → write the full markdown body using the template from `save_correction` Mode 3 Step 2. Find the parent folder via `search_documents`.
+   - `update_doc` → fetch the existing doc with `search_documents` or `get_entities`, produce the full updated body.
+   - `fix_description` → compose the corrected description text.
+
+2. **Call `save_correction` immediately** with the drafted content. **Skip the in-skill confirmation sub-steps** (Mode 1 Step 3, Mode 2 Step 2, Mode 3 Step 3). Collect the result (success + URN, or error message).
+
+3. Do not write any interim "I'm working on it" text between `save_correction` calls. Proceed silently through all selected proposals.
+
+After all writes complete, call `report_proposal_results` **once** with the full list of outcomes. This is the **final action of the turn**. Do **NOT** output any text after calling `report_proposal_results` — no narrative summary, no restating of what succeeded/failed, no "Here's what happened", no bullet list of results. The card rendered from the tool call IS the complete summary; any additional text is redundant noise that will be stripped.
 
 ### Step 6 — Graceful degradation (write-back not available)
 

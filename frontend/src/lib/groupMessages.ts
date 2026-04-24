@@ -6,24 +6,31 @@ export interface TurnGroup {
   key: string;
   userMsg?: UIMessage;
   workMsgs: UIMessage[];
+  // Interactive cards (proposals + proposal results) — rendered outside the
+  // collapsible work block since users need to see and act on them.
+  interactiveMsgs: UIMessage[];
   finalMsg?: UIMessage;
   isActivelyStreaming: boolean;
 }
 
+const INTERACTIVE_TYPES = new Set(["PROPOSALS", "PROPOSAL_RESULTS"]);
+
 export function groupIntoTurns(messages: UIMessage[], globalStreaming: boolean): TurnGroup[] {
   const groups: TurnGroup[] = [];
-  let current: TurnGroup = { key: "init", workMsgs: [], isActivelyStreaming: false };
+  let current: TurnGroup = { key: "init", workMsgs: [], interactiveMsgs: [], isActivelyStreaming: false };
 
   for (const msg of messages) {
     if (msg.role === "user") {
-      if (current.userMsg || current.workMsgs.length > 0 || current.finalMsg) {
+      if (current.userMsg || current.workMsgs.length > 0 || current.interactiveMsgs.length > 0 || current.finalMsg) {
         groups.push(current);
       }
-      current = { key: msg.id, userMsg: msg, workMsgs: [], isActivelyStreaming: false };
+      current = { key: msg.id, userMsg: msg, workMsgs: [], interactiveMsgs: [], isActivelyStreaming: false };
       continue;
     }
 
-    if (msg.event_type === "TEXT" && !msg.isThinking) {
+    if (INTERACTIVE_TYPES.has(msg.event_type)) {
+      current.interactiveMsgs.push(msg);
+    } else if (msg.event_type === "TEXT" && !msg.isThinking) {
       if (msg.isStreaming) current.isActivelyStreaming = true;
       current.finalMsg = msg;
     } else if (WORK_TYPES.has(msg.event_type) || (msg.event_type === "TEXT" && msg.isThinking)) {
@@ -31,7 +38,7 @@ export function groupIntoTurns(messages: UIMessage[], globalStreaming: boolean):
     }
   }
 
-  if (current.userMsg || current.workMsgs.length > 0 || current.finalMsg) {
+  if (current.userMsg || current.workMsgs.length > 0 || current.interactiveMsgs.length > 0 || current.finalMsg) {
     if (globalStreaming && !current.finalMsg?.isStreaming) {
       current.isActivelyStreaming = globalStreaming;
     }

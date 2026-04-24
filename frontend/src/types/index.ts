@@ -6,6 +6,8 @@ export type SSEEventType =
   | "SQL"
   | "CHART"
   | "MCP_APP"
+  | "PROPOSALS"
+  | "PROPOSAL_RESULTS"
   | "USAGE"
   | "COMPLETE"
   | "ERROR";
@@ -69,6 +71,32 @@ export interface MCPAppPayload {
   resource_uri: string;
   csp: string | null;
   permissions: string[];
+}
+
+export interface ProposalItem {
+  id: string;
+  kind: "new_doc" | "update_doc" | "fix_description";
+  title: string;
+  detail: string;
+  target?: { urn?: string; field_path?: string } | null;
+}
+
+export interface ProposalsPayload {
+  prompt: string;
+  proposals: ProposalItem[];
+}
+
+export interface ProposalResultItem {
+  id: string;
+  kind: "new_doc" | "update_doc" | "fix_description";
+  title: string;
+  status: "success" | "error";
+  urn?: string;
+  error?: string;
+}
+
+export interface ProposalResultsPayload {
+  results: ProposalResultItem[];
 }
 
 export interface Engine {

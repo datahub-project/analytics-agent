@@ -1,4 +1,5 @@
-import type { ConversationDetail, ConversationSummary, Engine } from "@/types";
+import type { ConversationDetail, ConversationSummary, Engine, ProposalItem } from "@/types";
+import { streamMessage } from "@/api/stream";
 
 const BASE = "/api";
 
@@ -58,4 +59,32 @@ export async function getContextQuality(conversationId: string): Promise<Context
   const res = await fetch(`${BASE}/conversations/${conversationId}/quality`);
   if (!res.ok) throw new Error("Failed to fetch context quality");
   return res.json();
+}
+
+/**
+ * Submit a proposal selection back to the agent as a user turn.
+ * Returns the underlying SSE stream so callers can consume events.
+ */
+export function sendProposalSelection(
+  conversationId: string,
+  originMessageId: string,
+  selectedIds: string[],
+  proposals: ProposalItem[]
+) {
+  const selectedItems = proposals.filter((p) => selectedIds.includes(p.id));
+  const agentText =
+    selectedItems.length === 0
+      ? "Skip all proposals — make no changes."
+      : `Publish the following proposals: ${selectedItems.map((p) => `"${p.title}"`).join(", ")}.`;
+  const displayText =
+    selectedItems.length === 0
+      ? "Skipped proposals"
+      : `Selected ${selectedItems.length} proposal${selectedItems.length === 1 ? "" : "s"}`;
+
+  return streamMessage(conversationId, agentText, undefined, {
+    source: "proposal_select",
+    origin_message_id: originMessageId,
+    display_text: displayText,
+    selected_ids: selectedIds,
+  });
 }

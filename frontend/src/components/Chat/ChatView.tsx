@@ -198,26 +198,12 @@ export function ChatView() {
     setExportModalOpen(false);
   }, [activeConv?.title]);
 
-  const handleSend = async (text: string) => {
-    if (!activeId || isStreaming) return;
-
-    // Append user message immediately
-    appendMessage({
-      id: crypto.randomUUID(),
-      event_type: "TEXT",
-      role: "user",
-      payload: { text },
-    });
-
+  const consumeStream = async (stream: AsyncIterator<import("@/types").SSEEvent>, convId: string) => {
     setStreaming(true);
     resetStreamingText(); // new turn — reset so TEXT goes to a fresh message
 
-    const conversationId = activeId;
     let aborted = false;
     try {
-      const controller = new AbortController();
-      streamAbortRef.current = controller;
-      const stream = streamMessage(conversationId, text, controller.signal);
       let result = await stream.next();
       const sendTurnUsage: TurnUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, calls: 0 };
       while (!result.done) {
@@ -225,7 +211,6 @@ export function ChatView() {
         if (event.event === "TEXT") {
           appendStreamingText((event.payload as { text: string }).text);
         } else if (event.event === "TOOL_CALL") {
-          // Text before this tool call was reasoning — mark it as a thinking block
           markCurrentAsThinking();
           appendMessage({
             id: event.message_id,
@@ -279,11 +264,28 @@ export function ChatView() {
       setStreaming(false);
       if (!aborted) {
         // Fire-and-forget title generation after the turn completes
-        generateTitle(conversationId).then((r) => {
-          if (r.updated) updateConversationTitle(conversationId, r.title);
+        generateTitle(convId).then((r) => {
+          if (r.updated) updateConversationTitle(convId, r.title);
         }).catch(() => {});
       }
     }
+  };
+
+  const handleSend = async (text: string) => {
+    if (!activeId || isStreaming) return;
+
+    // Append user message immediately
+    appendMessage({
+      id: crypto.randomUUID(),
+      event_type: "TEXT",
+      role: "user",
+      payload: { text },
+    });
+
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    const stream = streamMessage(activeId, text, controller.signal);
+    await consumeStream(stream, activeId);
   };
 
   const handleWelcomeSend = async (text: string, engineName: string) => {
@@ -353,6 +355,24 @@ export function ChatView() {
         isStreaming={isStreaming}
         conversationId={activeId}
         showReasoning={showReasoning}
+        onProposalStream={async (stream, userPayload) => {
+          if (!activeId || isStreaming) return;
+          // Append the selection chip as a user message immediately so it
+          // appears anchored under the proposals card without waiting for reload.
+          appendMessage({
+            id: crypto.randomUUID(),
+            event_type: "TEXT",
+            role: "user",
+            payload: {
+              text: userPayload.text,
+              display_text: userPayload.display_text,
+              source: "proposal_select",
+              origin_message_id: userPayload.origin_message_id,
+              selected_ids: userPayload.selected_ids,
+            },
+          });
+          await consumeStream(stream, activeId);
+        }}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;
           chartErrorRetried.current = true;

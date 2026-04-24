@@ -52,6 +52,8 @@ def build_graph(
     llm = get_llm(streaming=True)
 
     from analytics_agent.agent.chart_tool import create_chart
+    from analytics_agent.agent.proposals_tool import present_proposals
+    from analytics_agent.agent.results_tool import report_proposal_results
 
     # Context platform tools — built dynamically from DB at request time.
     # Falls back to env-var based build only when caller doesn't provide them.
@@ -81,7 +83,9 @@ def build_graph(
                 raise ValueError(f"Engine '{engine_name}' not found.")
         engine_tools = [t for t in engine.get_tools() if t.name not in disabled]
     chart_tools = [] if "create_chart" in disabled else [create_chart]
-    all_tools = datahub_tools + skill_tools + engine_tools + chart_tools
+    proposal_tools = [] if "present_proposals" in disabled else [present_proposals]
+    results_tools = [] if "report_proposal_results" in disabled else [report_proposal_results]
+    all_tools = datahub_tools + skill_tools + engine_tools + chart_tools + proposal_tools + results_tools
 
     if system_prompt_override:
         from analytics_agent.skills.loader import (

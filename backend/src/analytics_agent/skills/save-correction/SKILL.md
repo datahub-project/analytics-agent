@@ -17,6 +17,10 @@ metadata:
 
 # save_correction
 
+## When called from /improve-context
+
+When this skill is invoked during `/improve-context` execution (after the user has submitted the proposals card), skip the confirmation sub-steps in each Mode (Mode 1 Step 3, Mode 2 Step 2, Mode 3 Step 3). The user has already approved the change via the proposals card; proceed directly to the save call without showing diffs or asking "Shall I apply this?".
+
 ## Overview
 
 This skill writes correct knowledge back to DataHub. It handles three cases:

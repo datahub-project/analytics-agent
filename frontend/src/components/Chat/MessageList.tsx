@@ -1,8 +1,15 @@
 import { Fragment, useEffect, useRef } from "react";
-import type { UIMessage } from "@/types";
+import type {
+  UIMessage,
+  ProposalsPayload,
+  ProposalResultsPayload,
+  SSEEvent,
+} from "@/types";
 import { TextMessage } from "./messages/TextMessage";
 import { AgentWorkBlock } from "./messages/AgentWorkBlock";
 import { SelectionChip, type SelectionChipPayload } from "./messages/SelectionChip";
+import { ProposalsMessage } from "./messages/ProposalsMessage";
+import { ProposalResultsMessage } from "./messages/ProposalResultsMessage";
 import { groupIntoTurns } from "@/lib/groupMessages";
 
 interface Props {
@@ -11,9 +18,25 @@ interface Props {
   conversationId?: string;
   showReasoning?: boolean;
   onChartError?: (error: string) => void;
+  onProposalStream?: (
+    stream: AsyncIterator<SSEEvent>,
+    userPayload: {
+      text: string;
+      display_text: string;
+      origin_message_id: string;
+      selected_ids: string[];
+    }
+  ) => void;
 }
 
-export function MessageList({ messages, isStreaming = false, conversationId, showReasoning = true, onChartError }: Props) {
+export function MessageList({
+  messages,
+  isStreaming = false,
+  conversationId,
+  showReasoning = true,
+  onChartError,
+  onProposalStream,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -33,11 +56,12 @@ export function MessageList({ messages, isStreaming = false, conversationId, sho
   return (
     <div id="chat-messages" className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
       {groups.map((group) => {
-        // MCP App iframe-originated user turns render as a compact selection
+        // MCP App / proposal-select user turns render as a compact selection
         // chip (flavor C) — not a full user bubble.
+        const userSource = (group.userMsg?.payload as Record<string, unknown> | undefined)?.source;
         const isMcpAppSelection =
           group.userMsg?.event_type === "TEXT" &&
-          (group.userMsg.payload as Record<string, unknown>).source === "mcp_app";
+          (userSource === "mcp_app" || userSource === "proposal_select");
         return (
           <Fragment key={group.key}>
             {/* User message */}
@@ -67,6 +91,41 @@ export function MessageList({ messages, isStreaming = false, conversationId, sho
                 onChartError={onChartError}
               />
             )}
+
+            {/* Interactive cards (proposals / results) — sibling to work block */}
+            {group.interactiveMsgs.map((msg) => {
+              if (msg.event_type === "PROPOSALS" && conversationId) {
+                const submitted = messages.some(
+                  (m) =>
+                    m.role === "user" &&
+                    (m.payload as Record<string, unknown>).source === "proposal_select" &&
+                    (m.payload as Record<string, unknown>).origin_message_id === msg.id
+                );
+                return (
+                  <div key={msg.id} className="flex flex-col items-start">
+                    <ProposalsMessage
+                      messageId={msg.id}
+                      conversationId={conversationId}
+                      payload={msg.payload as unknown as ProposalsPayload}
+                      submitted={submitted}
+                      onStream={(stream, userPayload) =>
+                        onProposalStream?.(stream, userPayload)
+                      }
+                    />
+                  </div>
+                );
+              }
+              if (msg.event_type === "PROPOSAL_RESULTS") {
+                return (
+                  <div key={msg.id} className="flex flex-col items-start">
+                    <ProposalResultsMessage
+                      payload={msg.payload as unknown as ProposalResultsPayload}
+                    />
+                  </div>
+                );
+              }
+              return null;
+            })}
 
             {/* Final visible response */}
             {group.finalMsg && (group.finalMsg.payload as { text?: string }).text?.trim() && (

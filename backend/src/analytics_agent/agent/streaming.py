@@ -67,6 +67,10 @@ async def stream_graph_events(
     final_text_parts: list[str] = []
     final_state: dict[str, Any] = {}
     chart_emitted = False  # guard against double-emitting CHART
+    # Once report_proposal_results emits, the PROPOSAL_RESULTS card IS the summary
+    # for the remainder of the turn — suppress any trailing model text so the user
+    # doesn't see the card AND a redundant narrative explanation underneath.
+    suppress_trailing_text = False
 
     # Track active tool runs by run_id -> tool_name so we can detect when a
     # wrapped tool (e.g. MCP UI wrapper) invokes an inner tool of the same name.
@@ -91,6 +95,8 @@ async def stream_graph_events(
 
             # ── TEXT ──
             if event_type == "on_chat_model_stream" and node not in ("chart", ""):
+                if suppress_trailing_text:
+                    continue
                 chunk = data.get("chunk")
                 if chunk is None:
                     continue
@@ -133,8 +139,8 @@ async def stream_graph_events(
                 active_tool_runs[run_id] = name
                 if name == "execute_sql":
                     pending_sql[run_id] = tool_input.get("sql", "")
-                # create_chart renders as a CHART event — don't show a tool call bubble
-                if name == "create_chart":
+                # create_chart / present_proposals / report_proposal_results render as dedicated events — no tool call bubble
+                if name in ("create_chart", "present_proposals", "report_proposal_results"):
                     continue
                 yield {
                     "event": "TOOL_CALL",
@@ -241,6 +247,31 @@ async def stream_graph_events(
                                 "allowed_tools": pending_app.allowed_tools,
                             },
                         }
+                elif output_str.startswith("PROPOSALS_READY:"):
+                    prop_id = output_str.split(":", 1)[1].split()[0].strip()
+                    from analytics_agent.agent.proposals_tool import _pending_proposals
+
+                    pending = _pending_proposals.pop(prop_id, None)
+                    if pending:
+                        yield {
+                            "event": "PROPOSALS",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": pending,
+                        }
+                elif output_str.startswith("RESULTS_READY:"):
+                    result_id = output_str.split(":", 1)[1].split()[0].strip()
+                    from analytics_agent.agent.results_tool import _pending_results
+
+                    pending_result = _pending_results.pop(result_id, None)
+                    if pending_result:
+                        yield {
+                            "event": "PROPOSAL_RESULTS",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": pending_result,
+                        }
+                        suppress_trailing_text = True
                 elif name == "create_chart":
                     # Fetch chart spec from side-channel (tool returns only a short marker)
                     if output_str.startswith("CHART_READY:"):

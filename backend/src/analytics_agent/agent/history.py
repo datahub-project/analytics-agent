@@ -74,14 +74,23 @@ def build_history(
                         "input": payload.get("tool_input", {}),
                     }
                 )
-            elif evt in ("TOOL_RESULT", "SQL"):
+            elif evt in ("TOOL_RESULT", "SQL", "PROPOSALS", "PROPOSAL_RESULTS"):
                 idx = len(tool_results)
                 call_id = tool_calls[idx]["id"] if idx < len(tool_calls) else msg.id
+                if evt == "PROPOSALS":
+                    result_text = orjson.dumps(payload).decode()[:4000]
+                    tool_name = "present_proposals"
+                elif evt == "PROPOSAL_RESULTS":
+                    result_text = orjson.dumps(payload).decode()[:4000]
+                    tool_name = "report_proposal_results"
+                else:
+                    result_text = payload.get("result", payload.get("sql", ""))[:4000]
+                    tool_name = payload.get("tool_name", "")
                 tool_results.append(
                     {
                         "id": call_id,
-                        "name": payload.get("tool_name", ""),
-                        "result": payload.get("result", payload.get("sql", ""))[:4000],
+                        "name": tool_name,
+                        "result": result_text,
                     }
                 )
             elif evt == "TEXT":

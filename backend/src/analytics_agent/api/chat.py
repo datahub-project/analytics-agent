@@ -84,6 +84,9 @@ class ChatMessageRequest(BaseModel):
     # richer agent-facing message (e.g. includes URN + instruction to prevent
     # redundant disambiguation tool calls).
     display_text: str | None = None
+    # Audit field for proposal_select turns: the raw proposal IDs the user checked
+    # before submitting. Stored in the user message payload for traceability.
+    selected_ids: list[str] | None = None
 
 
 async def _persist_message(
