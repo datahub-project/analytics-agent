@@ -37,11 +37,25 @@ def _make_google(model: str, streaming: bool) -> BaseChatModel:
     return ChatGoogleGenerativeAI(**kwargs)
 
 
+def _make_bedrock(model: str, streaming: bool) -> BaseChatModel:
+    from langchain_aws import ChatBedrockConverse
+
+    kwargs: dict = {"model": model, "region_name": settings.aws_region}
+    # Explicit creds override the default AWS credential chain when provided.
+    if settings.aws_access_key_id and settings.aws_secret_access_key:
+        kwargs["aws_access_key_id"] = SecretStr(settings.aws_access_key_id)
+        kwargs["aws_secret_access_key"] = SecretStr(settings.aws_secret_access_key)
+        if settings.aws_session_token:
+            kwargs["aws_session_token"] = SecretStr(settings.aws_session_token)
+    return ChatBedrockConverse(**kwargs)
+
+
 # Registry — adding a provider means adding one entry here.
 _FACTORIES: dict[str, Callable[[str, bool], BaseChatModel]] = {
     "anthropic": _make_anthropic,
     "openai": _make_openai,
     "google": _make_google,
+    "bedrock": _make_bedrock,
 }
 
 

@@ -242,6 +242,17 @@ export interface LlmSettings {
   provider: string;
   model: string;
   has_key: boolean;
+  has_aws_keys?: boolean;
+  aws_region?: string;
+}
+
+/** Bedrock-only credential fields. All optional — leave blank to use the
+ *  default AWS credential chain (env vars, ~/.aws, IAM role). */
+export interface BedrockCredentials {
+  aws_region?: string;
+  aws_access_key_id?: string;
+  aws_secret_access_key?: string;
+  aws_session_token?: string;
 }
 
 export async function getLlmSettings(): Promise<LlmSettings> {
@@ -254,11 +265,19 @@ export async function testLlmKey(s: {
   provider: string;
   api_key: string;
   model?: string;
-}): Promise<{ ok: boolean; message: string }> {
+} & BedrockCredentials): Promise<{ ok: boolean; message: string }> {
   const res = await fetch("/api/settings/llm/test", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: s.provider, api_key: s.api_key, model: s.model ?? "" }),
+    body: JSON.stringify({
+      provider: s.provider,
+      api_key: s.api_key,
+      model: s.model ?? "",
+      aws_region: s.aws_region ?? "",
+      aws_access_key_id: s.aws_access_key_id ?? "",
+      aws_secret_access_key: s.aws_secret_access_key ?? "",
+      aws_session_token: s.aws_session_token ?? "",
+    }),
   });
   if (!res.ok) throw new Error("Test request failed");
   return res.json();
@@ -268,11 +287,19 @@ export async function saveLlmSettings(s: {
   provider: string;
   api_key: string;
   model?: string;
-}): Promise<void> {
+} & BedrockCredentials): Promise<void> {
   const res = await fetch("/api/settings/llm", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ provider: s.provider, api_key: s.api_key, model: s.model ?? "" }),
+    body: JSON.stringify({
+      provider: s.provider,
+      api_key: s.api_key,
+      model: s.model ?? "",
+      aws_region: s.aws_region ?? "",
+      aws_access_key_id: s.aws_access_key_id ?? "",
+      aws_secret_access_key: s.aws_secret_access_key ?? "",
+      aws_session_token: s.aws_session_token ?? "",
+    }),
   });
   if (!res.ok) throw new Error("Failed to save LLM settings");
 }

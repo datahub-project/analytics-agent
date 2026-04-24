@@ -2,7 +2,11 @@ import { useState, useEffect } from "react";
 import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { getLlmSettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 
-type Provider = "anthropic" | "openai" | "google";
+type Provider = "anthropic" | "openai" | "google" | "bedrock";
+
+// Sentinel value for the "Custom…" radio option on providers (Bedrock) where
+// users commonly need to pin a specific model ID / inference profile.
+const CUSTOM_MODEL_VALUE = "__custom__";
 
 const MODELS: Record<Provider, { value: string; label: string; note: string }[]> = {
   anthropic: [
@@ -20,7 +24,18 @@ const MODELS: Record<Provider, { value: string; label: string; note: string }[]>
     { value: "gemini-1.5-pro",   label: "Gemini 1.5 Pro",   note: "Most capable" },
     { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash", note: "Fastest"      },
   ],
+  bedrock: [
+    { value: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", label: "Claude Sonnet 4.5 (Bedrock)", note: "Recommended" },
+    { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0",  label: "Claude Haiku 4.5 (Bedrock)",  note: "Fastest"     },
+    { value: CUSTOM_MODEL_VALUE,                              label: "Custom model ID",            note: "Enter your own" },
+  ],
 };
+
+// Pick a sensible default model when switching providers. For Bedrock we pick
+// the first entry (Sonnet); others use index 1 which is the "Recommended" row.
+function defaultModelFor(p: Provider): string {
+  return p === "bedrock" ? MODELS[p][0].value : MODELS[p][1].value;
+}
 
 type KeyStatus =
   | { state: "idle" }
@@ -32,18 +47,32 @@ type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 export function ModelSection() {
   const [provider, setProvider] = useState<Provider>("anthropic");
-  const [model, setModel] = useState(MODELS.anthropic[1].value);
+  const [model, setModel] = useState(defaultModelFor("anthropic"));
+  const [customModel, setCustomModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  // Bedrock-only credential fields.
+  const [awsRegion, setAwsRegion] = useState("us-west-2");
+  const [awsAccessKey, setAwsAccessKey] = useState("");
+  const [awsSecret, setAwsSecret] = useState("");
+  const [awsSessionToken, setAwsSessionToken] = useState("");
+  const [showSessionToken, setShowSessionToken] = useState(false);
   // Track which provider the saved key belongs to so switching away and back
   // correctly shows/hides the "Key saved" placeholder.
   const [savedProvider, setSavedProvider] = useState<Provider | null>(null);
+  const [hasSavedAwsKeys, setHasSavedAwsKeys] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showAwsSecret, setShowAwsSecret] = useState(false);
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ state: "idle" });
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const isCustomModel = model === CUSTOM_MODEL_VALUE;
+  const effectiveModel = isCustomModel ? customModel.trim() : model;
   const hasExistingKey = savedProvider === provider && !apiKey;
+  // Bedrock has a separate "configured" concept — either stored keys OR the
+  // user opted into the system credential chain by saving with blank fields.
+  const hasExistingAwsKeys = provider === "bedrock" && hasSavedAwsKeys && !awsAccessKey && !awsSecret;
 
   useEffect(() => {
     getLlmSettings()
@@ -52,46 +81,84 @@ export function ModelSection() {
         const knownProvider = p in MODELS ? p : "anthropic";
         setProvider(knownProvider);
         const knownModels = MODELS[knownProvider].map((m) => m.value);
-        setModel(knownModels.includes(s.model) ? s.model : MODELS[knownProvider][1].value);
+        if (s.model && knownModels.includes(s.model)) {
+          setModel(s.model);
+        } else if (s.model) {
+          // Saved model isn't in the curated list — treat as custom.
+          setModel(CUSTOM_MODEL_VALUE);
+          setCustomModel(s.model);
+        } else {
+          setModel(defaultModelFor(knownProvider));
+        }
         if (s.has_key) setSavedProvider(knownProvider);
+        if (s.aws_region) setAwsRegion(s.aws_region);
+        if (s.has_aws_keys) setHasSavedAwsKeys(true);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  // Reset key status whenever provider or key changes
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider]);
-  // Reset save status on any change
-  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, apiKey]);
+  // Reset key status whenever any credential field changes.
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken]);
+  // Reset save status on any change.
+  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, awsAccessKey, awsSecret, awsRegion, awsSessionToken]);
 
   const handleProvider = (p: Provider) => {
     setProvider(p);
-    setModel(MODELS[p][1].value);
+    setModel(defaultModelFor(p));
+    setCustomModel("");
     setApiKey("");
-    // Don't clear savedProvider — switching back should restore the indicator
+    setAwsAccessKey("");
+    setAwsSecret("");
+    setAwsSessionToken("");
+    // Don't clear savedProvider / hasSavedAwsKeys — switching back should restore the indicator.
   };
 
+  const buildTestPayload = () => ({
+    provider,
+    api_key: apiKey.trim(),
+    model: effectiveModel,
+    aws_region: awsRegion.trim(),
+    aws_access_key_id: awsAccessKey.trim(),
+    aws_secret_access_key: awsSecret.trim(),
+    aws_session_token: awsSessionToken.trim(),
+  });
+
   const runKeyTest = async (): Promise<boolean> => {
-    if (!apiKey.trim()) return hasExistingKey; // no new key — existing one is fine
+    // For non-Bedrock: nothing new to test if field is empty; existing key is fine.
+    if (provider !== "bedrock" && !apiKey.trim()) return hasExistingKey;
+    // For Bedrock: always testable — it'll use either the typed creds, the
+    // stored creds, or the default AWS chain.
     setKeyStatus({ state: "testing" });
     try {
-      const result = await testLlmKey({ provider, api_key: apiKey.trim(), model });
+      const result = await testLlmKey(buildTestPayload());
       setKeyStatus(result.ok
         ? { state: "ok", msg: result.message }
         : { state: "fail", msg: result.message }
       );
       return result.ok;
     } catch {
-      setKeyStatus({ state: "fail", msg: "Can't reach the server to verify key" });
+      setKeyStatus({ state: "fail", msg: "Can't reach the server to verify" });
       return false;
     }
   };
 
   const handleSave = async () => {
     setError(null);
+    if (isCustomModel && !customModel.trim()) {
+      setError("Enter a model ID or pick one from the list.");
+      setSaveStatus("error");
+      return;
+    }
     setSaveStatus("saving");
     try {
-      // Verify new key if one was entered
-      if (apiKey.trim()) {
+      if (provider === "bedrock") {
+        // Bedrock: no mandatory field — any save implies "use the default AWS
+        // chain if keys are blank". Still run a test if the user hasn't yet.
+        if (keyStatus.state !== "ok") {
+          const ok = await runKeyTest();
+          if (!ok) { setSaveStatus("error"); return; }
+        }
+      } else if (apiKey.trim()) {
         if (keyStatus.state !== "ok") {
           const ok = await runKeyTest();
           if (!ok) { setSaveStatus("error"); return; }
@@ -101,12 +168,28 @@ export function ModelSection() {
         setSaveStatus("error");
         return;
       }
-      await saveLlmSettings({ provider, api_key: apiKey.trim(), model });
+
+      await saveLlmSettings({
+        provider,
+        api_key: apiKey.trim(),
+        model: effectiveModel,
+        aws_region: awsRegion.trim(),
+        aws_access_key_id: awsAccessKey.trim(),
+        aws_secret_access_key: awsSecret.trim(),
+        aws_session_token: awsSessionToken.trim(),
+      });
+
       if (apiKey.trim()) {
         setSavedProvider(provider);
         setApiKey("");
-        setKeyStatus({ state: "idle" });
       }
+      if (awsAccessKey.trim() && awsSecret.trim()) {
+        setHasSavedAwsKeys(true);
+        setAwsAccessKey("");
+        setAwsSecret("");
+        setAwsSessionToken("");
+      }
+      setKeyStatus({ state: "idle" });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2500);
     } catch (e) {
@@ -129,13 +212,16 @@ export function ModelSection() {
     : provider === "google" ? "AIza…"
     : "sk-proj-…";
 
+  const providerLabel = (p: Provider) =>
+    p === "anthropic" ? "Anthropic" : p === "openai" ? "OpenAI" : p === "google" ? "Google" : "AWS Bedrock";
+
   return (
     <div className="max-w-lg space-y-8">
       {/* Provider */}
       <div className="space-y-3">
         <label className="text-sm font-medium text-foreground">Provider</label>
-        <div className="flex rounded-xl border border-border p-1 gap-1 w-fit">
-          {(["anthropic", "openai", "google"] as Provider[]).map((p) => (
+        <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 w-fit">
+          {(["anthropic", "openai", "google", "bedrock"] as Provider[]).map((p) => (
             <button
               key={p}
               type="button"
@@ -146,7 +232,7 @@ export function ModelSection() {
                   : "text-muted-foreground hover:text-foreground"
                 }`}
             >
-              {p === "anthropic" ? "Anthropic" : p === "openai" ? "OpenAI" : "Google"}
+              {providerLabel(p)}
             </button>
           ))}
         </div>
@@ -188,39 +274,149 @@ export function ModelSection() {
             );
           })}
         </div>
+        {isCustomModel && (
+          <input
+            type="text"
+            value={customModel}
+            onChange={(e) => setCustomModel(e.target.value)}
+            placeholder={provider === "bedrock"
+              ? "us.anthropic.claude-opus-4-5-20251001-v1:0"
+              : "model-id"}
+            className="w-full mt-2 bg-background border border-border rounded-xl px-4 py-3
+                       text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                       focus:border-primary/50 placeholder:text-muted-foreground/30"
+          />
+        )}
       </div>
 
-      {/* API key */}
+      {/* Credentials — either a single API key field OR Bedrock's AWS fields. */}
+      {provider === "bedrock" ? (
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-foreground">AWS credentials</label>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Leave access key / secret blank to use the system AWS credential chain
+              (env vars, <span className="font-mono">~/.aws/credentials</span>, IAM role).
+            </p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">AWS region</label>
+            <input
+              type="text"
+              value={awsRegion}
+              onChange={(e) => setAwsRegion(e.target.value)}
+              placeholder="us-west-2"
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-2.5
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Access key ID</label>
+            <input
+              type="text"
+              value={awsAccessKey}
+              onChange={(e) => setAwsAccessKey(e.target.value)}
+              placeholder={hasExistingAwsKeys ? "Stored — enter a new one to change" : "AKIA… (optional)"}
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-2.5
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Secret access key</label>
+            <div className="relative">
+              <input
+                type={showAwsSecret ? "text" : "password"}
+                value={awsSecret}
+                onChange={(e) => setAwsSecret(e.target.value)}
+                placeholder={hasExistingAwsKeys ? "Stored — enter a new one to change" : "optional"}
+                className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-2.5
+                           text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                           focus:border-primary/50 placeholder:text-muted-foreground/30 pr-11"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAwsSecret((v) => !v)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground"
+              >
+                {showAwsSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <details className="text-xs" open={showSessionToken || !!awsSessionToken}>
+            <summary
+              className="cursor-pointer text-muted-foreground/60 hover:text-muted-foreground select-none"
+              onClick={() => setShowSessionToken((v) => !v)}
+            >
+              Session token (for temporary STS credentials)
+            </summary>
+            <input
+              type="password"
+              value={awsSessionToken}
+              onChange={(e) => setAwsSessionToken(e.target.value)}
+              placeholder="optional"
+              className="w-full mt-2 bg-background border border-border rounded-xl px-4 py-2.5
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+          </details>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">API key</label>
+          <div className="relative">
+            <input
+              type={showKey ? "text" : "password"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onBlur={() => { if (apiKey.trim()) runKeyTest(); }}
+              placeholder={keyPlaceholder}
+              className={`w-full bg-background border rounded-xl px-4 py-3 text-sm font-mono
+                focus:outline-none focus:ring-2 focus:ring-primary/25
+                placeholder:text-muted-foreground/30 transition-all pr-11
+                ${keyStatus.state === "ok"   ? "border-emerald-500/50 focus:border-emerald-500/60"
+                : keyStatus.state === "fail" ? "border-red-400/50 focus:border-red-400/60"
+                : "border-border focus:border-primary/50"}`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40
+                         hover:text-muted-foreground transition-colors"
+            >
+              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          {keyStatus.state === "idle" && !hasExistingKey && (
+            <p className="text-xs text-muted-foreground/50">
+              {provider === "anthropic"
+                ? "console.anthropic.com/settings/api-keys"
+                : provider === "google"
+                ? "aistudio.google.com/app/apikey"
+                : "platform.openai.com/api-keys"}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Shared verification status + Verify button (Bedrock gets an explicit
+          button since there's no single field to blur off of). */}
       <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">API key</label>
-        <div className="relative">
-          <input
-            type={showKey ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            onBlur={() => { if (apiKey.trim()) runKeyTest(); }}
-            placeholder={keyPlaceholder}
-            className={`w-full bg-background border rounded-xl px-4 py-3 text-sm font-mono
-              focus:outline-none focus:ring-2 focus:ring-primary/25
-              placeholder:text-muted-foreground/30 transition-all pr-11
-              ${keyStatus.state === "ok"   ? "border-emerald-500/50 focus:border-emerald-500/60"
-              : keyStatus.state === "fail" ? "border-red-400/50 focus:border-red-400/60"
-              : "border-border focus:border-primary/50"}`}
-          />
+        {provider === "bedrock" && (
           <button
             type="button"
-            onClick={() => setShowKey((v) => !v)}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40
-                       hover:text-muted-foreground transition-colors"
+            onClick={runKeyTest}
+            disabled={keyStatus.state === "testing"}
+            className="text-sm px-4 py-2 rounded-lg border border-border
+                       hover:bg-muted/50 transition-colors disabled:opacity-40"
           >
-            {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {keyStatus.state === "testing" ? "Verifying…" : "Verify credentials"}
           </button>
-        </div>
-
-        {/* Key status line */}
+        )}
         {keyStatus.state === "testing" && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" /> Verifying key…
+            <Loader2 className="w-3 h-3 animate-spin" /> Verifying…
           </p>
         )}
         {keyStatus.state === "ok" && (
@@ -233,25 +429,14 @@ export function ModelSection() {
             <X className="w-3 h-3" strokeWidth={3} /> {keyStatus.msg}
           </p>
         )}
-        {keyStatus.state === "idle" && !hasExistingKey && (
-          <p className="text-xs text-muted-foreground/50">
-            {provider === "anthropic"
-              ? "console.anthropic.com/settings/api-keys"
-              : provider === "google"
-              ? "aistudio.google.com/app/apikey"
-              : "platform.openai.com/api-keys"}
-          </p>
-        )}
       </div>
 
-      {/* Error */}
       {error && (
         <p className="text-sm text-red-500 bg-red-500/8 border border-red-500/20 rounded-xl px-4 py-3">
           {error}
         </p>
       )}
 
-      {/* Save button */}
       <button
         type="button"
         onClick={handleSave}

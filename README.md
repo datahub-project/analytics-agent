@@ -180,6 +180,16 @@ LLM_MODEL=claude-opus-4-7          # upgrade just the agent
 QUALITY_LLM_MODEL=claude-sonnet-4-6 # or use a stronger model for quality scoring
 ```
 
+### AWS Bedrock
+
+Anthropic models can also be run via AWS Bedrock. Set `LLM_PROVIDER=bedrock` and use the Bedrock inference-profile model IDs (e.g. `us.anthropic.claude-sonnet-4-5-20250929-v1:0`). Auth falls back to the standard AWS credential chain (env vars, `~/.aws/credentials`, IAM role); to override, set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (and optionally `AWS_SESSION_TOKEN` for STS). `AWS_REGION` defaults to `us-west-2`.
+
+```bash
+LLM_PROVIDER=bedrock
+AWS_REGION=us-west-2
+LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
 ---
 
 ## Database

@@ -1698,12 +1698,21 @@ class LlmSettingsResponse(BaseModel):
     provider: str = "anthropic"
     model: str = ""
     has_key: bool = False
+    # Bedrock only — signals that explicit AWS keys are stored. Callers use this
+    # to decide whether to show a masked-placeholder in the settings UI.
+    has_aws_keys: bool = False
+    aws_region: str = ""
 
 
 class UpdateLlmSettingsRequest(BaseModel):
     provider: str = "anthropic"
     api_key: str = ""
     model: str = ""
+    # Bedrock-only fields. Leave blank to use the default AWS credential chain.
+    aws_region: str = ""
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1718,14 +1727,32 @@ async def get_llm_settings() -> LlmSettingsResponse:
 
     provider = cfg.llm_provider
     key_attr = PROVIDER_KEY_ATTR.get(provider, "")
-    has_key = bool(getattr(cfg, key_attr, "")) if key_attr else False
-    return LlmSettingsResponse(provider=provider, model=cfg.get_llm_model(), has_key=has_key)
+    has_aws_keys = bool(cfg.aws_access_key_id and cfg.aws_secret_access_key)
+    if provider == "bedrock":
+        # Bedrock has no single "API key". It's considered configured if the
+        # provider is explicitly selected — auth falls back to the AWS credential
+        # chain (env vars, ~/.aws/credentials, IAM role) at call time.
+        has_key = True
+    else:
+        has_key = bool(getattr(cfg, key_attr, "")) if key_attr else False
+    return LlmSettingsResponse(
+        provider=provider,
+        model=cfg.get_llm_model(),
+        has_key=has_key,
+        has_aws_keys=has_aws_keys,
+        aws_region=cfg.aws_region,
+    )
 
 
 class TestLlmKeyRequest(BaseModel):
     provider: str = "anthropic"
-    api_key: str
+    api_key: str = ""
     model: str = ""
+    # Bedrock-only — leave blank to use the default AWS credential chain.
+    aws_region: str = ""
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""
 
 
 class TestLlmKeyResponse(BaseModel):
@@ -1762,6 +1789,28 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
             llm = ChatGoogleGenerativeAI(  # type: ignore[assignment]
                 model=model, google_api_key=SecretStr(body.api_key), max_output_tokens=1
             )
+        elif body.provider == "bedrock":
+            from langchain_aws import ChatBedrockConverse
+
+            # Fall back to whatever is already in settings/env when the request
+            # omits a field — lets the user verify "existing" creds without
+            # retyping them.
+            from analytics_agent.config import settings as _cfg
+
+            bk_kwargs: dict = {
+                "model": model,
+                "region_name": body.aws_region or _cfg.aws_region or "us-west-2",
+                "max_tokens": 1,
+            }
+            akid = body.aws_access_key_id or _cfg.aws_access_key_id
+            asak = body.aws_secret_access_key or _cfg.aws_secret_access_key
+            tok = body.aws_session_token or _cfg.aws_session_token
+            if akid and asak:
+                bk_kwargs["aws_access_key_id"] = SecretStr(akid)
+                bk_kwargs["aws_secret_access_key"] = SecretStr(asak)
+                if tok:
+                    bk_kwargs["aws_session_token"] = SecretStr(tok)
+            llm = ChatBedrockConverse(**bk_kwargs)
         else:
             from langchain_openai import ChatOpenAI
 
@@ -1824,6 +1873,15 @@ async def update_llm_settings(
         new_cfg["model"] = body.model
     if body.api_key:
         new_cfg["api_key"] = _fernet_encrypt(body.api_key)
+    # Bedrock AWS fields. Region stored plaintext (non-secret); keys encrypted.
+    if body.aws_region:
+        new_cfg["aws_region"] = body.aws_region
+    if body.aws_access_key_id:
+        new_cfg["aws_access_key_id"] = _fernet_encrypt(body.aws_access_key_id)
+    if body.aws_secret_access_key:
+        new_cfg["aws_secret_access_key"] = _fernet_encrypt(body.aws_secret_access_key)
+    if body.aws_session_token:
+        new_cfg["aws_session_token"] = _fernet_encrypt(body.aws_session_token)
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -1843,6 +1901,19 @@ async def update_llm_settings(
             os.environ[env_var] = body.api_key
         if attr:
             setattr(cfg, attr, body.api_key)
+    # Bedrock fields flow into both env and singleton so langchain-aws picks them up.
+    if body.aws_region:
+        os.environ["AWS_REGION"] = body.aws_region
+        cfg.aws_region = body.aws_region
+    if body.aws_access_key_id:
+        os.environ["AWS_ACCESS_KEY_ID"] = body.aws_access_key_id
+        cfg.aws_access_key_id = body.aws_access_key_id
+    if body.aws_secret_access_key:
+        os.environ["AWS_SECRET_ACCESS_KEY"] = body.aws_secret_access_key
+        cfg.aws_secret_access_key = body.aws_secret_access_key
+    if body.aws_session_token:
+        os.environ["AWS_SESSION_TOKEN"] = body.aws_session_token
+        cfg.aws_session_token = body.aws_session_token
 
     return {"success": True, "message": "LLM settings saved."}
 
