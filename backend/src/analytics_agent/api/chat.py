@@ -27,12 +27,14 @@ router = APIRouter(prefix="/api/conversations", tags=["chat"])
 
 # ── Per-conversation live stream registry ─────────────────────────────────────
 
+
 @dataclass
 class ConvStream:
     task: asyncio.Task | None
     replay: list[dict] = field(default_factory=list)
     subs: list[asyncio.Queue] = field(default_factory=list)
     done: bool = False
+
 
 _active_streams: dict[str, ConvStream] = {}
 
@@ -58,6 +60,7 @@ def _maybe_schedule_quality(conv_id: str, factory) -> None:
 async def _compute_quality_background(conv_id: str, factory) -> None:
     try:
         from analytics_agent.agent.analysis import compute_context_quality
+
         async with factory() as session:
             messages = await MessageRepo(session).list_for_conversation(conv_id)
             quality = await compute_context_quality(messages)
@@ -119,17 +122,27 @@ async def _run_and_broadcast(
             msg_repo = MessageRepo(session)
             sequence = await msg_repo.next_sequence(conversation_id)
 
-            await _persist_message(session, conversation_id, "TEXT", "user", {"text": user_text}, sequence)
+            await _persist_message(
+                session, conversation_id, "TEXT", "user", {"text": user_text}, sequence
+            )
             await session.commit()
             sequence += 1
 
             # ── MOCK_LLM ──────────────────────────────────────────────────────
             if os.environ.get("MOCK_LLM") == "1":
                 from analytics_agent.agent.mock_llm import mock_stream_events
+
                 async for evt in mock_stream_events(conversation_id, user_text):
                     if evt.get("event") not in (None, "KEEPALIVE"):
                         with contextlib.suppress(Exception):
-                            await _persist_message(session, conversation_id, evt["event"], "assistant", evt.get("payload", {}), sequence)
+                            await _persist_message(
+                                session,
+                                conversation_id,
+                                evt["event"],
+                                "assistant",
+                                evt.get("payload", {}),
+                                sequence,
+                            )
                             await session.commit()
                             sequence += 1
                     _broadcast(evt)
@@ -137,6 +150,7 @@ async def _run_and_broadcast(
 
             # ── No engine ─────────────────────────────────────────────────────
             from analytics_agent.engines.factory import list_engines as _list_engines
+
             if not engine_name or engine_name not in {e["name"] for e in _list_engines()}:
                 _msg = (
                     "I'm ready to help, but I don't have a data source connected yet. "
@@ -148,11 +162,28 @@ async def _run_and_broadcast(
                 )
                 _run_id = str(uuid.uuid4())
                 for _evt in [
-                    {"event": "TEXT", "conversation_id": conversation_id, "message_id": _run_id, "payload": {"text": _msg}},
-                    {"event": "COMPLETE", "conversation_id": conversation_id, "message_id": str(uuid.uuid4()), "payload": {"text": _msg}},
+                    {
+                        "event": "TEXT",
+                        "conversation_id": conversation_id,
+                        "message_id": _run_id,
+                        "payload": {"text": _msg},
+                    },
+                    {
+                        "event": "COMPLETE",
+                        "conversation_id": conversation_id,
+                        "message_id": str(uuid.uuid4()),
+                        "payload": {"text": _msg},
+                    },
                 ]:
                     with contextlib.suppress(Exception):
-                        await _persist_message(session, conversation_id, _evt["event"], "assistant", _evt["payload"], sequence)
+                        await _persist_message(
+                            session,
+                            conversation_id,
+                            _evt["event"],
+                            "assistant",
+                            _evt["payload"],
+                            sequence,
+                        )
                         await session.commit()
                         sequence += 1
                     _broadcast(_evt)
@@ -204,13 +235,21 @@ async def _run_and_broadcast(
                 context_tools: list = []
                 include_mutations = bool(enabled_mutations)
                 for row in all_cp_rows:
-                    platform = build_platform(row, disabled_connections=disabled_connections, include_mutations=include_mutations)
+                    platform = build_platform(
+                        row,
+                        disabled_connections=disabled_connections,
+                        include_mutations=include_mutations,
+                    )
                     if platform is None:
                         continue
                     tools = await platform.get_tools()
                     context_tools.extend(tools)
 
-                logger.info("Total context_tools=%d for conversation %s", len(context_tools), conversation_id)
+                logger.info(
+                    "Total context_tools=%d for conversation %s",
+                    len(context_tools),
+                    conversation_id,
+                )
                 engine = await resolve_engine(engine_name, session)
                 engine_tools = None
                 if isinstance(engine, MCPQueryEngine):
@@ -228,11 +267,28 @@ async def _run_and_broadcast(
                 )
             except Exception as exc:
                 for _evt in [
-                    {"event": "ERROR", "conversation_id": conversation_id, "message_id": str(uuid.uuid4()), "payload": {"error": str(exc)}},
-                    {"event": "COMPLETE", "conversation_id": conversation_id, "message_id": str(uuid.uuid4()), "payload": {"text": ""}},
+                    {
+                        "event": "ERROR",
+                        "conversation_id": conversation_id,
+                        "message_id": str(uuid.uuid4()),
+                        "payload": {"error": str(exc)},
+                    },
+                    {
+                        "event": "COMPLETE",
+                        "conversation_id": conversation_id,
+                        "message_id": str(uuid.uuid4()),
+                        "payload": {"text": ""},
+                    },
                 ]:
                     with contextlib.suppress(Exception):
-                        await _persist_message(session, conversation_id, _evt["event"], "assistant", _evt["payload"], sequence)
+                        await _persist_message(
+                            session,
+                            conversation_id,
+                            _evt["event"],
+                            "assistant",
+                            _evt["payload"],
+                            sequence,
+                        )
                         await session.commit()
                         sequence += 1
                     _broadcast(_evt)
@@ -248,14 +304,23 @@ async def _run_and_broadcast(
             ):
                 if evt.get("event") not in (None, "KEEPALIVE"):
                     with contextlib.suppress(Exception):
-                        await _persist_message(session, conversation_id, evt["event"], "assistant", evt.get("payload", {}), sequence)
+                        await _persist_message(
+                            session,
+                            conversation_id,
+                            evt["event"],
+                            "assistant",
+                            evt.get("payload", {}),
+                            sequence,
+                        )
                         await session.commit()
                         sequence += 1
 
                     if evt.get("event") == "TOOL_RESULT":
                         tool_name = evt.get("payload", {}).get("tool_name", "")
                         if tool_name in CONTEXT_TOOLS:
-                            _context_call_counts[conversation_id] = _context_call_counts.get(conversation_id, 0) + 1
+                            _context_call_counts[conversation_id] = (
+                                _context_call_counts.get(conversation_id, 0) + 1
+                            )
                             _maybe_schedule_quality(conversation_id, factory)
 
                 _broadcast(evt)
@@ -265,10 +330,14 @@ async def _run_and_broadcast(
 
             with contextlib.suppress(Exception):
                 from analytics_agent.agent.analysis import compute_context_quality
+
                 all_messages = await msg_repo.list_for_conversation(conversation_id)
                 quality = await compute_context_quality(all_messages)
                 await ConversationRepo(session).update_quality(
-                    conversation_id, quality.score, quality.label, quality.breakdown.get("reason", "")
+                    conversation_id,
+                    quality.score,
+                    quality.label,
+                    quality.breakdown.get("reason", ""),
                 )
 
     except Exception as exc:
@@ -332,7 +401,13 @@ async def send_message(
     stream = ConvStream(task=None)
     _active_streams[conversation_id] = stream
     stream.task = asyncio.create_task(
-        _run_and_broadcast(conversation_id, stream, body.text.strip(), conv.engine_name, settings.sse_keepalive_interval)
+        _run_and_broadcast(
+            conversation_id,
+            stream,
+            body.text.strip(),
+            conv.engine_name,
+            settings.sse_keepalive_interval,
+        )
     )
 
     return StreamingResponse(

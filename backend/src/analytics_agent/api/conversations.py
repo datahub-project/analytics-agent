@@ -111,6 +111,7 @@ async def get_conversation(conversation_id: str, session: AsyncSession = Depends
         for msg in conv.messages
     ]
     from analytics_agent.api.chat import _active_streams
+
     is_streaming = conversation_id in _active_streams
 
     return ConversationDetail(
