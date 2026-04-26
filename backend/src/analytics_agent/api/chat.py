@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/conversations", tags=["chat"])
 
 @dataclass
 class ConvStream:
-    task: "asyncio.Task | None"
+    task: asyncio.Task | None
     replay: list[dict] = field(default_factory=list)
     subs: list[asyncio.Queue] = field(default_factory=list)
     done: bool = False
@@ -306,7 +306,7 @@ async def _sse_for_stream(stream: ConvStream, keepalive_interval: int) -> AsyncI
                 if evt is None:
                     break
                 yield to_sse(evt)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield to_sse({"event": "KEEPALIVE"})
     except GeneratorExit:
         pass
