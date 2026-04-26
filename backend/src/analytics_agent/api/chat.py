@@ -138,6 +138,31 @@ async def _event_stream(
                 yield to_sse(evt)
             return
 
+        # No engine configured — respond helpfully rather than with an error.
+        from analytics_agent.engines.factory import list_engines as _list_engines
+
+        if not engine_name or engine_name not in {e["name"] for e in _list_engines()}:
+            _msg = (
+                "I'm ready to help, but I don't have a data source connected yet. "
+                "To query your data, add a SQL engine to `config.yaml` "
+                "(see `config.yaml.example` — Snowflake, BigQuery, MySQL, DuckDB and more "
+                "are supported) and restart the server. "
+                "Once a source is connected I can write queries, explore schemas, and "
+                "build visualizations for you."
+            )
+            _run_id = str(uuid.uuid4())
+            for _evt in [
+                {"event": "TEXT", "conversation_id": conversation_id, "message_id": _run_id, "payload": {"text": _msg}},
+                {"event": "COMPLETE", "conversation_id": conversation_id, "message_id": str(uuid.uuid4()), "payload": {"text": _msg}},
+            ]:
+                try:
+                    await _persist_message(session, conversation_id, _evt["event"], "assistant", _evt["payload"], sequence)
+                    sequence += 1
+                except Exception:
+                    pass
+                yield to_sse(_evt)
+            return
+
         # Load prior messages to give the agent conversation history
         from analytics_agent.agent.compactor_registry import get_compactor
         from analytics_agent.agent.history import build_history
