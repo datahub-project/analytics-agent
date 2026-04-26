@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -113,6 +114,29 @@ async def _event_stream(
             session, conversation_id, "TEXT", "user", {"text": user_text}, sequence
         )
         sequence += 1
+
+        # Test escape hatch: bypass the real LLM and graph entirely.
+        # Yields real HTTP SSE chunks with per-chunk delays so Playwright tests
+        # see genuine streaming (unlike page.route() mocks which fire all at once).
+        if os.environ.get("MOCK_LLM") == "1":
+            from analytics_agent.agent.mock_llm import mock_stream_events
+
+            async for evt in mock_stream_events(conversation_id, user_text):
+                if evt.get("event") not in (None, "KEEPALIVE"):
+                    try:
+                        await _persist_message(
+                            session,
+                            conversation_id,
+                            evt["event"],
+                            "assistant",
+                            evt.get("payload", {}),
+                            sequence,
+                        )
+                        sequence += 1
+                    except Exception:
+                        pass
+                yield to_sse(evt)
+            return
 
         # Load prior messages to give the agent conversation history
         from analytics_agent.agent.compactor_registry import get_compactor

@@ -115,9 +115,12 @@ export function ChatView() {
   const activeConv = conversations.find((c) => c.id === activeId);
   const pendingFirstMessage = useRef<string | null>(null);
   const chartErrorRetried = useRef(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   // Load conversation history when activeId changes; fire pending first message
   useEffect(() => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
     if (!activeId) {
       setMessages([]);
       return;
@@ -176,8 +179,12 @@ export function ChatView() {
     setStreaming(true);
     resetStreamingText(); // new turn — reset so TEXT goes to a fresh message
 
+    const conversationId = activeId;
+    let aborted = false;
     try {
-      const stream = streamMessage(activeId, text);
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const stream = streamMessage(conversationId, text, controller.signal);
       let result = await stream.next();
       while (!result.done) {
         const event = result.value;
@@ -203,6 +210,10 @@ export function ChatView() {
         result = await stream.next();
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        aborted = true;
+        return;
+      }
       appendMessage({
         id: crypto.randomUUID(),
         event_type: "ERROR",
@@ -210,11 +221,14 @@ export function ChatView() {
         payload: { error: String(err) },
       });
     } finally {
+      streamAbortRef.current = null;
       setStreaming(false);
-      // Fire-and-forget title generation after the turn completes
-      generateTitle(activeId).then((r) => {
-        if (r.updated) updateConversationTitle(activeId, r.title);
-      }).catch(() => {});
+      if (!aborted) {
+        // Fire-and-forget title generation after the turn completes
+        generateTitle(conversationId).then((r) => {
+          if (r.updated) updateConversationTitle(conversationId, r.title);
+        }).catch(() => {});
+      }
     }
   };
 
