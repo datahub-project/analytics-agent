@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { getContextQuality, type ContextQuality } from "@/api/conversations";
+import { useConversationsStore } from "@/store/conversations";
+
+function fmt(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
 
 interface Props {
   conversationId: string | null;
@@ -18,6 +25,7 @@ const QUALITY_COLOR_VAR: Record<number, string> = {
 
 export function ContextStatusBar({ conversationId, isStreaming, messageCount }: Props) {
   const [quality, setQuality] = useState<ContextQuality | null>(null);
+  const usageTotals = useConversationsStore((s) => s.usageTotals);
   const wasStreaming = useRef(false);
 
   // Reset when switching conversations
@@ -102,6 +110,49 @@ export function ContextStatusBar({ conversationId, isStreaming, messageCount }: 
         </kbd>{" "}
         to improve future conversations
       </span>
+
+      {usageTotals.calls > 0 && (
+        <div className="relative group ml-auto flex-shrink-0">
+          <span className="text-[11px] text-muted-foreground font-mono px-2 py-0.5
+                           rounded border border-border cursor-default">
+            ↑{fmt(usageTotals.input_tokens)} ↓{fmt(usageTotals.output_tokens)}
+          </span>
+          <div className="pointer-events-none absolute bottom-full right-0 mb-1 z-10
+                          min-w-[180px] px-2.5 py-1.5 rounded-md
+                          bg-foreground text-background text-[11px] font-mono
+                          opacity-0 group-hover:opacity-100 transition-opacity duration-150
+                          shadow-lg">
+            <div className="flex justify-between gap-4 mb-1 pb-1 border-b border-background/20 opacity-70">
+              <span>Session</span>
+              <span>{usageTotals.calls} call{usageTotals.calls === 1 ? "" : "s"}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="opacity-70">Input</span>
+              <span>{usageTotals.input_tokens.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between gap-4">
+              <span className="opacity-70">Output</span>
+              <span>{usageTotals.output_tokens.toLocaleString()}</span>
+            </div>
+            {usageTotals.cache_read_tokens > 0 && (
+              <div className="flex justify-between gap-4">
+                <span className="opacity-70">Cache read</span>
+                <span>{usageTotals.cache_read_tokens.toLocaleString()}</span>
+              </div>
+            )}
+            {usageTotals.cache_creation_tokens > 0 && (
+              <div className="flex justify-between gap-4">
+                <span className="opacity-70">Cache write</span>
+                <span>{usageTotals.cache_creation_tokens.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-background/20 font-semibold">
+              <span className="opacity-70">Total</span>
+              <span>{usageTotals.total_tokens.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

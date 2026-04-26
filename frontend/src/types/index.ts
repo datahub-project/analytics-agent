@@ -80,6 +80,15 @@ export interface ConversationDetail extends ConversationSummary {
   messages: MessageRecord[];
 }
 
+export interface TurnUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  calls: number;
+}
+
 // UI message (may be streaming)
 export interface UIMessage {
   id: string;
@@ -88,5 +97,7 @@ export interface UIMessage {
   payload: Record<string, unknown>;
   isStreaming?: boolean;
   isThinking?: boolean; // TEXT message that precedes a tool call
-  usage?: UsagePayload;
+  usage?: UsagePayload; // per-call cost (shown inline on thinking blocks / step separators)
+  turnUsage?: TurnUsage; // aggregated cost for the whole agent turn (shown on final response)
+  created_at?: string; // ISO timestamp for elapsed-time computation
 }
