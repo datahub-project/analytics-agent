@@ -9,6 +9,7 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import orjson
 from fastapi import APIRouter, Depends, HTTPException
@@ -161,20 +162,23 @@ async def _run_and_broadcast(
                     "build visualizations for you."
                 )
                 _run_id = str(uuid.uuid4())
-                for _evt in [
-                    {
-                        "event": "TEXT",
-                        "conversation_id": conversation_id,
-                        "message_id": _run_id,
-                        "payload": {"text": _msg},
-                    },
-                    {
-                        "event": "COMPLETE",
-                        "conversation_id": conversation_id,
-                        "message_id": str(uuid.uuid4()),
-                        "payload": {"text": _msg},
-                    },
-                ]:
+                for _evt in cast(
+                    list[dict[str, Any]],
+                    [
+                        {
+                            "event": "TEXT",
+                            "conversation_id": conversation_id,
+                            "message_id": _run_id,
+                            "payload": {"text": _msg},
+                        },
+                        {
+                            "event": "COMPLETE",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": {"text": _msg},
+                        },
+                    ],
+                ):
                     with contextlib.suppress(Exception):
                         await _persist_message(
                             session,
@@ -266,20 +270,23 @@ async def _run_and_broadcast(
                     engine_tools=engine_tools,
                 )
             except Exception as exc:
-                for _evt in [
-                    {
-                        "event": "ERROR",
-                        "conversation_id": conversation_id,
-                        "message_id": str(uuid.uuid4()),
-                        "payload": {"error": str(exc)},
-                    },
-                    {
-                        "event": "COMPLETE",
-                        "conversation_id": conversation_id,
-                        "message_id": str(uuid.uuid4()),
-                        "payload": {"text": ""},
-                    },
-                ]:
+                for _evt in cast(
+                    list[dict[str, Any]],
+                    [
+                        {
+                            "event": "ERROR",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": {"error": str(exc)},
+                        },
+                        {
+                            "event": "COMPLETE",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": {"text": ""},
+                        },
+                    ],
+                ):
                     with contextlib.suppress(Exception):
                         await _persist_message(
                             session,
