@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import type { MessageRecord } from "@/types";
-import { streamMessage } from "@/api/stream";
+import { streamMessage, reattachStream } from "@/api/stream";
 import { generateTitle, getConversation, createConversation } from "@/api/conversations";
 import { Download, X } from "lucide-react";
 import { useConversationsStore } from "@/store/conversations";
@@ -134,8 +134,92 @@ export function ChatView() {
       handleSend(text);
       return;
     }
-    getConversation(activeId).then((detail) => {
-      setMessages(buildUiMessages(detail.messages));
+
+    const snapId = activeId;
+
+    getConversation(snapId).then(async (detail) => {
+      // Bail if the user has already switched to a different conversation
+      if (activeId !== snapId) return;
+
+      if (!detail.is_streaming) {
+        setMessages(buildUiMessages(detail.messages));
+        return;
+      }
+
+      // There is an in-progress agent stream for this conversation.
+      // Strip the incomplete in-progress turn (everything after the last user
+      // message) — the stream replay will provide those events live.
+      const lastUserIdx = detail.messages.reduce(
+        (acc, m, i) => (m.role === "user" ? i : acc),
+        -1
+      );
+      const previousMessages = lastUserIdx >= 0
+        ? detail.messages.slice(0, lastUserIdx + 1)
+        : detail.messages;
+      setMessages(buildUiMessages(previousMessages));
+
+      setStreaming(true);
+      resetStreamingText();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+
+      let aborted = false;
+      try {
+        const stream = reattachStream(snapId, controller.signal);
+        let result = await stream.next();
+        while (!result.done) {
+          // Bail if the user switched away while we were awaiting
+          if (activeId !== snapId) {
+            controller.abort();
+            return;
+          }
+          const event = result.value;
+          if (event.event === "TEXT") {
+            appendStreamingText((event.payload as { text: string }).text);
+          } else if (event.event === "TOOL_CALL") {
+            markCurrentAsThinking();
+            appendMessage({
+              id: event.message_id,
+              event_type: event.event,
+              role: "assistant",
+              payload: event.payload,
+            });
+          } else if (event.event !== "COMPLETE") {
+            appendMessage({
+              id: event.message_id,
+              event_type: event.event,
+              role: "assistant",
+              payload: event.payload,
+            });
+          }
+          result = await stream.next();
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          aborted = true;
+          return;
+        }
+        appendMessage({
+          id: crypto.randomUUID(),
+          event_type: "ERROR",
+          role: "assistant",
+          payload: { error: String(err) },
+        });
+      } finally {
+        streamAbortRef.current = null;
+        setStreaming(false);
+        if (!aborted && activeId === snapId) {
+          // Reload full history from DB to catch anything committed after the
+          // initial fetch, then generate/update the title.
+          getConversation(snapId).then((refreshed) => {
+            if (activeId !== snapId) return;
+            setMessages(buildUiMessages(refreshed.messages));
+          }).catch(() => {});
+          generateTitle(snapId).then((r) => {
+            if (r.updated) updateConversationTitle(snapId, r.title);
+          }).catch(() => {});
+        }
+      }
     });
   }, [activeId]);
 
