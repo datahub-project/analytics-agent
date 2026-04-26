@@ -115,6 +115,12 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "quality": "gemini-1.5-flash",
         "delight": "gemini-1.5-flash",
     },
+    "bedrock": {
+        "main": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "chart": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "quality": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "delight": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    },
 }
 
 # Env var name that holds the API key for each provider.
@@ -144,6 +150,13 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_api_key: str = ""
+    # Bedrock — uses the standard AWS credential chain by default (env vars,
+    # ~/.aws/credentials, IAM role). Set the explicit *_key_id/*_access_key
+    # settings to override.
+    aws_region: str = "us-west-2"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    aws_session_token: str = ""
     # Model IDs — override any tier independently via env vars.
     # Unset tiers fall back to PROVIDER_DEFAULTS[llm_provider][tier].
     llm_model: str = ""  # LLM_MODEL         — main analysis agent

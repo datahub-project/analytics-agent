@@ -16,6 +16,8 @@ export function ConversationItem({ conversation, isActive, onSelect, onDelete }:
           ? "bg-secondary text-secondary-foreground"
           : "hover:bg-muted text-foreground"
       }`}
+      data-testid="conversation-item"
+      data-conv-id={conversation.id}
       onClick={onSelect}
     >
       <div className="flex-1 min-w-0">

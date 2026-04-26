@@ -19,7 +19,6 @@ export function Sidebar() {
   const defaultEngine = engines[0]?.name ?? "";
 
   const handleNew = async () => {
-    if (!defaultEngine) return;
     const conv = await createConversation(defaultEngine);
     addConversation(conv);
     setActiveId(conv.id);
@@ -43,8 +42,7 @@ export function Sidebar() {
         </button>
         <button
           onClick={handleNew}
-          disabled={!defaultEngine}
-          className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-40"
+          className="p-1.5 rounded-md hover:bg-muted transition-colors"
           title="New conversation"
         >
           <Plus className="w-4 h-4" />

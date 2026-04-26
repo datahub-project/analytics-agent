@@ -85,7 +85,7 @@ export function WelcomeView({ onSend }: Props) {
 
   const handleSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || !engine) return;
+    if (!trimmed) return;
     onSend(trimmed, engine);
     setText("");
   };
@@ -170,7 +170,7 @@ export function WelcomeView({ onSend }: Props) {
             {/* Send */}
             <button
               onClick={handleSend}
-              disabled={!text.trim() || !engine}
+              disabled={!text.trim()}
               className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90
                          disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
             >

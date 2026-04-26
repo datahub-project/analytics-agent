@@ -1,6 +1,6 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import type { MessageRecord, UsagePayload } from "@/types";
-import { streamMessage } from "@/api/stream";
+import { streamMessage, reattachStream } from "@/api/stream";
 import { generateTitle, getConversation, createConversation } from "@/api/conversations";
 import { Download, X } from "lucide-react";
 import { useConversationsStore } from "@/store/conversations";
@@ -11,124 +11,7 @@ import { EngineSelector } from "./EngineSelector";
 import { WelcomeView } from "./WelcomeView";
 import { ContextStatusBar } from "./ContextStatusBar";
 import type { UIMessage } from "@/types";
-
-/**
- * Convert stored DB message rows into UI messages for display.
- * Key differences from live streaming:
- * - Individual TEXT streaming chunks are merged into one bubble
- * - COMPLETE event text supersedes merged chunks when non-empty
- * - TEXT chunks before a TOOL_CALL are marked isThinking=true
- * - COMPLETE events themselves are not rendered (they're just metadata)
- */
-function buildUiMessages(records: MessageRecord[]): {
-  messages: UIMessage[];
-  totals: {
-    input_tokens: number;
-    output_tokens: number;
-    total_tokens: number;
-    cache_read_tokens: number;
-    cache_creation_tokens: number;
-    calls: number;
-  };
-} {
-  const result: UIMessage[] = [];
-  const totals = {
-    input_tokens: 0,
-    output_tokens: 0,
-    total_tokens: 0,
-    cache_read_tokens: 0,
-    cache_creation_tokens: 0,
-    calls: 0,
-  };
-
-  // Group by turn: collect blocks between user messages
-  let pendingTextChunks: { id: string; text: string }[] = [];
-  let completeText = "";
-  let seenToolCallAfterText = false;
-
-  const flushText = (asThinking: boolean) => {
-    if (pendingTextChunks.length === 0) return;
-    const merged = pendingTextChunks.map((c) => c.text).join("");
-    const finalText = !asThinking && completeText ? completeText : merged;
-    if (finalText.trim()) {
-      result.push({
-        id: pendingTextChunks[0].id,
-        event_type: "TEXT",
-        role: "assistant",
-        payload: { text: finalText },
-        isThinking: asThinking,
-      });
-    }
-    pendingTextChunks = [];
-    completeText = "";
-    seenToolCallAfterText = false;
-  };
-
-  for (let i = 0; i < records.length; i++) {
-    const m = records[i];
-
-    if (m.role === "user") {
-      // Flush any pending assistant text first
-      flushText(seenToolCallAfterText);
-      result.push({ id: m.id, event_type: m.event_type, role: "user", payload: m.payload });
-      continue;
-    }
-
-    // Assistant events
-    switch (m.event_type) {
-      case "TEXT":
-        pendingTextChunks.push({ id: m.id, text: (m.payload.text as string) || "" });
-        break;
-
-      case "COMPLETE":
-        completeText = (m.payload.text as string) || "";
-        // After COMPLETE: flush as final response (not thinking)
-        flushText(false);
-        break;
-
-      case "TOOL_CALL":
-        // Any text before a tool call is thinking/reasoning
-        flushText(true);
-        seenToolCallAfterText = true;
-        result.push({ id: m.id, event_type: "TOOL_CALL", role: "assistant", payload: m.payload });
-        break;
-
-      case "TOOL_RESULT":
-      case "SQL":
-      case "CHART":
-      case "ERROR":
-        result.push({ id: m.id, event_type: m.event_type, role: "assistant", payload: m.payload });
-        break;
-
-      case "USAGE": {
-        const u = m.payload as unknown as import("@/types").UsagePayload;
-        totals.input_tokens += u.input_tokens || 0;
-        totals.output_tokens += u.output_tokens || 0;
-        totals.total_tokens += u.total_tokens || 0;
-        totals.cache_read_tokens += u.cache_read_tokens || 0;
-        totals.cache_creation_tokens += u.cache_creation_tokens || 0;
-        totals.calls += 1;
-        for (let j = result.length - 1; j >= 0; j--) {
-          const r = result[j];
-          if (r.role === "assistant" && (r.event_type === "TEXT" || r.event_type === "TOOL_CALL")) {
-            r.usage = u;
-            break;
-          }
-        }
-        break;
-      }
-
-      // Skip other internal events
-      default:
-        break;
-    }
-  }
-
-  // Flush any trailing text (incomplete turn)
-  flushText(seenToolCallAfterText);
-
-  return { messages: result, totals };
-}
+import { buildUiMessages } from "@/lib/buildUiMessages";
 
 export function ChatView() {
   const {
@@ -156,9 +39,12 @@ export function ChatView() {
   const activeConv = conversations.find((c) => c.id === activeId);
   const pendingFirstMessage = useRef<string | null>(null);
   const chartErrorRetried = useRef(false);
+  const streamAbortRef = useRef<AbortController | null>(null);
 
   // Load conversation history when activeId changes; fire pending first message
   useEffect(() => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
     if (!activeId) {
       setMessages([]);
       return;
@@ -172,10 +58,106 @@ export function ChatView() {
       handleSend(text);
       return;
     }
-    getConversation(activeId).then((detail) => {
-      const { messages: uiMsgs, totals } = buildUiMessages(detail.messages);
-      setMessages(uiMsgs);
-      setUsageTotals(totals);
+
+    const snapId = activeId;
+
+    getConversation(snapId).then(async (detail) => {
+      // Bail if the user has already switched to a different conversation
+      if (activeId !== snapId) return;
+
+      if (!detail.is_streaming) {
+        const { messages: uiMsgs, totals } = buildUiMessages(detail.messages);
+        setMessages(uiMsgs);
+        setUsageTotals(totals);
+        return;
+      }
+
+      // There is an in-progress agent stream for this conversation.
+      // Strip the incomplete in-progress turn (everything after the last user
+      // message) — the stream replay will provide those events live.
+      const lastUserIdx = detail.messages.reduce(
+        (acc, m, i) => (m.role === "user" ? i : acc),
+        -1
+      );
+      const previousMessages = lastUserIdx >= 0
+        ? detail.messages.slice(0, lastUserIdx + 1)
+        : detail.messages;
+      const { messages: prevUiMsgs, totals: prevTotals } = buildUiMessages(previousMessages);
+      setMessages(prevUiMsgs);
+      setUsageTotals(prevTotals);
+
+      setStreaming(true);
+      resetStreamingText();
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+
+      let aborted = false;
+      try {
+        const stream = reattachStream(snapId, controller.signal);
+        let result = await stream.next();
+        while (!result.done) {
+          // Bail if the user switched away while we were awaiting
+          if (activeId !== snapId) {
+            controller.abort();
+            return;
+          }
+          const event = result.value;
+          if (event.event === "TEXT") {
+            appendStreamingText((event.payload as { text: string }).text);
+          } else if (event.event === "TOOL_CALL") {
+            markCurrentAsThinking();
+            appendMessage({
+              id: event.message_id,
+              event_type: event.event,
+              role: "assistant",
+              payload: event.payload,
+            });
+          } else if (event.event === "USAGE") {
+            const usage = event.payload as unknown as UsagePayload;
+            addUsage(usage);
+            const state = useConversationsStore.getState();
+            const targetId =
+              state.streamingTextId ??
+              [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
+            if (targetId) attachUsageToMessage(targetId, usage);
+          } else if (event.event !== "COMPLETE") {
+            appendMessage({
+              id: event.message_id,
+              event_type: event.event,
+              role: "assistant",
+              payload: event.payload,
+            });
+          }
+          result = await stream.next();
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          aborted = true;
+          return;
+        }
+        appendMessage({
+          id: crypto.randomUUID(),
+          event_type: "ERROR",
+          role: "assistant",
+          payload: { error: String(err) },
+        });
+      } finally {
+        streamAbortRef.current = null;
+        setStreaming(false);
+        if (!aborted && activeId === snapId) {
+          // Reload full history from DB to catch anything committed after the
+          // initial fetch, then generate/update the title.
+          getConversation(snapId).then((refreshed) => {
+            if (activeId !== snapId) return;
+            const { messages: uiMsgs, totals } = buildUiMessages(refreshed.messages);
+            setMessages(uiMsgs);
+            setUsageTotals(totals);
+          }).catch(() => {});
+          generateTitle(snapId).then((r) => {
+            if (r.updated) updateConversationTitle(snapId, r.title);
+          }).catch(() => {});
+        }
+      }
     });
   }, [activeId]);
 
@@ -219,8 +201,12 @@ export function ChatView() {
     setStreaming(true);
     resetStreamingText(); // new turn — reset so TEXT goes to a fresh message
 
+    const conversationId = activeId;
+    let aborted = false;
     try {
-      const stream = streamMessage(activeId, text);
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const stream = streamMessage(conversationId, text, controller.signal);
       let result = await stream.next();
       while (!result.done) {
         const event = result.value;
@@ -255,6 +241,10 @@ export function ChatView() {
         result = await stream.next();
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        aborted = true;
+        return;
+      }
       appendMessage({
         id: crypto.randomUUID(),
         event_type: "ERROR",
@@ -262,12 +252,15 @@ export function ChatView() {
         payload: { error: String(err) },
       });
     } finally {
+      streamAbortRef.current = null;
       finalizeStreaming();
       setStreaming(false);
-      // Fire-and-forget title generation after the turn completes
-      generateTitle(activeId).then((r) => {
-        if (r.updated) updateConversationTitle(activeId, r.title);
-      }).catch(() => {});
+      if (!aborted) {
+        // Fire-and-forget title generation after the turn completes
+        generateTitle(conversationId).then((r) => {
+          if (r.updated) updateConversationTitle(conversationId, r.title);
+        }).catch(() => {});
+      }
     }
   };
 
@@ -300,55 +293,6 @@ export function ChatView() {
           {activeConv?.title ?? "Conversation"}
         </span>
         <div className="flex items-center gap-2">
-          {usageTotals.calls > 0 && (
-            <div className="relative group" data-print-hide>
-              <span
-                className="text-[11px] text-muted-foreground font-mono px-2 py-0.5
-                           rounded border border-border cursor-default"
-              >
-                ↑{usageTotals.input_tokens.toLocaleString()} ↓
-                {usageTotals.output_tokens.toLocaleString()}
-              </span>
-              <div
-                className="pointer-events-none absolute top-full right-0 mt-1 z-10
-                           min-w-[180px] px-2.5 py-1.5 rounded-md
-                           bg-foreground text-background text-[11px] font-mono
-                           opacity-0 group-hover:opacity-100 transition-opacity duration-150
-                           shadow-lg"
-              >
-                <div className="flex justify-between gap-4 mb-1 pb-1 border-b border-background/20 opacity-70">
-                  <span>Session</span>
-                  <span>
-                    {usageTotals.calls} call{usageTotals.calls === 1 ? "" : "s"}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="opacity-70">Input</span>
-                  <span>{usageTotals.input_tokens.toLocaleString()}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="opacity-70">Output</span>
-                  <span>{usageTotals.output_tokens.toLocaleString()}</span>
-                </div>
-                {usageTotals.cache_read_tokens > 0 && (
-                  <div className="flex justify-between gap-4">
-                    <span className="opacity-70">Cache read</span>
-                    <span>{usageTotals.cache_read_tokens.toLocaleString()}</span>
-                  </div>
-                )}
-                {usageTotals.cache_creation_tokens > 0 && (
-                  <div className="flex justify-between gap-4">
-                    <span className="opacity-70">Cache write</span>
-                    <span>{usageTotals.cache_creation_tokens.toLocaleString()}</span>
-                  </div>
-                )}
-                <div className="flex justify-between gap-4 mt-1 pt-1 border-t border-background/20 font-semibold">
-                  <span className="opacity-70">Total</span>
-                  <span>{usageTotals.total_tokens.toLocaleString()}</span>
-                </div>
-              </div>
-            </div>
-          )}
           {messages.length > 0 && (
             <button
               onClick={() => setExportModalOpen(true)}
@@ -384,6 +328,7 @@ export function ChatView() {
 
       <MessageList
         messages={messages}
+        isStreaming={isStreaming}
         showReasoning={showReasoning}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;

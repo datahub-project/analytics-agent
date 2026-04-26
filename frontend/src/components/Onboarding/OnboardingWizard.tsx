@@ -3,7 +3,7 @@ import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { saveDisplaySettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 import { useDisplayStore } from "@/store/display";
 
-type Provider = "anthropic" | "openai" | "google";
+type Provider = "anthropic" | "openai" | "google" | "bedrock";
 
 interface WizardProps {
   onComplete: () => void;
@@ -11,6 +11,8 @@ interface WizardProps {
 }
 
 // ─── Model options ─────────────────────────────────────────────────────────────
+
+const CUSTOM_MODEL_VALUE = "__custom__";
 
 const MODELS: Record<Provider, { value: string; label: string; note: string }[]> = {
   anthropic: [
@@ -28,7 +30,22 @@ const MODELS: Record<Provider, { value: string; label: string; note: string }[]>
     { value: "gemini-1.5-pro",     label: "Gemini 1.5 Pro",     note: "Most capable"},
     { value: "gemini-1.5-flash",   label: "Gemini 1.5 Flash",   note: "Fastest"     },
   ],
+  bedrock: [
+    { value: "us.anthropic.claude-sonnet-4-5-20250929-v1:0", label: "Claude Sonnet 4.5 (Bedrock)", note: "Recommended" },
+    { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0",  label: "Claude Haiku 4.5 (Bedrock)",  note: "Fastest"     },
+    { value: CUSTOM_MODEL_VALUE,                              label: "Custom model ID",            note: "Enter your own" },
+  ],
 };
+
+function defaultModelFor(p: Provider): string {
+  return p === "bedrock" ? MODELS[p][0].value : MODELS[p][1].value;
+}
+
+const providerLabel = (p: Provider) =>
+  p === "anthropic" ? "Anthropic"
+    : p === "openai" ? "OpenAI"
+    : p === "google" ? "Google"
+    : "AWS Bedrock";
 
 // ─── Step 1 — warm inline sentence ────────────────────────────────────────────
 
@@ -132,60 +149,61 @@ function Step1Name({ value, onChange, onSubmit }: { value: string; onChange: (v:
 
 export type KeyStatus = { state: "idle" } | { state: "testing" } | { state: "ok"; msg: string } | { state: "fail"; msg: string };
 
-function Step2Model({
-  provider, onProvider,
-  model,    onModel,
-  apiKey,   onApiKey,
-  keyStatus, onKeyBlur,
-}: {
+interface Step2Props {
   provider: Provider;   onProvider: (p: Provider) => void;
   model: string;        onModel: (m: string) => void;
+  customModel: string;  onCustomModel: (m: string) => void;
   apiKey: string;       onApiKey: (k: string) => void;
-  keyStatus: KeyStatus; onKeyBlur: () => void;
-}) {
-  const [showKey, setShowKey] = useState(false);
-  const models = MODELS[provider];
+  awsRegion: string;    onAwsRegion: (v: string) => void;
+  awsAccessKey: string; onAwsAccessKey: (v: string) => void;
+  awsSecret: string;    onAwsSecret: (v: string) => void;
+  awsSessionToken: string; onAwsSessionToken: (v: string) => void;
+  keyStatus: KeyStatus; onVerify: () => void;
+}
 
-  const handleProvider = (p: Provider) => {
-    onProvider(p);
-    onModel(MODELS[p][1].value);
+function Step2Model(p: Step2Props) {
+  const [showKey, setShowKey] = useState(false);
+  const [showAwsSecret, setShowAwsSecret] = useState(false);
+  const models = MODELS[p.provider];
+  const isCustom = p.model === CUSTOM_MODEL_VALUE;
+
+  const handleProvider = (next: Provider) => {
+    p.onProvider(next);
+    p.onModel(defaultModelFor(next));
   };
 
   return (
     <div className="flex flex-col justify-center h-full max-w-lg">
-      {/* Big intro sentence */}
       <div className="text-[2rem] font-light tracking-[-0.02em] leading-[1.3] text-foreground mb-10">
         Before we can get started, I'll need<br />
         to pick a model to think with.
       </div>
 
-      {/* Provider segmented control */}
-      <div className="flex rounded-xl border border-border p-1 gap-1 mb-7 w-fit">
-        {(["anthropic", "openai", "google"] as Provider[]).map((p) => (
+      <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 mb-7 w-fit">
+        {(["anthropic", "openai", "google", "bedrock"] as Provider[]).map((name) => (
           <button
-            key={p}
+            key={name}
             type="button"
-            onClick={() => handleProvider(p)}
+            onClick={() => handleProvider(name)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
-              ${provider === p
+              ${p.provider === name
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
               }`}
           >
-            {p === "anthropic" ? "Anthropic" : p === "openai" ? "OpenAI" : "Google"}
+            {providerLabel(name)}
           </button>
         ))}
       </div>
 
-      {/* Model radio list */}
-      <div className="space-y-1 mb-8">
+      <div className="space-y-1 mb-4">
         {models.map((m) => {
-          const active = model === m.value;
+          const active = p.model === m.value;
           return (
             <button
               key={m.value}
               type="button"
-              onClick={() => onModel(m.value)}
+              onClick={() => p.onModel(m.value)}
               className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
                 transition-all duration-150 border
                 ${active
@@ -193,81 +211,155 @@ function Step2Model({
                   : "border-transparent hover:border-border hover:bg-muted/40"
                 }`}
             >
-              {/* Radio circle */}
               <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
                 transition-all duration-150
                 ${active ? "border-primary bg-primary" : "border-border"}`}>
                 {active && <div className="w-2 h-2 rounded-full bg-white" />}
               </div>
-
               <div className="flex-1 min-w-0">
                 <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
                   {m.label}
                 </span>
               </div>
-
-              <span className={`text-xs flex-shrink-0
-                ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
+              <span className={`text-xs flex-shrink-0 ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
                 {m.note}
               </span>
             </button>
           );
         })}
       </div>
+      {isCustom && (
+        <input
+          type="text"
+          value={p.customModel}
+          onChange={(e) => p.onCustomModel(e.target.value)}
+          placeholder={p.provider === "bedrock"
+            ? "us.anthropic.claude-opus-4-5-20251001-v1:0"
+            : "model-id"}
+          className="w-full mb-6 bg-background border border-border rounded-xl px-4 py-3
+                     text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                     focus:border-primary/50 placeholder:text-muted-foreground/30"
+        />
+      )}
+      {!isCustom && <div className="mb-6" />}
 
-      {/* API key */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">
-          API key <span className="text-primary">*</span>
-        </label>
-        <div className="relative">
+      {/* Credentials — either a single API key field OR AWS fields for Bedrock. */}
+      {p.provider === "bedrock" ? (
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium text-foreground">AWS credentials</label>
+            <p className="text-xs text-muted-foreground/60 mt-1">
+              Leave keys blank to use the system AWS credential chain (env vars,
+              <span className="font-mono"> ~/.aws</span>, IAM role).
+            </p>
+          </div>
           <input
-            type={showKey ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => onApiKey(e.target.value)}
-            onBlur={onKeyBlur}
-            placeholder={provider === "anthropic" ? "sk-ant-api03-…" : provider === "google" ? "AIza…" : "sk-proj-…"}
-            className={`w-full bg-background border rounded-xl px-4 py-3 text-sm font-mono
-              focus:outline-none focus:ring-2 focus:ring-primary/25
-              placeholder:text-muted-foreground/30 transition-all pr-11
-              ${keyStatus.state === "ok"   ? "border-emerald-500/50 focus:border-emerald-500/60"
-              : keyStatus.state === "fail" ? "border-red-400/50 focus:border-red-400/60"
-              : "border-border focus:border-primary/50"}`}
+            type="text"
+            value={p.awsRegion}
+            onChange={(e) => p.onAwsRegion(e.target.value)}
+            placeholder="us-west-2"
+            className="w-full bg-background border border-border rounded-xl px-4 py-2.5
+                       text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                       focus:border-primary/50"
+          />
+          <input
+            type="text"
+            value={p.awsAccessKey}
+            onChange={(e) => p.onAwsAccessKey(e.target.value)}
+            placeholder="Access key ID (AKIA…, optional)"
+            className="w-full bg-background border border-border rounded-xl px-4 py-2.5
+                       text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                       focus:border-primary/50 placeholder:text-muted-foreground/30"
+          />
+          <div className="relative">
+            <input
+              type={showAwsSecret ? "text" : "password"}
+              value={p.awsSecret}
+              onChange={(e) => p.onAwsSecret(e.target.value)}
+              placeholder="Secret access key (optional)"
+              className="w-full bg-background border border-border rounded-xl px-4 py-2.5
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30 pr-11"
+            />
+            <button
+              type="button"
+              onClick={() => setShowAwsSecret((v) => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-muted-foreground"
+            >
+              {showAwsSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+          <input
+            type="password"
+            value={p.awsSessionToken}
+            onChange={(e) => p.onAwsSessionToken(e.target.value)}
+            placeholder="Session token (optional, for STS)"
+            className="w-full bg-background border border-border rounded-xl px-4 py-2.5
+                       text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                       focus:border-primary/50 placeholder:text-muted-foreground/30"
           />
           <button
             type="button"
-            onClick={() => setShowKey(v => !v)}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40
-                       hover:text-muted-foreground transition-colors"
+            onClick={p.onVerify}
+            disabled={p.keyStatus.state === "testing"}
+            className="text-sm px-4 py-2 rounded-lg border border-border
+                       hover:bg-muted/50 transition-colors disabled:opacity-40"
           >
-            {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            {p.keyStatus.state === "testing" ? "Verifying…" : "Verify credentials"}
           </button>
         </div>
+      ) : (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">
+            API key <span className="text-primary">*</span>
+          </label>
+          <div className="relative">
+            <input
+              type={showKey ? "text" : "password"}
+              value={p.apiKey}
+              onChange={(e) => p.onApiKey(e.target.value)}
+              onBlur={p.onVerify}
+              placeholder={p.provider === "anthropic" ? "sk-ant-api03-…" : p.provider === "google" ? "AIza…" : "sk-proj-…"}
+              className={`w-full bg-background border rounded-xl px-4 py-3 text-sm font-mono
+                focus:outline-none focus:ring-2 focus:ring-primary/25
+                placeholder:text-muted-foreground/30 transition-all pr-11
+                ${p.keyStatus.state === "ok"   ? "border-emerald-500/50 focus:border-emerald-500/60"
+                : p.keyStatus.state === "fail" ? "border-red-400/50 focus:border-red-400/60"
+                : "border-border focus:border-primary/50"}`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40
+                         hover:text-muted-foreground transition-colors"
+            >
+              {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      )}
 
-        {/* Verification status */}
-        {keyStatus.state === "testing" && (
+      <div className="mt-2 min-h-[1.25rem]">
+        {p.keyStatus.state === "testing" && (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Verifying key…
+            <Loader2 className="w-3 h-3 animate-spin" /> Verifying…
           </p>
         )}
-        {keyStatus.state === "ok" && (
+        {p.keyStatus.state === "ok" && (
           <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
-            <Check className="w-3 h-3" strokeWidth={3} />
-            {keyStatus.msg}
+            <Check className="w-3 h-3" strokeWidth={3} /> {p.keyStatus.msg}
           </p>
         )}
-        {keyStatus.state === "fail" && (
+        {p.keyStatus.state === "fail" && (
           <p className="flex items-center gap-1.5 text-xs text-red-500">
-            <X className="w-3 h-3" strokeWidth={3} />
-            {keyStatus.msg}
+            <X className="w-3 h-3" strokeWidth={3} /> {p.keyStatus.msg}
           </p>
         )}
-        {keyStatus.state === "idle" && (
+        {p.keyStatus.state === "idle" && p.provider !== "bedrock" && (
           <p className="text-xs text-muted-foreground/50">
-            {provider === "anthropic"
+            {p.provider === "anthropic"
               ? "console.anthropic.com/settings/api-keys"
-              : provider === "google"
+              : p.provider === "google"
               ? "aistudio.google.com/app/apikey"
               : "platform.openai.com/api-keys"}
           </p>
@@ -315,12 +407,17 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
 
   const [agentName, setAgentName] = useState("");
   const [provider, setProvider] = useState<Provider>("anthropic");
-  const [model, setModel] = useState(MODELS.anthropic[1].value);
+  const [model, setModel] = useState(defaultModelFor("anthropic"));
+  const [customModel, setCustomModel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [awsRegion, setAwsRegion] = useState("us-west-2");
+  const [awsAccessKey, setAwsAccessKey] = useState("");
+  const [awsSecret, setAwsSecret] = useState("");
+  const [awsSessionToken, setAwsSessionToken] = useState("");
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ state: "idle" });
 
-  // Reset verification whenever the key or provider changes
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider]);
+  // Reset verification whenever any credential field changes.
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel]);
 
   const [step, setStep] = useState(0);
   const [animKey, setAnimKey] = useState(0);
@@ -328,7 +425,17 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [error, setError] = useState<string | null>(null);
 
   const displayName = agentName.trim() || "Analytics Agent";
-  const canContinue = step === 0 ? agentName.trim().length > 0 : apiKey.trim().length > 0 && keyStatus.state !== "fail";
+  const isCustomModel = model === CUSTOM_MODEL_VALUE;
+  const effectiveModel = isCustomModel ? customModel.trim() : model;
+
+  // Step 2 advance rules:
+  //  - Bedrock: allow as long as we have a model and verification didn't fail
+  //    (empty AWS fields are valid — means "use default credential chain").
+  //  - Others: require an API key that isn't known-bad.
+  const canAdvanceStep2 = provider === "bedrock"
+    ? !!effectiveModel && keyStatus.state !== "fail"
+    : apiKey.trim().length > 0 && keyStatus.state !== "fail";
+  const canContinue = step === 0 ? agentName.trim().length > 0 : canAdvanceStep2;
 
   const navigate = (next: number) => {
     setError(null);
@@ -336,19 +443,26 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
     setAnimKey(k => k + 1);
   };
 
-  // Shared test runner — used by onBlur AND by handleContinue
   const runKeyTest = async (): Promise<boolean> => {
-    if (!apiKey.trim()) return false;
+    if (provider !== "bedrock" && !apiKey.trim()) return false;
     setKeyStatus({ state: "testing" });
     try {
-      const result = await testLlmKey({ provider, api_key: apiKey.trim(), model });
+      const result = await testLlmKey({
+        provider,
+        api_key: apiKey.trim(),
+        model: effectiveModel,
+        aws_region: awsRegion.trim(),
+        aws_access_key_id: awsAccessKey.trim(),
+        aws_secret_access_key: awsSecret.trim(),
+        aws_session_token: awsSessionToken.trim(),
+      });
       const next: KeyStatus = result.ok
         ? { state: "ok", msg: result.message }
         : { state: "fail", msg: result.message };
       setKeyStatus(next);
       return result.ok;
     } catch {
-      setKeyStatus({ state: "fail", msg: "Can't reach the server to verify key" });
+      setKeyStatus({ state: "fail", msg: "Can't reach the server to verify" });
       return false;
     }
   };
@@ -362,12 +476,23 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
         setDisplay(displayName, "");
         navigate(1);
       } else {
-        // Always verify before saving — covers the case where user never blurred the field
+        if (isCustomModel && !customModel.trim()) {
+          setError("Enter a model ID or pick one from the list.");
+          return;
+        }
         if (keyStatus.state !== "ok") {
           const ok = await runKeyTest();
           if (!ok) return;
         }
-        await saveLlmSettings({ provider, api_key: apiKey.trim(), model });
+        await saveLlmSettings({
+          provider,
+          api_key: apiKey.trim(),
+          model: effectiveModel,
+          aws_region: awsRegion.trim(),
+          aws_access_key_id: awsAccessKey.trim(),
+          aws_secret_access_key: awsSecret.trim(),
+          aws_session_token: awsSessionToken.trim(),
+        });
         onComplete();
       }
     } catch (e) {
@@ -445,8 +570,13 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
             <Step2Model
               provider={provider} onProvider={setProvider}
               model={model}       onModel={setModel}
+              customModel={customModel} onCustomModel={setCustomModel}
               apiKey={apiKey}     onApiKey={setApiKey}
-              keyStatus={keyStatus} onKeyBlur={runKeyTest}
+              awsRegion={awsRegion} onAwsRegion={setAwsRegion}
+              awsAccessKey={awsAccessKey} onAwsAccessKey={setAwsAccessKey}
+              awsSecret={awsSecret} onAwsSecret={setAwsSecret}
+              awsSessionToken={awsSessionToken} onAwsSessionToken={setAwsSessionToken}
+              keyStatus={keyStatus} onVerify={runKeyTest}
             />
           )}
           {error && (

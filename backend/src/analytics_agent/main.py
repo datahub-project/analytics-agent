@@ -387,6 +387,32 @@ async def _load_llm_config_from_db() -> None:
         settings.llm_model = model
         os.environ["LLM_MODEL"] = model
 
+    # Bedrock AWS fields. Region is plaintext; keys are fernet-encrypted.
+    # Env var always wins (explicit user override), same pattern as api_key.
+    aws_region = cfg_data.get("aws_region", "")
+    if aws_region and not os.environ.get("AWS_REGION"):
+        settings.aws_region = aws_region
+        os.environ["AWS_REGION"] = aws_region
+
+    for db_key, env_var, attr in [
+        ("aws_access_key_id", "AWS_ACCESS_KEY_ID", "aws_access_key_id"),
+        ("aws_secret_access_key", "AWS_SECRET_ACCESS_KEY", "aws_secret_access_key"),
+        ("aws_session_token", "AWS_SESSION_TOKEN", "aws_session_token"),
+    ]:
+        encrypted = cfg_data.get(db_key, "")
+        if not encrypted or os.environ.get(env_var):
+            continue
+        try:
+            from analytics_agent.api.settings import _fernet_decrypt
+
+            value = _fernet_decrypt(encrypted)
+        except Exception as exc:
+            logging.getLogger(__name__).error("Failed to decrypt %s from DB: %s", db_key, exc)
+            continue
+        if value:
+            os.environ[env_var] = value
+            setattr(settings, attr, value)
+
 
 def _run_migrations() -> None:
     """Run Alembic migrations synchronously (Alembic is a sync tool)."""

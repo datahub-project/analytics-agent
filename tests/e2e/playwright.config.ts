@@ -12,6 +12,10 @@ export default defineConfig({
   testMatch: "**/*.spec.ts",
   timeout: 30_000,
   retries: 0,
+  // Serial execution: all tests share one backend server so parallel runs risk
+  // cross-test DB connection pool corruption (e.g. ASGI task cancellation on
+  // client disconnect leaving a connection in a bad state for the next test).
+  workers: 1,
 
   use: {
     baseURL: `http://localhost:${TEST_PORT}`,
@@ -31,6 +35,10 @@ export default defineConfig({
       LLM_PROVIDER: "anthropic",
       // Provide a fake key so has_key=true and the onboarding wizard doesn't block tests
       ANTHROPIC_API_KEY: "sk-ant-test-e2e-placeholder",
+      // Stream pre-configured chunks via real HTTP SSE (no actual LLM calls).
+      // MOCK_LLM_DELAY_MS controls inter-chunk pacing so tests can switch mid-stream.
+      MOCK_LLM: "1",
+      MOCK_LLM_DELAY_MS: "80",
     },
     timeout: 30_000,
   },

@@ -78,6 +78,7 @@ export interface MessageRecord {
 
 export interface ConversationDetail extends ConversationSummary {
   messages: MessageRecord[];
+  is_streaming?: boolean;
 }
 
 export interface TurnUsage {

@@ -24,7 +24,9 @@ from analytics_agent.config import (
 
 # ─── PROVIDER_DEFAULTS structure ─────────────────────────────────────────────
 
-EXPECTED_PROVIDERS = {"anthropic", "openai", "google"}
+EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock"}
+# Providers that authenticate with a single API key (bedrock uses AWS creds instead).
+EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google"}
 EXPECTED_TIERS = {"main", "chart", "quality", "delight"}
 
 
@@ -45,11 +47,11 @@ def test_provider_defaults_no_empty_values():
 
 
 def test_provider_key_env_covers_all_providers():
-    assert set(PROVIDER_KEY_ENV) == EXPECTED_PROVIDERS
+    assert set(PROVIDER_KEY_ENV) == EXPECTED_API_KEY_PROVIDERS
 
 
 def test_provider_key_attr_covers_all_providers():
-    assert set(PROVIDER_KEY_ATTR) == EXPECTED_PROVIDERS
+    assert set(PROVIDER_KEY_ATTR) == EXPECTED_API_KEY_PROVIDERS
 
 
 def test_provider_key_env_and_attr_consistent():
@@ -141,8 +143,14 @@ def test_get_api_key_empty_when_not_set():
     assert s.get_api_key() == ""
 
 
-def test_get_api_key_unknown_provider_returns_empty():
+def test_get_api_key_bedrock_returns_empty():
+    """Bedrock authenticates via AWS credentials, not a single API key."""
     s = _settings("bedrock")
+    assert s.get_api_key() == ""
+
+
+def test_get_api_key_unknown_provider_returns_empty():
+    s = _settings("mystery-provider")
     assert s.get_api_key() == ""
 
 
@@ -193,7 +201,7 @@ def test_make_llm_google_calls_correct_factory(mock_settings):
 
 @patch("analytics_agent.agent.llm.settings")
 def test_make_llm_unknown_provider_raises(mock_settings):
-    mock_settings.llm_provider = "bedrock"
+    mock_settings.llm_provider = "mystery-provider"
 
     from analytics_agent.agent.llm import _make_llm
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { buildUiMessages } from "../buildUiMessages";
 import { groupIntoTurns, shouldShowSeparator } from "../groupMessages";
 import type { MessageRecord, UIMessage } from "@/types";
