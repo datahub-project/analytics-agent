@@ -45,6 +45,7 @@ class ConversationDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     messages: list[MessageOut]
+    is_streaming: bool = False
 
 
 @router.get("", response_model=list[ConversationSummary])
@@ -109,6 +110,10 @@ async def get_conversation(conversation_id: str, session: AsyncSession = Depends
         )
         for msg in conv.messages
     ]
+    from analytics_agent.api.chat import _active_streams
+
+    is_streaming = conversation_id in _active_streams
+
     return ConversationDetail(
         id=conv.id,
         title=conv.title,
@@ -116,6 +121,7 @@ async def get_conversation(conversation_id: str, session: AsyncSession = Depends
         created_at=conv.created_at,
         updated_at=conv.updated_at,
         messages=messages,
+        is_streaming=is_streaming,
     )
 
 
