@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Settings2, ChevronDown, ChevronRight } from "lucide-react";
 import type { UIMessage, TurnUsage } from "@/types";
-import { shouldShowSeparator, getSepUsage } from "@/lib/groupMessages";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage, ToolResultMessage } from "./ToolCallMessage";
 import { SqlMessage } from "./SqlMessage";
@@ -143,8 +142,49 @@ export function AgentWorkBlock({
         </span>
 
         {effectiveTurnUsage && !isStreaming && (
-          <span className="text-[10px] font-mono text-muted-foreground/45 flex-shrink-0">
-            ↑{fmt(effectiveTurnUsage.input_tokens)} ↓{fmt(effectiveTurnUsage.output_tokens)}
+          <span
+            className="relative group/tokens inline-block flex-shrink-0"
+            data-print-hide
+          >
+            <span className="text-[10px] font-mono text-muted-foreground/45 cursor-default">
+              ↑{fmt(effectiveTurnUsage.input_tokens)} ↓{fmt(effectiveTurnUsage.output_tokens)}
+            </span>
+            <span
+              className="pointer-events-none absolute top-full right-0 mt-1 z-10
+                         min-w-[190px] px-2.5 py-1.5 rounded-md
+                         bg-foreground text-background text-[11px] font-mono
+                         opacity-0 group-hover/tokens:opacity-100 transition-opacity duration-150 shadow-lg
+                         flex flex-col"
+            >
+              <span className="flex justify-between gap-4 mb-1 pb-1 border-b border-background/20 opacity-70">
+                <span>This turn</span>
+                <span>{effectiveTurnUsage.calls} call{effectiveTurnUsage.calls === 1 ? "" : "s"}</span>
+              </span>
+              <span className="flex justify-between gap-4">
+                <span className="opacity-70">Input</span>
+                <span>{effectiveTurnUsage.input_tokens.toLocaleString()}</span>
+              </span>
+              <span className="flex justify-between gap-4">
+                <span className="opacity-70">Output</span>
+                <span>{effectiveTurnUsage.output_tokens.toLocaleString()}</span>
+              </span>
+              {effectiveTurnUsage.cache_read_tokens > 0 && (
+                <span className="flex justify-between gap-4">
+                  <span className="opacity-70">Cache read</span>
+                  <span>{effectiveTurnUsage.cache_read_tokens.toLocaleString()}</span>
+                </span>
+              )}
+              {effectiveTurnUsage.cache_creation_tokens > 0 && (
+                <span className="flex justify-between gap-4">
+                  <span className="opacity-70">Cache write</span>
+                  <span>{effectiveTurnUsage.cache_creation_tokens.toLocaleString()}</span>
+                </span>
+              )}
+              <span className="flex justify-between gap-4 mt-1 pt-1 border-t border-background/20 font-semibold">
+                <span className="opacity-70">Total</span>
+                <span>{effectiveTurnUsage.total_tokens.toLocaleString()}</span>
+              </span>
+            </span>
           </span>
         )}
 
@@ -161,24 +201,9 @@ export function AgentWorkBlock({
           ref={bodyRef}
           className="border border-t-0 border-border/70 rounded-b-lg px-3 py-2 space-y-1 max-h-72 overflow-y-auto bg-muted/5"
         >
-          {workMessages.map((msg, idx) => {
-            const showSep = shouldShowSeparator(workMessages, idx);
-            const sepUsage = showSep ? getSepUsage(workMessages, idx) : undefined;
-
+          {workMessages.map((msg) => {
             return (
               <div key={msg.id}>
-                {showSep && (
-                  <div className="flex items-center gap-2 py-1">
-                    <div className="flex-1 h-px bg-border/50" />
-                    {sepUsage && (
-                      <span className="text-[9px] font-mono text-muted-foreground/40 flex-shrink-0">
-                        ↑{fmt(sepUsage.input_tokens)} ↓{sepUsage.output_tokens}
-                      </span>
-                    )}
-                    <div className="flex-1 h-px bg-border/50" />
-                  </div>
-                )}
-
                 {msg.event_type === "TEXT" && msg.isThinking && showReasoning && (
                   <ThinkingMessage payload={msg.payload as never} isStreaming={false} usage={msg.usage} />
                 )}

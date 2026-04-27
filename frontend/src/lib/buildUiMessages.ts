@@ -25,20 +25,29 @@ export function buildUiMessages(records: MessageRecord[]): {
   let completeText = "";
   let seenToolCallAfterText = false;
   let turnUsages: UsagePayload[] = [];
+  // USAGE arrives at on_chat_model_end — BEFORE the next TOOL_CALL or COMPLETE
+  // flushes the pending text. Stash it here and attach to the message pushed by
+  // the next flushText() call (the thinking/response from the same LLM call).
+  let pendingUsage: UsagePayload | null = null;
 
   const flushText = (asThinking: boolean) => {
     if (pendingTextChunks.length === 0) return;
     const merged = pendingTextChunks.map((c) => c.text).join("");
     const finalText = !asThinking && completeText ? completeText : merged;
     if (finalText.trim()) {
-      result.push({
+      const msg: UIMessage = {
         id: pendingTextChunks[0].id,
         event_type: "TEXT",
         role: "assistant",
         payload: { text: finalText },
         isThinking: asThinking,
         created_at: pendingTextChunks[0].created_at,
-      });
+      };
+      if (pendingUsage) {
+        msg.usage = pendingUsage;
+        pendingUsage = null;
+      }
+      result.push(msg);
     }
     pendingTextChunks = [];
     completeText = "";
@@ -104,10 +113,29 @@ export function buildUiMessages(records: MessageRecord[]): {
         totals.cache_creation_tokens += u.cache_creation_tokens || 0;
         totals.calls += 1;
         turnUsages.push(u);
+        // If we have buffered TEXT chunks, the USAGE belongs to them — they'll
+        // be flushed as a thinking/response message on the next TOOL_CALL or
+        // COMPLETE. Stash and attach at flush time.
+        if (pendingTextChunks.length > 0) {
+          pendingUsage = u;
+          break;
+        }
+        // No pending text — this LLM call produced only tool calls. Walk back
+        // within the current call's slice (stop at TOOL_RESULT/SQL/CHART/ERROR)
+        // and attach to the most recent TOOL_CALL.
         for (let j = result.length - 1; j >= 0; j--) {
           const r = result[j];
-          if (r.role === "assistant" && (r.event_type === "TEXT" || r.event_type === "TOOL_CALL")) {
+          if (r.role !== "assistant") continue;
+          if (r.event_type === "TOOL_CALL") {
             r.usage = u;
+            break;
+          }
+          if (
+            r.event_type === "TOOL_RESULT" ||
+            r.event_type === "SQL" ||
+            r.event_type === "CHART" ||
+            r.event_type === "ERROR"
+          ) {
             break;
           }
         }

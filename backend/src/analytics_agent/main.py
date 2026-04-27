@@ -413,6 +413,14 @@ async def _load_llm_config_from_db() -> None:
             os.environ[env_var] = value
             setattr(settings, attr, value)
 
+    # Prompt caching toggle (bool stored as "true"/"false" string).
+    if "enable_prompt_cache" in cfg_data and not os.environ.get("ENABLE_PROMPT_CACHE"):
+        raw_flag = cfg_data["enable_prompt_cache"]
+        # Tolerate both legacy bool storage and current string form.
+        flag_on = raw_flag is True or (isinstance(raw_flag, str) and raw_flag.lower() == "true")
+        settings.enable_prompt_cache = flag_on
+        os.environ["ENABLE_PROMPT_CACHE"] = "true" if flag_on else "false"
+
 
 def _run_migrations() -> None:
     """Run Alembic migrations synchronously (Alembic is a sync tool)."""

@@ -1731,6 +1731,7 @@ class LlmSettingsResponse(BaseModel):
     # to decide whether to show a masked-placeholder in the settings UI.
     has_aws_keys: bool = False
     aws_region: str = ""
+    enable_prompt_cache: bool = True
 
 
 class UpdateLlmSettingsRequest(BaseModel):
@@ -1742,6 +1743,8 @@ class UpdateLlmSettingsRequest(BaseModel):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
+    # Prompt caching for system prompt + tool definitions (Anthropic + Bedrock).
+    enable_prompt_cache: bool = True
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1770,6 +1773,7 @@ async def get_llm_settings() -> LlmSettingsResponse:
         has_key=has_key,
         has_aws_keys=has_aws_keys,
         aws_region=cfg.aws_region,
+        enable_prompt_cache=cfg.enable_prompt_cache,
     )
 
 
@@ -1911,6 +1915,8 @@ async def update_llm_settings(
         new_cfg["aws_secret_access_key"] = _fernet_encrypt(body.aws_secret_access_key)
     if body.aws_session_token:
         new_cfg["aws_session_token"] = _fernet_encrypt(body.aws_session_token)
+    # Bool — always persisted (no truthy gate; the user may want to set it false).
+    new_cfg["enable_prompt_cache"] = "true" if body.enable_prompt_cache else "false"
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -1943,6 +1949,8 @@ async def update_llm_settings(
     if body.aws_session_token:
         os.environ["AWS_SESSION_TOKEN"] = body.aws_session_token
         cfg.aws_session_token = body.aws_session_token
+    cfg.enable_prompt_cache = body.enable_prompt_cache
+    os.environ["ENABLE_PROMPT_CACHE"] = "true" if body.enable_prompt_cache else "false"
 
     return {"success": True, "message": "LLM settings saved."}
 
