@@ -3,7 +3,7 @@ import json
 import sys
 import urllib.request
 
-port = sys.argv[1] if len(sys.argv) > 1 else "8000"
+port = sys.argv[1] if len(sys.argv) > 1 else "8100"
 try:
     with urllib.request.urlopen(f"http://localhost:{port}/api/settings/connections", timeout=3) as r:
         conns = json.load(r)

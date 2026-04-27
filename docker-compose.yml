@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8100:8100"
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://talk_to_data:talk_to_data@postgres:5432/talk_to_data

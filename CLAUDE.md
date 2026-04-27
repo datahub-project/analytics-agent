@@ -38,8 +38,8 @@ When `.env`, `config.yaml`, or Python source changes, the backend needs a restar
 ```bash
 pkill -f "analytics_agent.main"; sleep 2
 set -a && source .env && set +a
-nohup uv run uvicorn analytics_agent.main:app --port 8000 > /tmp/analytics_agent.log 2>&1 &
-sleep 5 && curl -s http://localhost:8000/api/engines
+nohup uv run uvicorn analytics_agent.main:app --port 8100 > /tmp/analytics_agent.log 2>&1 &
+sleep 5 && curl -s http://localhost:8100/api/engines
 ```
 
 The Vite frontend hot-reloads automatically on TypeScript/TSX changes — no restart needed.

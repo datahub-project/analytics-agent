@@ -1,7 +1,8 @@
 set dotenv-load := true
 
-port := "8000"
-log  := "/tmp/analytics_agent.log"
+port     := "8100"
+dev_port := "8101"
+log      := "/tmp/analytics_agent.log"
 
 # List available recipes
 default:
@@ -33,14 +34,14 @@ typecheck:
 
 # Start backend (blocks; use 'dev' for background)
 serve:
-    uv run uvicorn analytics_agent.main:app --reload --port {{port}}
+    uv run uvicorn analytics_agent.main:app --reload --port {{dev_port}}
 
 # Build frontend if stale, then start backend in background (with auto-reload on Python changes)
 dev: build-if-stale
     pkill -f "analytics_agent.main" || true
-    nohup uv run uvicorn analytics_agent.main:app --reload --port {{port}} > {{log}} 2>&1 &
-    sleep 3 && curl -s http://localhost:{{port}}/api/engines | head -c 120
-    @echo "\n→ http://localhost:{{port}}  (logs: just logs)"
+    nohup uv run uvicorn analytics_agent.main:app --reload --port {{dev_port}} > {{log}} 2>&1 &
+    sleep 3 && curl -s http://localhost:{{dev_port}}/api/engines | head -c 120
+    @echo "\n→ http://localhost:{{dev_port}}  (logs: just logs)"
 
 # Start backend, rebuilding frontend if stale
 start: build-if-stale
@@ -57,8 +58,8 @@ frontend:
 # Start backend (reload mode) + Vite dev server in parallel
 dev-full:
     pkill -f "analytics_agent.main" || true
-    nohup uv run uvicorn analytics_agent.main:app --reload --port {{port}} > {{log}} 2>&1 &
-    @echo "Backend → http://localhost:{{port}}"
+    nohup uv run uvicorn analytics_agent.main:app --reload --port {{dev_port}} > {{log}} 2>&1 &
+    @echo "Backend → http://localhost:{{dev_port}}"
     cd frontend && pnpm dev
 
 # Kill the backend

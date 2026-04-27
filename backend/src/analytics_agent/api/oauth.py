@@ -417,7 +417,7 @@ async def initiate_oauth(engine_name: str, session: AsyncSession = Depends(get_s
         raise HTTPException(status_code=400, detail=str(e))
 
     redirect_uri = (
-        app_cfg.get("redirect_uri") or "http://localhost:8000/api/oauth/snowflake/callback"
+        app_cfg.get("redirect_uri") or "http://localhost:8100/api/oauth/snowflake/callback"
     )
     nonce = secrets.token_urlsafe(32)
     state_payload = orjson.dumps(
@@ -581,7 +581,7 @@ async def configure_oauth_app(
     if not body.client_id or not client_secret:
         raise HTTPException(status_code=400, detail="client_id and client_secret are required.")
 
-    redirect_uri = body.redirect_uri or "http://localhost:8000/api/oauth/snowflake/callback"
+    redirect_uri = body.redirect_uri or "http://localhost:8100/api/oauth/snowflake/callback"
     await _save_app_config(repo, engine_name, body.client_id, client_secret, redirect_uri)
     return {"success": True, "message": "OAuth app configuration saved."}
 
