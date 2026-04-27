@@ -145,7 +145,6 @@ export function AgentWorkBlock({
         {effectiveTurnUsage && !isStreaming && (
           <span className="text-[10px] font-mono text-muted-foreground/45 flex-shrink-0">
             ↑{fmt(effectiveTurnUsage.input_tokens)} ↓{fmt(effectiveTurnUsage.output_tokens)}
-            {effectiveTurnUsage.calls > 1 && <span className="opacity-60"> · {effectiveTurnUsage.calls}</span>}
           </span>
         )}
 
