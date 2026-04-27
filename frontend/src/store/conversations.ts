@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ConversationSummary, Engine, UIMessage, UsagePayload } from "@/types";
+import type { ConversationSummary, Engine, UIMessage, UsagePayload, TurnUsage } from "@/types";
 
 export interface UsageTotals {
   input_tokens: number;
@@ -44,6 +44,7 @@ interface ConversationsState {
   setUsageTotals: (totals: UsageTotals) => void;
   addUsage: (usage: UsagePayload) => void;
   attachUsageToMessage: (messageId: string, usage: UsagePayload) => void;
+  setFinalMsgTurnUsage: (tu: TurnUsage) => void;
   finalizeStreaming: () => void;
 }
 
@@ -127,6 +128,16 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
     set((s) => ({
       messages: s.messages.map((m) => (m.id === messageId ? { ...m, usage } : m)),
     })),
+  setFinalMsgTurnUsage: (tu) =>
+    set((s) => {
+      for (let j = s.messages.length - 1; j >= 0; j--) {
+        const m = s.messages[j];
+        if (m.role === "assistant" && m.event_type === "TEXT" && !m.isThinking) {
+          return { messages: s.messages.map((msg, i) => (i === j ? { ...msg, turnUsage: tu } : msg)) };
+        }
+      }
+      return {};
+    }),
   finalizeStreaming: () =>
     set((s) => ({
       messages: s.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),

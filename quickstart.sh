@@ -422,7 +422,7 @@ docker run -d \
     --name analytics-agent-quickstart \
     --env-file .env.quickstart \
     -v "${REPO_ROOT}/config.yaml:/app/config.yaml:ro" \
-    -p 8000:8000 \
+    -p 8100:8100 \
     analytics-agent-quickstart
 
 # Wait for talkster to respond
@@ -430,7 +430,7 @@ go "Waiting for talkster to start..."
 WAIT_SECS=60
 elapsed=0
 printf "    "
-until curl -sf --max-time 2 http://localhost:8000/ &>/dev/null; do
+until curl -sf --max-time 2 http://localhost:8100/ &>/dev/null; do
     if [[ $elapsed -ge $WAIT_SECS ]]; then
         echo ""
         die "Analytics Agent did not start within ${WAIT_SECS}s. Logs: docker logs analytics-agent-quickstart"
@@ -468,7 +468,7 @@ if [[ "${DATAHUB_USE_MCP:-false}" == "true" ]]; then
 }
 EOF
 )
-    _MCP_RESULT=$(curl -sf -X POST http://localhost:8000/api/settings/connections \
+    _MCP_RESULT=$(curl -sf -X POST http://localhost:8100/api/settings/connections \
         -H "Content-Type: application/json" \
         -d "$_MCP_PAYLOAD" 2>/dev/null || echo "failed")
     if echo "$_MCP_RESULT" | grep -q '"success":true'; then
@@ -481,11 +481,11 @@ fi
 echo ""
 echo -e "${BOLD}╔══════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║  Analytics Agent is ready!                  ║${NC}"
-echo -e "${BOLD}║  → http://localhost:8000             ║${NC}"
+echo -e "${BOLD}║  → http://localhost:8100             ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════╝${NC}"
 echo ""
 if [[ -z "$_LLM_KEY_SOURCE" ]]; then
-    echo -e "${CYAN}  First time?${NC} Open http://localhost:8000 — a setup wizard"
+    echo -e "${CYAN}  First time?${NC} Open http://localhost:8100 — a setup wizard"
     echo -e "  will walk you through picking a model and entering your API key."
     echo ""
 fi

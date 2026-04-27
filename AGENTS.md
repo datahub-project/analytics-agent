@@ -16,8 +16,8 @@ A `justfile` at the repo root covers all common tasks. Install `just` once (`bre
 
 ```bash
 just install          # uv sync + pnpm install
-just start            # build frontend if stale, start backend at :8000
-just port=8001 start  # same on a custom port
+just start            # build frontend if stale, start backend at :8100
+just port=8102 start  # same on a custom port
 just stop             # kill the backend
 just nuke             # wipe the DB (start from scratch / re-trigger wizard)
 just start-remote     # start + print DataHub connection status
@@ -33,8 +33,8 @@ just build            # force frontend rebuild
 ```bash
 uv sync
 cd frontend && pnpm install && pnpm build && cd ..
-uv run uvicorn analytics_agent.main:app --reload --port 8000
-# → http://localhost:8000
+uv run uvicorn analytics_agent.main:app --reload --port 8101
+# → http://localhost:8101
 # The setup wizard handles LLM key + connections on first run.
 # Optional: cp .env.example .env to pre-configure credentials.
 ```
@@ -42,12 +42,12 @@ uv run uvicorn analytics_agent.main:app --reload --port 8000
 ### Two-process mode (frontend hot reload)
 
 ```bash
-# Terminal 1 — backend
-uv run uvicorn analytics_agent.main:app --reload --port 8000
+# Terminal 1 — backend (dev)
+uv run uvicorn analytics_agent.main:app --reload --port 8101
 
 # Terminal 2 — Vite dev server with HMR
 cd frontend && pnpm dev
-# → http://localhost:5173 (proxies /api/* to :8000)
+# → http://localhost:5173 (proxies /api/* to :8101)
 ```
 
 **DataHub credentials**: run `datahub init --sso --host https://your-instance.acryl.io/gms` once. The app reads `~/.datahubenv` automatically; or set `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN` in `config.yaml` / `.env`.
@@ -262,7 +262,7 @@ Edit `prompts/system_prompt.md`. The prompt is loaded at runtime — no restart 
 docker build -f docker/Dockerfile -t analytics-agent .
 
 # Run
-docker run -p 8000:8000 --env-file .env analytics-agent
+docker run -p 8100:8100 --env-file .env analytics-agent
 ```
 
 GitHub Actions (`.github/workflows/docker.yml`) builds and pushes to GHCR on every push to `main` and version tags.

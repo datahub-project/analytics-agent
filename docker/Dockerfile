@@ -26,7 +26,7 @@ RUN cp config.yaml.example config.yaml
 # Copy built SPA — FastAPI serves it via static files + SPA fallback
 COPY --from=fe-build /app/frontend/dist ./frontend/dist
 
-EXPOSE 8000
+EXPOSE 8100
 
 CMD ["uv", "run", "uvicorn", "analytics_agent.main:app", \
-     "--host", "0.0.0.0", "--port", "8000"]
+     "--host", "0.0.0.0", "--port", "8100"]

@@ -34,7 +34,7 @@ bash quickstart.sh
 No `.env` editing required. The script:
 - Starts a local DataHub instance (or connects to an existing one)
 - Loads the Olist e-commerce sample dataset + catalog metadata
-- Builds and launches Analytics Agent at **http://localhost:8000**
+- Builds and launches Analytics Agent at **http://localhost:8100**
 
 Open the browser — a setup wizard walks you through naming your agent, picking a model (Anthropic, OpenAI, or Google), and entering your API key. If you already have one of those keys exported in your shell, it's picked up automatically.
 
@@ -76,12 +76,12 @@ Open the browser — a setup wizard walks you through naming your agent, picking
 git clone https://github.com/datahub-project/analytics-agent.git
 cd analytics-agent
 just install   # uv sync + pnpm install
-just start     # builds frontend, starts backend at :8000
+just start     # builds frontend, starts backend at :8100
 ```
 
-Open **http://localhost:8000** — a setup wizard handles the LLM key and connections on first run.
+Open **http://localhost:8100** — a setup wizard handles the LLM key and connections on first run.
 
-> **Without `just`:** `uv sync && cd frontend && pnpm install && pnpm build && cd .. && uv run uvicorn analytics_agent.main:app --port 8000`
+> **Without `just`:** `uv sync && cd frontend && pnpm install && pnpm build && cd .. && uv run uvicorn analytics_agent.main:app --port 8100`
 
 ### Optional: pre-configure via `.env`
 
@@ -112,10 +112,10 @@ DATAHUB_GMS_TOKEN=eyJhbGci...
 ### Development mode (hot reload)
 
 ```bash
-# Terminal 1 — backend
-uv run uvicorn analytics_agent.main:app --reload --port 8000
+# Terminal 1 — backend (dev)
+uv run uvicorn analytics_agent.main:app --reload --port 8101
 
-# Terminal 2 — frontend HMR (http://localhost:5173)
+# Terminal 2 — frontend HMR (http://localhost:5173, proxies /api/* to :8101)
 cd frontend && pnpm dev
 ```
 
@@ -131,7 +131,7 @@ datahub init --sso --host https://your-instance.acryl.io/gms --token-duration ON
 datahub init --host http://localhost:8080 --username datahub --password datahub
 
 # Verify the connection
-curl -s -X POST http://localhost:8000/api/settings/connections/datahub/test
+curl -s -X POST http://localhost:8100/api/settings/connections/datahub/test
 ```
 
 ---
@@ -216,14 +216,14 @@ The quickstart uses the DataHub MySQL container. For non-quickstart runs, SQLite
 
 ```bash
 docker build -f docker/Dockerfile -t analytics-agent .
-docker run -p 8000:8000 --env-file .env analytics-agent
+docker run -p 8100:8100 --env-file .env analytics-agent
 ```
 
 ### Single process (no Docker)
 
 ```bash
 cd frontend && pnpm build && cd ..
-uv run uvicorn analytics_agent.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn analytics_agent.main:app --host 0.0.0.0 --port 8100
 ```
 
 ---
