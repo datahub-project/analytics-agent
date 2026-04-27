@@ -1,5 +1,23 @@
 import { create } from "zustand";
-import type { ConversationSummary, Engine, UIMessage } from "@/types";
+import type { ConversationSummary, Engine, UIMessage, UsagePayload } from "@/types";
+
+export interface UsageTotals {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  calls: number;
+}
+
+const EMPTY_USAGE: UsageTotals = {
+  input_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  cache_read_tokens: 0,
+  cache_creation_tokens: 0,
+  calls: 0,
+};
 
 interface ConversationsState {
   conversations: ConversationSummary[];
@@ -9,6 +27,7 @@ interface ConversationsState {
   isStreaming: boolean;
   // ID of the current turn's streaming TEXT message (reset each turn)
   streamingTextId: string | null;
+  usageTotals: UsageTotals;
 
   setConversations: (list: ConversationSummary[]) => void;
   addConversation: (conv: ConversationSummary) => void;
@@ -22,6 +41,10 @@ interface ConversationsState {
   setEngines: (engines: Engine[]) => void;
   setStreaming: (v: boolean) => void;
   updateConversationTitle: (id: string, title: string) => void;
+  setUsageTotals: (totals: UsageTotals) => void;
+  addUsage: (usage: UsagePayload) => void;
+  attachUsageToMessage: (messageId: string, usage: UsagePayload) => void;
+  finalizeStreaming: () => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set) => ({
@@ -31,6 +54,7 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
   engines: [],
   isStreaming: false,
   streamingTextId: null,
+  usageTotals: { ...EMPTY_USAGE },
 
   setConversations: (list) => set({ conversations: list }),
   addConversation: (conv) =>
@@ -40,7 +64,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
       conversations: s.conversations.filter((c) => c.id !== id),
       activeId: s.activeId === id ? null : s.activeId,
     })),
-  setActiveId: (id) => set({ activeId: id, messages: [], streamingTextId: null }),
+  setActiveId: (id) =>
+    set({ activeId: id, messages: [], streamingTextId: null, usageTotals: { ...EMPTY_USAGE } }),
   setMessages: (msgs) => set({ messages: msgs }),
   appendMessage: (msg) =>
     set((s) => ({ messages: [...s.messages, msg] })),
@@ -95,5 +120,29 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
       conversations: s.conversations.map((c) =>
         c.id === id ? { ...c, title } : c
       ),
+    })),
+
+  setUsageTotals: (totals) => set({ usageTotals: totals }),
+  attachUsageToMessage: (messageId, usage) =>
+    set((s) => ({
+      messages: s.messages.map((m) => (m.id === messageId ? { ...m, usage } : m)),
+    })),
+  finalizeStreaming: () =>
+    set((s) => ({
+      messages: s.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
+      streamingTextId: null,
+    })),
+  addUsage: (usage) =>
+    set((s) => ({
+      usageTotals: {
+        input_tokens: s.usageTotals.input_tokens + (usage.input_tokens || 0),
+        output_tokens: s.usageTotals.output_tokens + (usage.output_tokens || 0),
+        total_tokens: s.usageTotals.total_tokens + (usage.total_tokens || 0),
+        cache_read_tokens:
+          s.usageTotals.cache_read_tokens + (usage.cache_read_tokens || 0),
+        cache_creation_tokens:
+          s.usageTotals.cache_creation_tokens + (usage.cache_creation_tokens || 0),
+        calls: s.usageTotals.calls + 1,
+      },
     })),
 }));

@@ -1,13 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { Sparkles, ChevronDown, ChevronRight } from "lucide-react";
-import type { TextPayload } from "@/types";
+import type { TextPayload, UsagePayload } from "@/types";
+
+function fmt(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
 
 interface Props {
   payload: TextPayload;
   isStreaming?: boolean;
+  usage?: UsagePayload;
 }
 
-export function ThinkingMessage({ payload, isStreaming = false }: Props) {
+export function ThinkingMessage({ payload, isStreaming = false, usage }: Props) {
   const [expanded, setExpanded] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const [contentHeight, setContentHeight] = useState(0);
@@ -124,6 +131,13 @@ export function ThinkingMessage({ payload, isStreaming = false }: Props) {
               </span>
             )}
           </span>
+
+          {/* Inline cost — shown when done and usage is known */}
+          {usage && !isStreaming && (
+            <span className="text-[10px] font-mono text-muted-foreground/45 flex-shrink-0 mr-1">
+              ↑{fmt(usage.input_tokens)} ↓{usage.output_tokens}
+            </span>
+          )}
 
           {/* Chevron (only when done) */}
           {!isStreaming && (

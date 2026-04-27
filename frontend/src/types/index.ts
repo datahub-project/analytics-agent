@@ -5,6 +5,7 @@ export type SSEEventType =
   | "TOOL_RESULT"
   | "SQL"
   | "CHART"
+  | "USAGE"
   | "COMPLETE"
   | "ERROR";
 
@@ -43,6 +44,15 @@ export interface ChartPayload {
   chart_type: string;
 }
 
+export interface UsagePayload {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  node: string;
+}
+
 export interface Engine {
   name: string;
   type: string;
@@ -71,6 +81,15 @@ export interface ConversationDetail extends ConversationSummary {
   is_streaming?: boolean;
 }
 
+export interface TurnUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  calls: number;
+}
+
 // UI message (may be streaming)
 export interface UIMessage {
   id: string;
@@ -79,4 +98,7 @@ export interface UIMessage {
   payload: Record<string, unknown>;
   isStreaming?: boolean;
   isThinking?: boolean; // TEXT message that precedes a tool call
+  usage?: UsagePayload; // per-call cost (shown inline on thinking blocks / step separators)
+  turnUsage?: TurnUsage; // aggregated cost for the whole agent turn (shown on final response)
+  created_at?: string; // ISO timestamp for elapsed-time computation
 }

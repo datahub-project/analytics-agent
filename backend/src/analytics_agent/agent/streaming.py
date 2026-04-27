@@ -222,6 +222,31 @@ async def stream_graph_events(
                         },
                     }
 
+            # ── USAGE (token counts per LLM call) ──
+            elif event_type == "on_chat_model_end" and node not in ("chart", ""):
+                output = data.get("output")
+                usage = getattr(output, "usage_metadata", None) if output is not None else None
+                if usage:
+                    input_tokens = int(usage.get("input_tokens", 0) or 0)
+                    output_tokens = int(usage.get("output_tokens", 0) or 0)
+                    total_tokens = int(usage.get("total_tokens", input_tokens + output_tokens) or 0)
+                    details = usage.get("input_token_details") or {}
+                    cache_read = int(details.get("cache_read", 0) or 0)
+                    cache_creation = int(details.get("cache_creation", 0) or 0)
+                    yield {
+                        "event": "USAGE",
+                        "conversation_id": conversation_id,
+                        "message_id": run_id,
+                        "payload": {
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "total_tokens": total_tokens,
+                            "cache_read_tokens": cache_read,
+                            "cache_creation_tokens": cache_creation,
+                            "node": node,
+                        },
+                    }
+
             # ── Capture final state for CHART ──
             elif event_type == "on_chain_end" and name == "LangGraph":
                 output = data.get("output", {})

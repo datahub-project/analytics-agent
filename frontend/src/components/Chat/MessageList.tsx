@@ -1,19 +1,17 @@
-import { useEffect, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import type { UIMessage } from "@/types";
 import { TextMessage } from "./messages/TextMessage";
-import { ThinkingMessage } from "./messages/ThinkingMessage";
-import { ToolCallMessage, ToolResultMessage } from "./messages/ToolCallMessage";
-import { SqlMessage } from "./messages/SqlMessage";
-import { ChartMessage } from "./messages/ChartMessage";
-import { ErrorMessage } from "./messages/ErrorMessage";
+import { AgentWorkBlock } from "./messages/AgentWorkBlock";
+import { groupIntoTurns } from "@/lib/groupMessages";
 
 interface Props {
   messages: UIMessage[];
+  isStreaming?: boolean;
   showReasoning?: boolean;
   onChartError?: (error: string) => void;
 }
 
-export function MessageList({ messages, showReasoning = true, onChartError }: Props) {
+export function MessageList({ messages, isStreaming = false, showReasoning = true, onChartError }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -28,47 +26,45 @@ export function MessageList({ messages, showReasoning = true, onChartError }: Pr
     );
   }
 
+  const groups = groupIntoTurns(messages, isStreaming);
+
   return (
     <div id="chat-messages" className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-      {messages.map((msg) => (
-        <div
-          key={msg.id}
-          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          data-print-role={msg.role}
-          data-print-hide={msg.event_type === "TOOL_CALL" || msg.event_type === "TOOL_RESULT" ? "" : undefined}
-        >
-          {msg.event_type === "TEXT" && !msg.isThinking && (
-            <TextMessage
-              payload={msg.payload as never}
-              role={msg.role}
-              isStreaming={msg.isStreaming}
+      {groups.map((group) => (
+        <Fragment key={group.key}>
+          {/* User message */}
+          {group.userMsg && (
+            <div className="flex flex-col items-end" data-print-role="user">
+              <TextMessage
+                payload={group.userMsg.payload as never}
+                role="user"
+                isStreaming={false}
+              />
+            </div>
+          )}
+
+          {/* Agent work block — only shown when there are intermediate steps */}
+          {group.workMsgs.length > 0 && (
+            <AgentWorkBlock
+              workMessages={group.workMsgs}
+              turnUsage={group.finalMsg?.turnUsage}
+              isStreaming={group.isActivelyStreaming}
+              showReasoning={showReasoning}
+              onChartError={onChartError}
             />
           )}
-          {msg.event_type === "TEXT" && msg.isThinking && showReasoning && (
-            <ThinkingMessage
-              payload={msg.payload as never}
-              isStreaming={false}
-            />
+
+          {/* Final visible response */}
+          {group.finalMsg && (group.finalMsg.payload as { text?: string }).text?.trim() && (
+            <div className="flex flex-col items-start" data-print-role="assistant">
+              <TextMessage
+                payload={group.finalMsg.payload as never}
+                role="assistant"
+                isStreaming={group.finalMsg.isStreaming}
+              />
+            </div>
           )}
-          {msg.event_type === "THINKING" && (
-            <ThinkingMessage payload={msg.payload as never} />
-          )}
-          {msg.event_type === "TOOL_CALL" && (
-            <ToolCallMessage payload={msg.payload as never} />
-          )}
-          {msg.event_type === "TOOL_RESULT" && (
-            <ToolResultMessage payload={msg.payload as never} />
-          )}
-          {msg.event_type === "SQL" && (
-            <SqlMessage payload={msg.payload as never} />
-          )}
-          {msg.event_type === "CHART" && (
-            <ChartMessage payload={msg.payload as never} onRenderError={onChartError} />
-          )}
-          {msg.event_type === "ERROR" && (
-            <ErrorMessage payload={msg.payload as never} />
-          )}
-        </div>
+        </Fragment>
       ))}
       <div ref={bottomRef} />
     </div>

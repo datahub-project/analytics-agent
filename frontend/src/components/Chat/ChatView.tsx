@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, useRef } from "react";
-import type { MessageRecord } from "@/types";
+import type { MessageRecord, UsagePayload } from "@/types";
 import { streamMessage, reattachStream } from "@/api/stream";
 import { generateTitle, getConversation, createConversation } from "@/api/conversations";
 import { Download, X } from "lucide-react";
@@ -11,88 +11,7 @@ import { EngineSelector } from "./EngineSelector";
 import { WelcomeView } from "./WelcomeView";
 import { ContextStatusBar } from "./ContextStatusBar";
 import type { UIMessage } from "@/types";
-
-/**
- * Convert stored DB message rows into UI messages for display.
- * Key differences from live streaming:
- * - Individual TEXT streaming chunks are merged into one bubble
- * - COMPLETE event text supersedes merged chunks when non-empty
- * - TEXT chunks before a TOOL_CALL are marked isThinking=true
- * - COMPLETE events themselves are not rendered (they're just metadata)
- */
-function buildUiMessages(records: MessageRecord[]): UIMessage[] {
-  const result: UIMessage[] = [];
-
-  // Group by turn: collect blocks between user messages
-  let pendingTextChunks: { id: string; text: string }[] = [];
-  let completeText = "";
-  let seenToolCallAfterText = false;
-
-  const flushText = (asThinking: boolean) => {
-    if (pendingTextChunks.length === 0) return;
-    const merged = pendingTextChunks.map((c) => c.text).join("");
-    const finalText = !asThinking && completeText ? completeText : merged;
-    if (finalText.trim()) {
-      result.push({
-        id: pendingTextChunks[0].id,
-        event_type: "TEXT",
-        role: "assistant",
-        payload: { text: finalText },
-        isThinking: asThinking,
-      });
-    }
-    pendingTextChunks = [];
-    completeText = "";
-    seenToolCallAfterText = false;
-  };
-
-  for (let i = 0; i < records.length; i++) {
-    const m = records[i];
-
-    if (m.role === "user") {
-      // Flush any pending assistant text first
-      flushText(seenToolCallAfterText);
-      result.push({ id: m.id, event_type: m.event_type, role: "user", payload: m.payload });
-      continue;
-    }
-
-    // Assistant events
-    switch (m.event_type) {
-      case "TEXT":
-        pendingTextChunks.push({ id: m.id, text: (m.payload.text as string) || "" });
-        break;
-
-      case "COMPLETE":
-        completeText = (m.payload.text as string) || "";
-        // After COMPLETE: flush as final response (not thinking)
-        flushText(false);
-        break;
-
-      case "TOOL_CALL":
-        // Any text before a tool call is thinking/reasoning
-        flushText(true);
-        seenToolCallAfterText = true;
-        result.push({ id: m.id, event_type: "TOOL_CALL", role: "assistant", payload: m.payload });
-        break;
-
-      case "TOOL_RESULT":
-      case "SQL":
-      case "CHART":
-      case "ERROR":
-        result.push({ id: m.id, event_type: m.event_type, role: "assistant", payload: m.payload });
-        break;
-
-      // Skip other internal events
-      default:
-        break;
-    }
-  }
-
-  // Flush any trailing text (incomplete turn)
-  flushText(seenToolCallAfterText);
-
-  return result;
-}
+import { buildUiMessages } from "@/lib/buildUiMessages";
 
 export function ChatView() {
   const {
@@ -110,6 +29,11 @@ export function ChatView() {
     setStreaming,
     updateConversationTitle,
     conversations,
+    usageTotals,
+    setUsageTotals,
+    addUsage,
+    attachUsageToMessage,
+    finalizeStreaming,
   } = useConversationsStore();
 
   const activeConv = conversations.find((c) => c.id === activeId);
@@ -142,7 +66,9 @@ export function ChatView() {
       if (activeId !== snapId) return;
 
       if (!detail.is_streaming) {
-        setMessages(buildUiMessages(detail.messages));
+        const { messages: uiMsgs, totals } = buildUiMessages(detail.messages);
+        setMessages(uiMsgs);
+        setUsageTotals(totals);
         return;
       }
 
@@ -156,7 +82,9 @@ export function ChatView() {
       const previousMessages = lastUserIdx >= 0
         ? detail.messages.slice(0, lastUserIdx + 1)
         : detail.messages;
-      setMessages(buildUiMessages(previousMessages));
+      const { messages: prevUiMsgs, totals: prevTotals } = buildUiMessages(previousMessages);
+      setMessages(prevUiMsgs);
+      setUsageTotals(prevTotals);
 
       setStreaming(true);
       resetStreamingText();
@@ -184,6 +112,15 @@ export function ChatView() {
               role: "assistant",
               payload: event.payload,
             });
+          } else if (event.event === "USAGE") {
+            const usage = event.payload as unknown as UsagePayload;
+            addUsage(usage);
+            const state = useConversationsStore.getState();
+            const targetId =
+              state.streamingTextId ??
+              [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
+              [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
+            if (targetId) attachUsageToMessage(targetId, usage);
           } else if (event.event !== "COMPLETE") {
             appendMessage({
               id: event.message_id,
@@ -213,7 +150,9 @@ export function ChatView() {
           // initial fetch, then generate/update the title.
           getConversation(snapId).then((refreshed) => {
             if (activeId !== snapId) return;
-            setMessages(buildUiMessages(refreshed.messages));
+            const { messages: uiMsgs, totals } = buildUiMessages(refreshed.messages);
+            setMessages(uiMsgs);
+            setUsageTotals(totals);
           }).catch(() => {});
           generateTitle(snapId).then((r) => {
             if (r.updated) updateConversationTitle(snapId, r.title);
@@ -283,6 +222,17 @@ export function ChatView() {
             role: "assistant",
             payload: event.payload,
           });
+        } else if (event.event === "USAGE") {
+          const usage = event.payload as unknown as UsagePayload;
+          addUsage(usage);
+          // Prefer streaming text (final response), then last TOOL_CALL (iteration cost),
+          // then any assistant message. This keeps usage on TOOL_CALL so separators show per-call stats.
+          const state = useConversationsStore.getState();
+          const targetId =
+            state.streamingTextId ??
+            [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
+            [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
+          if (targetId) attachUsageToMessage(targetId, usage);
         } else if (event.event !== "COMPLETE") {
           appendMessage({
             id: event.message_id,
@@ -306,6 +256,7 @@ export function ChatView() {
       });
     } finally {
       streamAbortRef.current = null;
+      finalizeStreaming();
       setStreaming(false);
       if (!aborted) {
         // Fire-and-forget title generation after the turn completes
@@ -380,6 +331,7 @@ export function ChatView() {
 
       <MessageList
         messages={messages}
+        isStreaming={isStreaming}
         showReasoning={showReasoning}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;
