@@ -174,12 +174,11 @@ print(gms.get('server',''), gms.get('token',''))
     go "Provisioning local DataHub token via 'datahub init'..."
 
     # Use a temp HOME so datahub init writes to a throwaway dir,
-    # leaving the real ~/.datahubenv completely untouched. Preserve
-    # ASDF_DATA_DIR so asdf shims can still resolve the interpreter.
+    # leaving the real ~/.datahubenv completely untouched.
     local tmp_home
     tmp_home=$(mktemp -d)
 
-    HOME="$tmp_home" ASDF_DATA_DIR="${ASDF_DATA_DIR:-$HOME/.asdf}" datahub init \
+    HOME="$tmp_home" datahub init \
         --username datahub \
         --password datahub \
         --force \
