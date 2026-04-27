@@ -233,6 +233,10 @@ async def stream_graph_events(
                     details = usage.get("input_token_details") or {}
                     cache_read = int(details.get("cache_read", 0) or 0)
                     cache_creation = int(details.get("cache_creation", 0) or 0)
+                    rmeta = getattr(output, "response_metadata", None) or {}
+                    model_name = (
+                        rmeta.get("model_name") or rmeta.get("model") or _settings.get_llm_model()
+                    )
                     yield {
                         "event": "USAGE",
                         "conversation_id": conversation_id,
@@ -244,6 +248,8 @@ async def stream_graph_events(
                             "cache_read_tokens": cache_read,
                             "cache_creation_tokens": cache_creation,
                             "node": node,
+                            "model": model_name,
+                            "provider": _settings.llm_provider,
                         },
                     }
 

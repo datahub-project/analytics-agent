@@ -123,6 +123,8 @@ export function ChatView() {
             reattachTurnUsage.cache_read_tokens += usage.cache_read_tokens || 0;
             reattachTurnUsage.cache_creation_tokens += usage.cache_creation_tokens || 0;
             reattachTurnUsage.calls += 1;
+            if (usage.model) reattachTurnUsage.model = usage.model;
+            if (usage.provider) reattachTurnUsage.provider = usage.provider;
             const state = useConversationsStore.getState();
             const targetId =
               state.streamingTextId ??
@@ -242,6 +244,8 @@ export function ChatView() {
           sendTurnUsage.cache_read_tokens += usage.cache_read_tokens || 0;
           sendTurnUsage.cache_creation_tokens += usage.cache_creation_tokens || 0;
           sendTurnUsage.calls += 1;
+          if (usage.model) sendTurnUsage.model = usage.model;
+          if (usage.provider) sendTurnUsage.provider = usage.provider;
           // Prefer streaming text (final response), then last TOOL_CALL (iteration cost),
           // then any assistant message. This keeps usage on TOOL_CALL so separators show per-call stats.
           const state = useConversationsStore.getState();

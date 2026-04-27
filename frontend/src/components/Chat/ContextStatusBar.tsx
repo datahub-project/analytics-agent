@@ -126,6 +126,14 @@ export function ContextStatusBar({ conversationId, isStreaming, messageCount }: 
               <span>Session</span>
               <span>{usageTotals.calls} call{usageTotals.calls === 1 ? "" : "s"}</span>
             </div>
+            {usageTotals.model && (
+              <div className="flex justify-between gap-4 mb-1">
+                <span className="opacity-70">Model</span>
+                <span className="truncate max-w-[180px]" title={usageTotals.model}>
+                  {usageTotals.model}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between gap-4">
               <span className="opacity-70">Input</span>
               <span>{usageTotals.input_tokens.toLocaleString()}</span>

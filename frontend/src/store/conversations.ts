@@ -8,6 +8,8 @@ export interface UsageTotals {
   cache_read_tokens: number;
   cache_creation_tokens: number;
   calls: number;
+  model?: string;
+  provider?: string;
 }
 
 const EMPTY_USAGE: UsageTotals = {
@@ -154,6 +156,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
         cache_creation_tokens:
           s.usageTotals.cache_creation_tokens + (usage.cache_creation_tokens || 0),
         calls: s.usageTotals.calls + 1,
+        model: usage.model || s.usageTotals.model,
+        provider: usage.provider || s.usageTotals.provider,
       },
     })),
 }));

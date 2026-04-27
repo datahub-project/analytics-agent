@@ -9,10 +9,21 @@ export function buildUiMessages(records: MessageRecord[]): {
     cache_read_tokens: number;
     cache_creation_tokens: number;
     calls: number;
+    model?: string;
+    provider?: string;
   };
 } {
   const result: UIMessage[] = [];
-  const totals = {
+  const totals: {
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    calls: number;
+    model?: string;
+    provider?: string;
+  } = {
     input_tokens: 0,
     output_tokens: 0,
     total_tokens: 0,
@@ -84,6 +95,8 @@ export function buildUiMessages(records: MessageRecord[]): {
               tu.total_tokens += u.total_tokens || 0;
               tu.cache_read_tokens += u.cache_read_tokens || 0;
               tu.cache_creation_tokens += u.cache_creation_tokens || 0;
+              if (u.model) tu.model = u.model;
+              if (u.provider) tu.provider = u.provider;
             }
             last.turnUsage = tu;
           }
@@ -112,6 +125,8 @@ export function buildUiMessages(records: MessageRecord[]): {
         totals.cache_read_tokens += u.cache_read_tokens || 0;
         totals.cache_creation_tokens += u.cache_creation_tokens || 0;
         totals.calls += 1;
+        if (u.model) totals.model = u.model;
+        if (u.provider) totals.provider = u.provider;
         turnUsages.push(u);
         // If we have buffered TEXT chunks, the USAGE belongs to them — they'll
         // be flushed as a thinking/response message on the next TOOL_CALL or

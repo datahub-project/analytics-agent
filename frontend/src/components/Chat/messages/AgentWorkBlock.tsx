@@ -160,6 +160,14 @@ export function AgentWorkBlock({
                 <span>This turn</span>
                 <span>{effectiveTurnUsage.calls} call{effectiveTurnUsage.calls === 1 ? "" : "s"}</span>
               </span>
+              {effectiveTurnUsage.model && (
+                <span className="flex justify-between gap-4 mb-1">
+                  <span className="opacity-70">Model</span>
+                  <span className="truncate max-w-[190px]" title={effectiveTurnUsage.model}>
+                    {effectiveTurnUsage.model}
+                  </span>
+                </span>
+              )}
               <span className="flex justify-between gap-4">
                 <span className="opacity-70">Input</span>
                 <span>{effectiveTurnUsage.input_tokens.toLocaleString()}</span>
