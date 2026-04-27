@@ -52,8 +52,10 @@ export function shouldShowSeparator(msgs: UIMessage[], idx: number): boolean {
 }
 
 export function getSepUsage(msgs: UIMessage[], idx: number) {
+  // Scan backward from the separator for the first message that carries usage.
+  // Usage may land on TOOL_CALL or TOOL_RESULT depending on event ordering.
   for (let j = idx - 1; j >= 0; j--) {
-    if (msgs[j].event_type === "TOOL_CALL") return msgs[j].usage;
+    if (msgs[j].usage) return msgs[j].usage;
   }
   return undefined;
 }

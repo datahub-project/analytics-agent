@@ -44,6 +44,23 @@ export function AgentWorkBlock({
     return Math.max(1, Math.round((new Date(tN).getTime() - new Date(t0).getTime()) / 1000));
   }, [workMessages]);
 
+  // Derive turn-level token totals from per-message usage when the prop is absent.
+  // The prop (from buildUiMessages) is authoritative for loaded history; this fallback
+  // covers live-streaming sessions where buildUiMessages hasn't run yet.
+  const effectiveTurnUsage = useMemo<TurnUsage | undefined>(() => {
+    if (turnUsage) return turnUsage;
+    const usages = workMessages.map((m) => m.usage).filter(Boolean);
+    if (usages.length === 0) return undefined;
+    return usages.reduce<TurnUsage>((acc, u) => ({
+      input_tokens: acc.input_tokens + (u!.input_tokens || 0),
+      output_tokens: acc.output_tokens + (u!.output_tokens || 0),
+      total_tokens: acc.total_tokens + (u!.total_tokens || 0),
+      cache_read_tokens: acc.cache_read_tokens + (u!.cache_read_tokens || 0),
+      cache_creation_tokens: acc.cache_creation_tokens + (u!.cache_creation_tokens || 0),
+      calls: acc.calls + 1,
+    }), { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, calls: 0 });
+  }, [turnUsage, workMessages]);
+
   // Live timer while streaming
   useEffect(() => {
     if (!isStreaming) {
@@ -125,10 +142,10 @@ export function AgentWorkBlock({
           )}
         </span>
 
-        {turnUsage && !isStreaming && (
+        {effectiveTurnUsage && !isStreaming && (
           <span className="text-[10px] font-mono text-muted-foreground/45 flex-shrink-0">
-            ↑{fmt(turnUsage.input_tokens)} ↓{fmt(turnUsage.output_tokens)}
-            {turnUsage.calls > 1 && <span className="opacity-60"> · {turnUsage.calls}</span>}
+            ↑{fmt(effectiveTurnUsage.input_tokens)} ↓{fmt(effectiveTurnUsage.output_tokens)}
+            {effectiveTurnUsage.calls > 1 && <span className="opacity-60"> · {effectiveTurnUsage.calls}</span>}
           </span>
         )}
 

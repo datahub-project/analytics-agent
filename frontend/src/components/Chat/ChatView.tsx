@@ -118,6 +118,7 @@ export function ChatView() {
             const state = useConversationsStore.getState();
             const targetId =
               state.streamingTextId ??
+              [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
               [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
             if (targetId) attachUsageToMessage(targetId, usage);
           } else if (event.event !== "COMPLETE") {
@@ -224,10 +225,12 @@ export function ChatView() {
         } else if (event.event === "USAGE") {
           const usage = event.payload as unknown as UsagePayload;
           addUsage(usage);
-          // Attach to the current streaming TEXT message if any; else the last assistant message.
+          // Prefer streaming text (final response), then last TOOL_CALL (iteration cost),
+          // then any assistant message. This keeps usage on TOOL_CALL so separators show per-call stats.
           const state = useConversationsStore.getState();
           const targetId =
             state.streamingTextId ??
+            [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
             [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
           if (targetId) attachUsageToMessage(targetId, usage);
         } else if (event.event !== "COMPLETE") {
