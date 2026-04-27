@@ -47,21 +47,36 @@ async def mock_stream_events(conversation_id: str, user_text: str) -> AsyncItera
     delay = float(os.environ.get("MOCK_LLM_DELAY_MS", "80")) / 1000
 
     if "data" in user_text.lower():
-        yield _evt(conversation_id, "TEXT", str(uuid.uuid4()), {"text": "Let me check what data is available."})
+        yield _evt(
+            conversation_id,
+            "TEXT",
+            str(uuid.uuid4()),
+            {"text": "Let me check what data is available."},
+        )
         await asyncio.sleep(delay)
 
         tool_call_id = str(uuid.uuid4())
-        yield _evt(conversation_id, "TOOL_CALL", tool_call_id, {
-            "tool_name": "list_datasets",
-            "tool_input": {},
-        })
+        yield _evt(
+            conversation_id,
+            "TOOL_CALL",
+            tool_call_id,
+            {
+                "tool_name": "list_datasets",
+                "tool_input": {},
+            },
+        )
         await asyncio.sleep(delay)
 
-        yield _evt(conversation_id, "TOOL_RESULT", str(uuid.uuid4()), {
-            "tool_name": "list_datasets",
-            "result": '["orders", "customers", "products"]',
-            "is_error": False,
-        })
+        yield _evt(
+            conversation_id,
+            "TOOL_RESULT",
+            str(uuid.uuid4()),
+            {
+                "tool_name": "list_datasets",
+                "result": '["orders", "customers", "products"]',
+                "is_error": False,
+            },
+        )
         await asyncio.sleep(delay)
 
         final_id = str(uuid.uuid4())

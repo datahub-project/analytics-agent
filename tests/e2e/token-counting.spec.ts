@@ -41,17 +41,17 @@ test("AgentWorkBlock appears and collapses for tool-using queries", async ({ pag
   await expect(workingLabel).toBeVisible({ timeout: 30_000 });
 
   // After the response completes, it auto-collapses to "Worked for Xs · N tool calls"
-  const workedLabel = page.locator("text=/Worked for/");
-  await expect(workedLabel).toBeVisible({ timeout: 60_000 });
+  const workBlockHeader = page.locator("button", { hasText: /Worked for/ });
+  await expect(workBlockHeader).toBeVisible({ timeout: 60_000 });
 
   // Collapsed header should show tool call count
-  await expect(page.locator("text=/tool call/")).toBeVisible({ timeout: 5_000 });
+  await expect(workBlockHeader).toContainText(/tool call/);
 
   // Token counts appear in the collapsed header (right side)
   const workBlockTokens = page.locator("span.font-mono", { hasText: /↑/ }).first();
   await expect(workBlockTokens).toBeVisible({ timeout: 3_000 });
 
-  // Click header to expand and see tool calls inside
-  await workedLabel.click();
-  await expect(page.locator("span.font-mono").filter({ hasText: /list_datasets/ }).first()).toBeVisible({ timeout: 3_000 });
+  // Click header button to expand and see the tool call inside
+  await workBlockHeader.click();
+  await expect(page.getByText("list_datasets").first()).toBeVisible({ timeout: 5_000 });
 });
