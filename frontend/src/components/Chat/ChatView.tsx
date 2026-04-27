@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useState, useRef } from "react";
-import type { MessageRecord, UsagePayload } from "@/types";
+import type { MessageRecord, UsagePayload, TurnUsage } from "@/types";
 import { streamMessage, reattachStream } from "@/api/stream";
 import { generateTitle, getConversation, createConversation } from "@/api/conversations";
 import { Download, X } from "lucide-react";
@@ -33,6 +33,7 @@ export function ChatView() {
     setUsageTotals,
     addUsage,
     attachUsageToMessage,
+    setFinalMsgTurnUsage,
     finalizeStreaming,
   } = useConversationsStore();
 
@@ -95,6 +96,7 @@ export function ChatView() {
       try {
         const stream = reattachStream(snapId, controller.signal);
         let result = await stream.next();
+        const reattachTurnUsage: TurnUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, calls: 0 };
         while (!result.done) {
           // Bail if the user switched away while we were awaiting
           if (activeId !== snapId) {
@@ -115,13 +117,21 @@ export function ChatView() {
           } else if (event.event === "USAGE") {
             const usage = event.payload as unknown as UsagePayload;
             addUsage(usage);
+            reattachTurnUsage.input_tokens += usage.input_tokens || 0;
+            reattachTurnUsage.output_tokens += usage.output_tokens || 0;
+            reattachTurnUsage.total_tokens += usage.total_tokens || 0;
+            reattachTurnUsage.cache_read_tokens += usage.cache_read_tokens || 0;
+            reattachTurnUsage.cache_creation_tokens += usage.cache_creation_tokens || 0;
+            reattachTurnUsage.calls += 1;
             const state = useConversationsStore.getState();
             const targetId =
               state.streamingTextId ??
               [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
               [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
             if (targetId) attachUsageToMessage(targetId, usage);
-          } else if (event.event !== "COMPLETE") {
+          } else if (event.event === "COMPLETE") {
+            if (reattachTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...reattachTurnUsage });
+          } else {
             appendMessage({
               id: event.message_id,
               event_type: event.event,
@@ -209,6 +219,7 @@ export function ChatView() {
       streamAbortRef.current = controller;
       const stream = streamMessage(conversationId, text, controller.signal);
       let result = await stream.next();
+      const sendTurnUsage: TurnUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, calls: 0 };
       while (!result.done) {
         const event = result.value;
         if (event.event === "TEXT") {
@@ -225,6 +236,12 @@ export function ChatView() {
         } else if (event.event === "USAGE") {
           const usage = event.payload as unknown as UsagePayload;
           addUsage(usage);
+          sendTurnUsage.input_tokens += usage.input_tokens || 0;
+          sendTurnUsage.output_tokens += usage.output_tokens || 0;
+          sendTurnUsage.total_tokens += usage.total_tokens || 0;
+          sendTurnUsage.cache_read_tokens += usage.cache_read_tokens || 0;
+          sendTurnUsage.cache_creation_tokens += usage.cache_creation_tokens || 0;
+          sendTurnUsage.calls += 1;
           // Prefer streaming text (final response), then last TOOL_CALL (iteration cost),
           // then any assistant message. This keeps usage on TOOL_CALL so separators show per-call stats.
           const state = useConversationsStore.getState();
@@ -233,7 +250,9 @@ export function ChatView() {
             [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
             [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
           if (targetId) attachUsageToMessage(targetId, usage);
-        } else if (event.event !== "COMPLETE") {
+        } else if (event.event === "COMPLETE") {
+          if (sendTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...sendTurnUsage });
+        } else {
           appendMessage({
             id: event.message_id,
             event_type: event.event,
