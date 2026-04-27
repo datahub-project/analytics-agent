@@ -51,7 +51,9 @@ test("AgentWorkBlock appears and collapses for tool-using queries", async ({ pag
   const workBlockTokens = page.locator("span.font-mono", { hasText: /↑/ }).first();
   await expect(workBlockTokens).toBeVisible({ timeout: 3_000 });
 
-  // Click header button to expand and see the tool call inside
+  // Wait for the 600ms auto-collapse to fire before clicking to expand
+  // (clicking while still expanded would toggle it closed instead of open)
+  await expect(workBlockHeader).toHaveAttribute("aria-expanded", "false", { timeout: 2_000 });
   await workBlockHeader.click();
   await expect(page.getByText("list_datasets").first()).toBeVisible({ timeout: 5_000 });
 });

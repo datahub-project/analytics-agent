@@ -86,6 +86,7 @@ export function AgentWorkBlock({
     <div className="w-full my-1.5" data-print-hide>
       {/* Header bar */}
       <button
+        aria-expanded={expanded}
         onClick={() => { if (!isStreaming) setExpanded((v) => !v); }}
         className={`w-full flex items-center gap-2 px-3 py-1.5 text-left transition-colors
           border border-border/70
