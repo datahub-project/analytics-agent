@@ -78,3 +78,12 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+# One-shot bootstrap Job (pre-install/pre-upgrade hook).
+# Runs `analytics-agent bootstrap` to apply Alembic migrations and seed
+# config.yaml entries into the database. Disable when migrations are managed
+# externally.
+bootstrap:
+  enabled: true
+  resources: {}
+  podAnnotations: {}
