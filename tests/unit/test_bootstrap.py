@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import orjson
 import pytest
 from analytics_agent import bootstrap
 from sqlalchemy import create_engine, inspect
@@ -40,3 +41,101 @@ def test_run_migrations_creates_tables(sqlite_db, monkeypatch):
     assert "integrations" in tables
     assert "context_platforms" in tables
     assert "settings" in tables
+
+
+@pytest.mark.asyncio
+async def test_seed_integrations_idempotent(sqlite_db, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    # Stub out load_engines_config to return a single yaml engine.
+    from analytics_agent import config as _config
+
+    fake_cfg = _config.EngineConfig(
+        type="snowflake",
+        name="test_sf",
+        connection={"account": "x", "user": "y"},
+    )
+    monkeypatch.setattr(
+        _config.Settings,
+        "load_engines_config",
+        lambda self: [fake_cfg],
+    )
+
+    await bootstrap.seed_integrations_from_yaml()
+    await bootstrap.seed_integrations_from_yaml()  # second run must be a no-op
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import IntegrationRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        rows = await IntegrationRepo(session).list_all()
+
+    assert len(rows) == 1
+    assert rows[0].name == "test_sf"
+    assert rows[0].source == "yaml"
+    assert orjson.loads(rows[0].config) == {"account": "x", "user": "y"}
+
+
+@pytest.mark.asyncio
+async def test_seed_integrations_removes_stale_yaml(sqlite_db, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    from analytics_agent import config as _config
+
+    cfg_a = _config.EngineConfig(type="snowflake", name="a", connection={})
+    cfg_b = _config.EngineConfig(type="snowflake", name="b", connection={})
+
+    monkeypatch.setattr(_config.Settings, "load_engines_config", lambda self: [cfg_a, cfg_b])
+    await bootstrap.seed_integrations_from_yaml()
+
+    monkeypatch.setattr(_config.Settings, "load_engines_config", lambda self: [cfg_a])
+    await bootstrap.seed_integrations_from_yaml()
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import IntegrationRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        rows = await IntegrationRepo(session).list_all()
+
+    names = {r.name for r in rows}
+    assert names == {"a"}
+
+
+@pytest.mark.asyncio
+async def test_seed_integrations_skips_ui_managed(sqlite_db, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    from analytics_agent import config as _config
+
+    cfg = _config.EngineConfig(
+        type="snowflake", name="x", connection={"v": "yaml"}
+    )
+    monkeypatch.setattr(_config.Settings, "load_engines_config", lambda self: [cfg])
+
+    await bootstrap.seed_integrations_from_yaml()
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import IntegrationRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        repo = IntegrationRepo(session)
+        row = await repo.get("x")
+        row.source = "ui"
+        row.config = orjson.dumps({"v": "ui-edited"}).decode()
+        await session.commit()
+
+    await bootstrap.seed_integrations_from_yaml()  # must not overwrite ui edits
+
+    async with factory() as session:
+        row = await IntegrationRepo(session).get("x")
+        assert row.source == "ui"
+        assert orjson.loads(row.config) == {"v": "ui-edited"}
