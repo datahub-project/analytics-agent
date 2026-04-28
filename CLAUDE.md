@@ -34,11 +34,13 @@ cd frontend && pnpm tsc --noEmit   # type-check without building
 
 ### Restarting the backend
 
-When `.env`, `config.yaml`, or Python source changes, the backend needs a restart:
+When `.env`, `config.yaml`, or Python source changes, the backend needs a restart. Run `analytics-agent bootstrap` whenever `config.yaml` changes or after pulling a release that adds migrations.
 ```bash
 pkill -f "analytics_agent.main"; sleep 2
 set -a && source .env && set +a
-nohup uv run uvicorn analytics_agent.main:app --port 8100 > /tmp/analytics_agent.log 2>&1 &
+uv run analytics-agent bootstrap   # apply migrations + seed config.yaml
+nohup uv run uvicorn analytics_agent.main:app --port 8100 \
+  > /tmp/analytics_agent.log 2>&1 &
 sleep 5 && curl -s http://localhost:8100/api/engines
 ```
 

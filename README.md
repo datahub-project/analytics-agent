@@ -85,6 +85,18 @@ Open **http://localhost:8100** — a setup wizard handles the LLM key and connec
 
 > **Without `just`:** `uv sync && cd frontend && pnpm install && pnpm build && cd .. && uv run uvicorn analytics_agent.main:app --port 8100`
 
+### First-time setup
+
+Before the first `uvicorn` start (or after pulling a release that adds migrations), run:
+
+```bash
+uv run analytics-agent bootstrap
+```
+
+This applies Alembic migrations, seeds engines and context platforms from `config.yaml`, and writes first-run setting defaults. The command is idempotent — re-running it on an up-to-date database is a no-op.
+
+For Kubernetes deployments, the Helm chart runs `analytics-agent bootstrap` automatically as a `pre-install`/`pre-upgrade` hook (see `helm/analytics-agent/README.md`).
+
 ### Optional: pre-configure via `.env`
 
 ```bash
