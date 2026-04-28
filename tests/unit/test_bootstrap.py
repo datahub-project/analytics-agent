@@ -211,3 +211,45 @@ async def test_seed_context_platforms_removes_stale(sqlite_db, monkeypatch):
     async with factory() as session:
         rows = await ContextPlatformRepo(session).list_all()
     assert {r.name for r in rows} == {"a"}
+
+
+@pytest.mark.asyncio
+async def test_seed_default_settings_writes_first_run_defaults(
+    sqlite_db, monkeypatch
+):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    await bootstrap.seed_default_settings()
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import SettingsRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        raw = await SettingsRepo(session).get("enabled_mutation_tools")
+
+    assert orjson.loads(raw) == ["publish_analysis", "save_correction"]
+
+
+@pytest.mark.asyncio
+async def test_seed_default_settings_does_not_overwrite(sqlite_db, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import SettingsRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        await SettingsRepo(session).set(
+            "enabled_mutation_tools", orjson.dumps(["custom"]).decode()
+        )
+
+    await bootstrap.seed_default_settings()
+
+    async with factory() as session:
+        raw = await SettingsRepo(session).get("enabled_mutation_tools")
+    assert orjson.loads(raw) == ["custom"]

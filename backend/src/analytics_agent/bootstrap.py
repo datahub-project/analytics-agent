@@ -207,3 +207,20 @@ async def seed_context_platforms_from_yaml() -> None:
                     "Removing stale yaml context platform '%s'", plat.name
                 )
                 await repo.delete(plat.name)
+
+
+async def seed_default_settings() -> None:
+    """Write first-run defaults to the settings table (no-op if already set)."""
+    import orjson
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import SettingsRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        repo = SettingsRepo(session)
+        if await repo.get("enabled_mutation_tools") is None:
+            await repo.set(
+                "enabled_mutation_tools",
+                orjson.dumps(["publish_analysis", "save_correction"]).decode(),
+            )
