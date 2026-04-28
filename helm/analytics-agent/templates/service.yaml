@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "analytics-agent.fullname" . }}
+  labels:
+    {{- include "analytics-agent.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.http.port }}
+      targetPort: {{ .Values.service.http.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "analytics-agent.selectorLabels" . | nindent 4 }}
+    component-group: app

@@ -517,6 +517,10 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router)
 
+    @app.get("/health", include_in_schema=False)
+    async def _health() -> dict[str, str]:
+        return {"status": "ok"}
+
     setup_tracing(app)
 
     # ── Serve built React SPA ──────────────────────────────────────────────
