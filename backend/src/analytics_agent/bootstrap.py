@@ -145,3 +145,65 @@ async def seed_integrations_from_yaml() -> None:
                         await settings_repo.delete(old_key)
                 except Exception:
                     pass
+
+
+async def seed_context_platforms_from_yaml() -> None:
+    """Upsert config.yaml context_platforms into the DB.
+
+    Preserves user-edited credentials and ``_discovered_tools`` metadata for
+    yaml-source rows. Removes yaml-source rows no longer in config. Does NOT
+    propagate DataHub env vars — that is done at pod boot by
+    ``main.propagate_datahub_env()``.
+    """
+    import contextlib
+    import uuid
+
+    import orjson
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import ContextPlatformRepo
+
+    logger = logging.getLogger(__name__)
+    factory = _get_session_factory()
+    async with factory() as session:
+        repo = ContextPlatformRepo(session)
+
+        config_platform_names = {
+            cfg.name for cfg in settings.load_context_platforms_config()
+        }
+        for cfg in settings.load_context_platforms_config():
+            existing = await repo.get(cfg.name)
+            if existing:
+                changed = False
+                new_label = cfg.label or cfg.type.capitalize()
+                if existing.label != new_label:
+                    existing.label = new_label
+                    changed = True
+                if existing.source == "yaml":
+                    stored: dict = {}
+                    with contextlib.suppress(Exception):
+                        stored = orjson.loads(existing.config)
+                    yaml_cfg_dict = cfg.model_dump()
+                    new_env = yaml_cfg_dict.get("env", {})
+                    if new_env and stored.get("env") != new_env:
+                        stored["env"] = new_env
+                        existing.config = orjson.dumps(stored).decode()
+                        changed = True
+                if changed:
+                    await session.commit()
+            else:
+                await repo.upsert(
+                    id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"yaml:{cfg.name}")),
+                    type=cfg.type,
+                    name=cfg.name,
+                    label=cfg.label or cfg.type.capitalize(),
+                    config=orjson.dumps(cfg.model_dump()).decode(),
+                    source="yaml",
+                )
+
+        for plat in await repo.list_all():
+            if plat.source == "yaml" and plat.name not in config_platform_names:
+                logger.info(
+                    "Removing stale yaml context platform '%s'", plat.name
+                )
+                await repo.delete(plat.name)

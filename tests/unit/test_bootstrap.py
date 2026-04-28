@@ -139,3 +139,75 @@ async def test_seed_integrations_skips_ui_managed(sqlite_db, monkeypatch):
         row = await IntegrationRepo(session).get("x")
         assert row.source == "ui"
         assert orjson.loads(row.config) == {"v": "ui-edited"}
+
+
+@pytest.mark.asyncio
+async def test_seed_context_platforms_idempotent(sqlite_db, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    from analytics_agent import config as _config
+
+    fake = _config.DataHubPlatformConfig(
+        type="datahub",
+        name="default",
+        label="DataHub",
+        url="http://gms",
+        token="t",
+    )
+    # Pydantic BaseSettings rejects instance attribute assignment, so patch
+    # on the class. (The Task 4 implementer hit the same issue.)
+    monkeypatch.setattr(
+        _config.Settings,
+        "load_context_platforms_config",
+        lambda self: [fake],
+    )
+
+    await bootstrap.seed_context_platforms_from_yaml()
+    await bootstrap.seed_context_platforms_from_yaml()
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import ContextPlatformRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        rows = await ContextPlatformRepo(session).list_all()
+
+    assert len(rows) == 1
+    assert rows[0].name == "default"
+    assert rows[0].source == "yaml"
+
+
+@pytest.mark.asyncio
+async def test_seed_context_platforms_removes_stale(sqlite_db, monkeypatch):
+    repo_root = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(repo_root)
+    bootstrap.run_migrations()
+
+    from analytics_agent import config as _config
+
+    a = _config.DataHubPlatformConfig(type="datahub", name="a", url="http://a", token="t")
+    b = _config.DataHubPlatformConfig(type="datahub", name="b", url="http://b", token="t")
+
+    monkeypatch.setattr(
+        _config.Settings,
+        "load_context_platforms_config",
+        lambda self: [a, b],
+    )
+    await bootstrap.seed_context_platforms_from_yaml()
+
+    monkeypatch.setattr(
+        _config.Settings,
+        "load_context_platforms_config",
+        lambda self: [a],
+    )
+    await bootstrap.seed_context_platforms_from_yaml()
+
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import ContextPlatformRepo
+
+    factory = _get_session_factory()
+    async with factory() as session:
+        rows = await ContextPlatformRepo(session).list_all()
+    assert {r.name for r in rows} == {"a"}
