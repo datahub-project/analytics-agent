@@ -61,9 +61,7 @@ def _ensure_mysql_schema() -> None:
         conn.commit()
         conn.close()
     except Exception as exc:
-        logging.getLogger(__name__).warning(
-            "Could not ensure MySQL schema '%s': %s", schema, exc
-        )
+        logging.getLogger(__name__).warning("Could not ensure MySQL schema '%s': %s", schema, exc)
 
 
 async def seed_integrations_from_yaml() -> None:
@@ -93,9 +91,7 @@ async def seed_integrations_from_yaml() -> None:
         cred_repo = CredentialRepo(session)
         settings_repo = SettingsRepo(session)
 
-        config_engine_names = {
-            cfg.effective_name for cfg in settings.load_engines_config()
-        }
+        config_engine_names = {cfg.effective_name for cfg in settings.load_engines_config()}
         for cfg in settings.load_engines_config():
             engine_type = cfg.type
             engine_name = cfg.effective_name
@@ -168,9 +164,7 @@ async def seed_context_platforms_from_yaml() -> None:
     async with factory() as session:
         repo = ContextPlatformRepo(session)
 
-        config_platform_names = {
-            cfg.name for cfg in settings.load_context_platforms_config()
-        }
+        config_platform_names = {cfg.name for cfg in settings.load_context_platforms_config()}
         for cfg in settings.load_context_platforms_config():
             existing = await repo.get(cfg.name)
             if existing:
@@ -203,9 +197,7 @@ async def seed_context_platforms_from_yaml() -> None:
 
         for plat in await repo.list_all():
             if plat.source == "yaml" and plat.name not in config_platform_names:
-                logger.info(
-                    "Removing stale yaml context platform '%s'", plat.name
-                )
+                logger.info("Removing stale yaml context platform '%s'", plat.name)
                 await repo.delete(plat.name)
 
 

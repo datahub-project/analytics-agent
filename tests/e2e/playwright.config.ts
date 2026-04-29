@@ -25,7 +25,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 
   webServer: {
-    command: `uv run uvicorn analytics_agent.main:app --port ${TEST_PORT}`,
+    command: `uv run analytics-agent bootstrap && uv run uvicorn analytics_agent.main:app --port ${TEST_PORT}`,
     url: `http://localhost:${TEST_PORT}/api/engines`,
     cwd: join(__dirname, "../.."),  // repo root so Alembic finds its config
     reuseExistingServer: false,

@@ -44,9 +44,7 @@ def test_cli_bootstrap_runs_all_steps_idempotent(sqlite_db, monkeypatch):
 
     # Pydantic BaseSettings — patch on the class.
     monkeypatch.setattr(_config.Settings, "load_engines_config", lambda self: [])
-    monkeypatch.setattr(
-        _config.Settings, "load_context_platforms_config", lambda self: []
-    )
+    monkeypatch.setattr(_config.Settings, "load_context_platforms_config", lambda self: [])
 
     runner = CliRunner()
     result1 = runner.invoke(cli, ["bootstrap"])

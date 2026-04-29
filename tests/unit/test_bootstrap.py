@@ -115,9 +115,7 @@ async def test_seed_integrations_skips_ui_managed(sqlite_db, monkeypatch):
 
     from analytics_agent import config as _config
 
-    cfg = _config.EngineConfig(
-        type="snowflake", name="x", connection={"v": "yaml"}
-    )
+    cfg = _config.EngineConfig(type="snowflake", name="x", connection={"v": "yaml"})
     monkeypatch.setattr(_config.Settings, "load_engines_config", lambda self: [cfg])
 
     await bootstrap.seed_integrations_from_yaml()
@@ -214,9 +212,7 @@ async def test_seed_context_platforms_removes_stale(sqlite_db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_seed_default_settings_writes_first_run_defaults(
-    sqlite_db, monkeypatch
-):
+async def test_seed_default_settings_writes_first_run_defaults(sqlite_db, monkeypatch):
     repo_root = Path(__file__).resolve().parents[2]
     monkeypatch.chdir(repo_root)
     bootstrap.run_migrations()
@@ -244,9 +240,7 @@ async def test_seed_default_settings_does_not_overwrite(sqlite_db, monkeypatch):
 
     factory = _get_session_factory()
     async with factory() as session:
-        await SettingsRepo(session).set(
-            "enabled_mutation_tools", orjson.dumps(["custom"]).decode()
-        )
+        await SettingsRepo(session).set("enabled_mutation_tools", orjson.dumps(["custom"]).decode())
 
     await bootstrap.seed_default_settings()
 
