@@ -198,6 +198,12 @@ _DATAHUB_TOOLS = [
 _KNOWN_TOOLS: dict[str, list[dict]] = {
     "datahub": _DATAHUB_TOOLS,
     "datahub-mcp": _DATAHUB_TOOLS,  # same capabilities, different transport
+    "bigquery": [
+        {"name": "list_tables", "label": "List tables"},
+        {"name": "get_schema", "label": "Table schema"},
+        {"name": "preview_table", "label": "Preview data"},
+        {"name": "execute_sql", "label": "Execute SQL"},
+    ],
     "snowflake": [
         {"name": "list_tables", "label": "List tables"},
         {"name": "get_schema", "label": "Table schema"},
@@ -411,7 +417,49 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
         name = cfg.effective_name
         connection = cfg.connection
 
-        if engine_type == "snowflake":
+        if engine_type == "bigquery":
+            project = connection.get("project", "")
+            dataset = connection.get("dataset", "")
+            creds_json = os.environ.get("BIGQUERY_CREDENTIALS_JSON", "") or connection.get(
+                "credentials_json", ""
+            )
+            creds_path = connection.get("credentials_path", "")
+            creds_b64 = connection.get("credentials_base64", "")
+            has_creds = bool(creds_json or creds_path or creds_b64)
+            # ADC is always available as fallback; configured = project is set
+            configured = bool(project)
+            conns.append(
+                ConnectionStatus(
+                    name=name,
+                    type="bigquery",
+                    label=f"BigQuery ({name})",
+                    status="connected" if configured else "unconfigured",
+                    fields=[
+                        ConnectionField(
+                            key="project",
+                            label="GCP Project ID",
+                            value=project,
+                            placeholder="my-gcp-project",
+                        ),
+                        ConnectionField(
+                            key="dataset",
+                            label="Default Dataset",
+                            value=dataset,
+                            placeholder="my_dataset",
+                        ),
+                        ConnectionField(
+                            key="credentials_json",
+                            label="Service Account JSON",
+                            value="(configured)" if has_creds else "",
+                            sensitive=True,
+                            secret_key="credentials_json",
+                            placeholder='{"type":"service_account",...}',
+                        ),
+                    ],
+                    tools=_build_tool_toggles("bigquery", disabled),
+                )
+            )
+        elif engine_type == "snowflake":
             account = connection.get("account", "")
             user = connection.get("user", "")
             warehouse = connection.get("warehouse", "")
@@ -595,6 +643,38 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                         placeholder="••••••••",
                     )
                 )
+        elif intg.type == "bigquery":
+            project = conn_cfg.get("project", "")
+            dataset = conn_cfg.get("dataset", "")
+            creds_json = os.environ.get("BIGQUERY_CREDENTIALS_JSON", "") or conn_cfg.get(
+                "credentials_json", ""
+            )
+            creds_path = conn_cfg.get("credentials_path", "")
+            creds_b64 = conn_cfg.get("credentials_base64", "")
+            has_creds = bool(creds_json or creds_path or creds_b64)
+            status_str = "connected" if project else "unconfigured"
+            fields = [
+                ConnectionField(
+                    key="project",
+                    label="GCP Project ID",
+                    value=project,
+                    placeholder="my-gcp-project",
+                ),
+                ConnectionField(
+                    key="dataset",
+                    label="Default Dataset",
+                    value=dataset,
+                    placeholder="my_dataset",
+                ),
+                ConnectionField(
+                    key="credentials_json",
+                    label="Service Account JSON",
+                    value="(configured)" if has_creds else "",
+                    sensitive=True,
+                    secret_key="credentials_json",
+                    placeholder='{"type":"service_account",...}',
+                ),
+            ]
         elif intg.type in ("mysql", "sqlalchemy", "postgresql", "sqlite"):
             host = conn_cfg.get("host", "")
             database = conn_cfg.get("database", conn_cfg.get("db", ""))

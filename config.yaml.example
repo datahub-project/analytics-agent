@@ -17,6 +17,15 @@ context_platforms:
 # don't need. Additional connections can also be added via the Settings UI.
 engines: []
 
+# BigQuery example:
+# engines:
+#  - type: bigquery
+#    name: prod
+#    connection:
+#      project: "${BIGQUERY_PROJECT}"
+#      dataset: "${BIGQUERY_DATASET}" #optional
+#      credentials_path: "${BIGQUERY_CREDENTIALS_PATH}"
+
 # Snowflake example:
 # engines:
 #   - type: snowflake

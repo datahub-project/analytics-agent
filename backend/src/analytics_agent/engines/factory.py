@@ -9,11 +9,13 @@ _TYPE_MAP_KEY = "snowflake"  # avoid circular import at module level
 
 
 def _engine_cls(engine_type: str):
+    from analytics_agent.engines.bigquery.engine import BigQueryQueryEngine
     from analytics_agent.engines.mcp.engine import MCPQueryEngine
     from analytics_agent.engines.snowflake.engine import SnowflakeQueryEngine
     from analytics_agent.engines.sqlalchemy.engine import SQLAlchemyQueryEngine
 
     return {
+        "bigquery": BigQueryQueryEngine,
         "snowflake": SnowflakeQueryEngine,
         "mysql": SQLAlchemyQueryEngine,
         "sqlite": SQLAlchemyQueryEngine,
