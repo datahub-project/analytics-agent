@@ -1,5 +1,5 @@
 ---
-name: save_correction
+name: save-correction
 description: >
   Use this skill when the user identifies that knowledge in DataHub is wrong,
   incomplete, or missing — whether that's a glossary term definition, a domain

@@ -12,6 +12,7 @@ from analytics_agent.agent.llm import get_llm
 from analytics_agent.agent.state import AgentState
 from analytics_agent.config import settings
 from analytics_agent.prompts.system import build_system_prompt
+from analytics_agent.skills.loader import build_skill_sources
 
 # Write-back skills are opt-in; only included when explicitly enabled by the user
 _SKILL_TOOL_NAMES: frozenset[str] = frozenset({"publish_analysis", "save_correction"})
@@ -90,19 +91,9 @@ def build_graph(
     all_tools = datahub_tools + skill_tools + engine_tools + chart_tools
 
     if system_prompt_override:
-        from analytics_agent.skills.loader import (
-            get_improve_context_prompt_section,
-            get_search_business_context_section,
-            get_skill_system_prompt_section,
-        )
-
         system_prompt = system_prompt_override.format(engine_name=engine_name)
-        system_prompt += get_search_business_context_section()
-        system_prompt += get_improve_context_prompt_section()
-        if enabled_mutations:
-            system_prompt += get_skill_system_prompt_section(enabled_mutations)
     else:
-        system_prompt = build_system_prompt(engine_name, enabled_skills=enabled_mutations)
+        system_prompt = build_system_prompt(engine_name)
 
     # Enable per-tool error handling so validation errors (e.g. hallucinated
     # arguments like filter= on get_entities) are returned as tool messages
@@ -140,6 +131,7 @@ def build_graph(
         model=llm,
         tools=all_tools,
         system_prompt=system_for_agent,
+        skills=build_skill_sources(enabled_mutations),
     )
 
     graph = StateGraph(AgentState)
