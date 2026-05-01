@@ -27,7 +27,12 @@ SELECT_CASES = [
         "SELECT\n  id,\n  name\nFROM foo\nWHERE id > 0 LIMIT 100",
     ),
     # SELECT with ORDER BY
-    ("select with order by", "SELECT id FROM foo ORDER BY id DESC", 50, "SELECT id FROM foo ORDER BY id DESC LIMIT 50"),
+    (
+        "select with order by",
+        "SELECT id FROM foo ORDER BY id DESC",
+        50,
+        "SELECT id FROM foo ORDER BY id DESC LIMIT 50",
+    ),
     # SELECT with GROUP BY and HAVING
     (
         "select with group by having",
@@ -83,19 +88,34 @@ NON_SELECT_CASES = [
     ("show databases lower", "show databases", 500, "show databases"),
     # INSERT
     ("insert values", "INSERT INTO foo (id) VALUES (1)", 500, "INSERT INTO foo (id) VALUES (1)"),
-    ("insert select", "INSERT INTO foo SELECT * FROM bar", 500, "INSERT INTO foo SELECT * FROM bar"),
+    (
+        "insert select",
+        "INSERT INTO foo SELECT * FROM bar",
+        500,
+        "INSERT INTO foo SELECT * FROM bar",
+    ),
     # UPDATE
     ("update", "UPDATE foo SET x = 1 WHERE id = 2", 500, "UPDATE foo SET x = 1 WHERE id = 2"),
     # DELETE
     ("delete", "DELETE FROM foo WHERE id = 1", 500, "DELETE FROM foo WHERE id = 1"),
     # CREATE TABLE AS SELECT
-    ("ctas", "CREATE TABLE new_table AS SELECT * FROM old_table", 500, "CREATE TABLE new_table AS SELECT * FROM old_table"),
+    (
+        "ctas",
+        "CREATE TABLE new_table AS SELECT * FROM old_table",
+        500,
+        "CREATE TABLE new_table AS SELECT * FROM old_table",
+    ),
     # CREATE TABLE
     ("create table", "CREATE TABLE foo (id INT)", 500, "CREATE TABLE foo (id INT)"),
     # DROP TABLE
     ("drop table", "DROP TABLE foo", 500, "DROP TABLE foo"),
     # ALTER TABLE
-    ("alter table", "ALTER TABLE foo ADD COLUMN bar INT", 500, "ALTER TABLE foo ADD COLUMN bar INT"),
+    (
+        "alter table",
+        "ALTER TABLE foo ADD COLUMN bar INT",
+        500,
+        "ALTER TABLE foo ADD COLUMN bar INT",
+    ),
     # DESCRIBE / DESC
     ("describe", "DESCRIBE foo", 500, "DESCRIBE foo"),
     ("desc", "DESC foo", 500, "DESC foo"),
@@ -111,8 +131,12 @@ NON_SELECT_CASES = [
         "WITH cte AS (SELECT id FROM foo) SELECT * FROM cte",
     ),
     # MERGE
-    ("merge", "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET x = 1", 500,
-     "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET x = 1"),
+    (
+        "merge",
+        "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET x = 1",
+        500,
+        "MERGE INTO target USING source ON target.id = source.id WHEN MATCHED THEN UPDATE SET x = 1",
+    ),
     # CALL stored procedure
     ("call", "CALL my_proc()", 500, "CALL my_proc()"),
     # SET variable
@@ -137,7 +161,9 @@ EDGE_CASES = [
     ("limit of 1", "SELECT id FROM foo", 1, "SELECT id FROM foo LIMIT 1"),
 ]
 
-ALL_CASES = SELECT_CASES + ALREADY_LIMITED_CASES + NON_SELECT_CASES + NO_LIMIT_PARAM_CASES + EDGE_CASES
+ALL_CASES = (
+    SELECT_CASES + ALREADY_LIMITED_CASES + NON_SELECT_CASES + NO_LIMIT_PARAM_CASES + EDGE_CASES
+)
 
 
 @pytest.mark.parametrize("description,sql,limit,expected", ALL_CASES, ids=[c[0] for c in ALL_CASES])
