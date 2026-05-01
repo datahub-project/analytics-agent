@@ -1,14 +1,10 @@
-"""
-SKILL.md loader for Analytics Agent skills.
+"""SKILL.md → tool wrappers + skill source paths for SkillsMiddleware.
 
-Each skill lives in skills/<skill-name>/SKILL.md following the Agent Skills
-Specification: YAML frontmatter (name, description, allowed-tools, …) +
-markdown body with step-by-step instructions.
-
-At graph-build time:
-  - Frontmatter description  →  LangChain tool .description (routing)
-  - Markdown body            →  injected into system prompt (instructions)
-  - Python impl in datahub_skills.py  →  tool execution layer
+Skills live under `library/<skill-name>/SKILL.md`. The agent discovers them
+through `deepagents.middleware.SkillsMiddleware` (progressive disclosure: the
+descriptions appear in the system prompt, bodies are loaded on demand). A
+subset of skills also have Python implementations that we expose as
+LangChain tools — see `build_skill_tools` below.
 """
 
 from __future__ import annotations
@@ -23,6 +19,7 @@ from langchain_core.tools import BaseTool, StructuredTool
 logger = logging.getLogger(__name__)
 
 _SKILLS_DIR = Path(__file__).parent
+SKILLS_LIBRARY_DIR = _SKILLS_DIR / "library"
 
 
 def _parse_skill_md(text: str) -> tuple[dict[str, Any], str]:
@@ -43,120 +40,83 @@ def _parse_skill_md(text: str) -> tuple[dict[str, Any], str]:
     return fm, body
 
 
-def _load_skill_md(skill_name: str) -> tuple[dict[str, Any], str] | None:
-    """Read and parse a skill's SKILL.md. Returns None if not found."""
-    skill_dir = _SKILLS_DIR / skill_name
-    skill_file = skill_dir / "SKILL.md"
+def _load_skill_md(skill_dir_name: str) -> tuple[dict[str, Any], str] | None:
+    """Read and parse a skill's SKILL.md from library/<skill_dir_name>/SKILL.md."""
+    skill_file = SKILLS_LIBRARY_DIR / skill_dir_name / "SKILL.md"
     if not skill_file.exists():
-        logger.warning("Skill '%s' has no SKILL.md at %s", skill_name, skill_file)
+        logger.warning("Skill '%s' has no SKILL.md at %s", skill_dir_name, skill_file)
         return None
     return _parse_skill_md(skill_file.read_text())
 
 
-def _build_tool_from_skill(folder_name: str, impl_fn: Any) -> BaseTool | None:
-    """Load a SKILL.md and wrap its impl as a StructuredTool. Returns None on failure."""
-    parsed = _load_skill_md(folder_name)
+def _build_tool(skill_dir_name: str, impl_fn: Any, *, tool_name: str) -> BaseTool | None:
+    """Wrap a Python impl as a StructuredTool with description from SKILL.md."""
+    parsed = _load_skill_md(skill_dir_name)
     if parsed is None:
         return None
     fm, _body = parsed
-    tool_name = fm.get("name", folder_name)
     description = str(fm.get("description", "")).strip().replace("\n", " ")
-    tool = StructuredTool.from_function(
-        func=impl_fn,
-        name=tool_name,
-        description=description,
-    )
-    logger.info("Loaded skill tool '%s' from SKILL.md", tool_name)
+    tool = StructuredTool.from_function(func=impl_fn, name=tool_name, description=description)
+    logger.info("Loaded skill tool '%s' from %s/SKILL.md", tool_name, skill_dir_name)
     return tool
 
 
 def build_always_on_skill_tools() -> list[BaseTool]:
-    """Return skills that are always active, regardless of user-enabled mutations."""
+    """Tools backed by skills that are always active (read-only)."""
     from analytics_agent.skills import datahub_skills as _impl
 
     tools: list[BaseTool] = []
-    tool = _build_tool_from_skill("search-business-context", _impl._search_business_context_impl)
+    tool = _build_tool(
+        "search-business-context",
+        _impl._search_business_context_impl,
+        tool_name="search_business_context",
+    )
     if tool is not None:
         tools.append(tool)
     return tools
 
 
-def build_skill_tools(enabled_skills: set[str]) -> list[BaseTool]:
-    """
-    For each enabled skill, load its SKILL.md and return a LangChain tool
-    whose description comes from the frontmatter and whose implementation
-    comes from datahub_skills.py.
-    """
-    from analytics_agent.skills import datahub_skills as _impl
+# Map opt-in skill IDs (as stored in `enabled_mutation_tools` setting) to
+# (skill_dir_name, impl_attribute, tool_name) triples. Tool names use snake_case
+# to match prior agent-facing identifiers; skill dir names are hyphenated to
+# satisfy the Agent Skills specification.
+_OPT_IN_TOOL_SPECS: dict[str, tuple[str, str, str]] = {
+    "publish_analysis": ("publish-analysis", "_publish_analysis_impl", "publish_analysis"),
+    "save_correction": ("save-correction", "_save_correction_impl", "save_correction"),
+}
 
-    _implementations: dict[str, Any] = {
-        "publish-analysis": _impl._publish_analysis_impl,
-        "save-correction": _impl._save_correction_impl,
-    }
-    _name_map: dict[str, str] = {
-        "publish_analysis": "publish-analysis",
-        "save_correction": "save-correction",
-    }
+
+def build_skill_tools(enabled_skills: set[str]) -> list[BaseTool]:
+    """For each enabled opt-in skill, expose its Python impl as a LangChain tool."""
+    from analytics_agent.skills import datahub_skills as _impl
 
     tools: list[BaseTool] = []
     for skill_id in enabled_skills:
-        folder_name = _name_map.get(skill_id, skill_id)
-        impl = _implementations.get(folder_name)
-        if impl is None:
-            logger.warning("No implementation found for skill '%s'", skill_id)
+        spec = _OPT_IN_TOOL_SPECS.get(skill_id)
+        if spec is None:
+            logger.warning("No tool wrapping defined for skill '%s'", skill_id)
             continue
-        tool = _build_tool_from_skill(folder_name, impl)
+        skill_dir, impl_attr, tool_name = spec
+        impl = getattr(_impl, impl_attr, None)
+        if impl is None:
+            logger.warning("Missing impl '%s' for skill '%s'", impl_attr, skill_id)
+            continue
+        tool = _build_tool(skill_dir, impl, tool_name=tool_name)
         if tool is not None:
             tools.append(tool)
-
     return tools
 
 
-def get_improve_context_prompt_section() -> str:
-    """Return the always-on /improve-context meta-skill section for the system prompt."""
-    parsed = _load_skill_md("improve-context")
-    if parsed is None:
-        return ""
-    _fm, body = parsed
-    return f"\n\n## Meta-Skill: /improve-context\n\n{body}"
+def build_skill_sources(enabled_mutations: set[str] | None = None) -> list[str]:
+    """Return source paths for SkillsMiddleware.
 
+    Always includes the full library so descriptions are discoverable. Body
+    contents are loaded on demand by the middleware (progressive disclosure),
+    so unused skills cost only their description in the system prompt.
 
-def get_search_business_context_section() -> str:
-    """Return the always-on search-business-context skill section for the system prompt."""
-    parsed = _load_skill_md("search-business-context")
-    if parsed is None:
-        return ""
-    _fm, body = parsed
-    return f"\n\n## Skill: search_business_context\n\n{body}"
-
-
-def get_skill_system_prompt_section(enabled_skills: set[str]) -> str:
+    The `enabled_mutations` argument is accepted for parity with the tool
+    builders but does not currently filter sources — mutation skills become
+    actually executable only because their corresponding tools are absent
+    when the user has not enabled them.
     """
-    Return a markdown section to inject into the system prompt containing
-    the full SKILL.md body for each enabled skill.
-
-    Empty string if no skills are enabled.
-    """
-    _name_map: dict[str, str] = {
-        "publish_analysis": "publish-analysis",
-        "save_correction": "save-correction",
-    }
-
-    sections: list[str] = []
-    for skill_id in sorted(enabled_skills):
-        folder_name = _name_map.get(skill_id, skill_id)
-        parsed = _load_skill_md(folder_name)
-        if parsed is None:
-            continue
-        fm, body = parsed
-        tool_name = fm.get("name", skill_id)
-        sections.append(f"### Skill: {tool_name}\n\n{body}")
-
-    if not sections:
-        return ""
-
-    return (
-        "\n\n## Write-Back Skills\n\n"
-        "The following skills are enabled. Follow their instructions exactly "
-        "when the relevant situation arises.\n\n" + "\n\n---\n\n".join(sections)
-    )
+    return [str(SKILLS_LIBRARY_DIR)]
