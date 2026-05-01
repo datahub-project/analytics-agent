@@ -1,7 +1,6 @@
 """Tests for _apply_row_limit — the helper that appends LIMIT only to SELECT statements."""
 
 import pytest
-
 from analytics_agent.engines.base import _apply_row_limit
 
 # ---------------------------------------------------------------------------
