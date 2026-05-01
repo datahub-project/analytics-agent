@@ -204,6 +204,7 @@ async def _run_and_broadcast(
 
             # ── Normal agent path ─────────────────────────────────────────────
             from analytics_agent.agent.compactor_registry import get_compactor
+            from analytics_agent.agent.deep_graph import build_deep_graph
             from analytics_agent.agent.graph import build_graph
             from analytics_agent.agent.history import build_history
             from analytics_agent.agent.streaming import stream_graph_events
@@ -269,7 +270,10 @@ async def _run_and_broadcast(
                     mcp_tools = await engine.get_tools_async()
                     engine_tools = [t for t in mcp_tools if t.name not in disabled_tools]
 
-                graph = build_graph(
+                graph_builder = build_deep_graph if _settings.use_deep_agents else build_graph
+                if _settings.use_deep_agents:
+                    logger.info("Using deepagents graph for conversation %s", conversation_id)
+                graph = graph_builder(
                     engine=engine if not isinstance(engine, MCPQueryEngine) else None,
                     engine_name=engine_name,
                     system_prompt_override=custom_prompt,

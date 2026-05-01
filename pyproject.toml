@@ -63,6 +63,7 @@ dependencies = [
     "langchain-google-genai>=4.2.2",
     # Telemetry
     "mixpanel>=4.10.0",
+    "deepagents>=0.5.5",
 ]
 
 [project.urls]
