@@ -8,7 +8,7 @@ from typing import Any
 import orjson
 from langchain_core.tools import BaseTool, tool
 
-from analytics_agent.engines.base import QueryEngine
+from analytics_agent.engines.base import QueryEngine, _apply_row_limit
 
 logger = logging.getLogger(__name__)
 
@@ -222,9 +222,7 @@ class SnowflakeQueryEngine(QueryEngine):
         except Exception as e:
             return {"error": str(e), "columns": [], "rows": [], "truncated": False}
 
-        effective_sql = sql.strip().rstrip(";")
-        if limit is not None and "LIMIT" not in effective_sql.upper():
-            effective_sql = f"{effective_sql} LIMIT {limit}"
+        effective_sql = _apply_row_limit(sql, limit)
         cursor = conn.cursor()
         try:
             cursor.execute(effective_sql)
