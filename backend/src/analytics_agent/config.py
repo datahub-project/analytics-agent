@@ -258,11 +258,6 @@ class Settings(BaseSettings):
     # within the 200K Claude context window. Override via MAX_HISTORY_TOKENS env var.
     max_history_tokens: int = 800_000
 
-    # Spike: route the agent through deepagents (sub-agents, virtual FS, planning,
-    # SkillsMiddleware, summarization) instead of the legacy create_agent path.
-    # Toggle via USE_DEEP_AGENTS=1.
-    use_deep_agents: bool = False
-
     # Testing — when set, MCPContextPlatform.get_tools() returns a static stub list
     # instead of connecting to the real server.  Set to "1" in e2e test environments.
     mock_mcp_tools: bool = False
