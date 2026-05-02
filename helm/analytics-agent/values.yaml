@@ -35,7 +35,7 @@ service:
   type: ClusterIP
   http:
     port: 80
-    targetPort: 8000
+    targetPort: 8100
 
 ingress:
   enabled: false
