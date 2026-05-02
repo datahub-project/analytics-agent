@@ -172,6 +172,9 @@ export function ChatView() {
         }
       }
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Other references (setMessages, appendMessage, etc.) are stable Zustand store
+  // actions — their identity never changes, so only activeId needs to re-trigger.
   }, [activeId]);
 
   const [showReasoning, setShowReasoning] = useState(true);

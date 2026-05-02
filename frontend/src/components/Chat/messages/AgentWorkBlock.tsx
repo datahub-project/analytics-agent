@@ -63,8 +63,8 @@ export function AgentWorkBlock({
   // Live timer while streaming
   useEffect(() => {
     if (!isStreaming) {
-      if (frozenElapsed.current === null && liveElapsed > 0) {
-        frozenElapsed.current = liveElapsed;
+      if (frozenElapsed.current === null && startRef.current > 0) {
+        frozenElapsed.current = Math.round((Date.now() - startRef.current) / 1000);
       }
       return;
     }
