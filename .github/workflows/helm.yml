@@ -1,0 +1,69 @@
+name: Helm chart
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "helm/**"
+      - "docker/Dockerfile"
+  pull_request:
+    branches: [main]
+    paths:
+      - "helm/**"
+      - "docker/Dockerfile"
+
+jobs:
+  helm-chart:
+    name: Lint & validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.0
+
+      - name: Lint chart
+        run: helm lint helm/analytics-agent/
+
+      - name: Render templates
+        run: |
+          helm template test-release helm/analytics-agent/ \
+            --set image.repository=analytics-agent \
+            --set image.tag=test \
+            > /tmp/rendered.yaml
+
+      - name: Verify port consistency (Dockerfile EXPOSE vs Helm targetPort)
+        run: |
+          DOCKERFILE_PORT=$(grep '^EXPOSE' docker/Dockerfile | awk '{print $2}')
+          HELM_PORT=$(grep 'targetPort:' helm/analytics-agent/values.yaml | awk '{print $2}')
+          echo "Dockerfile EXPOSE: $DOCKERFILE_PORT"
+          echo "Helm targetPort:   $HELM_PORT"
+          [ "$DOCKERFILE_PORT" = "$HELM_PORT" ] || \
+            { echo "ERROR: port mismatch — update helm/analytics-agent/values.yaml"; exit 1; }
+
+      - name: Verify hook ordering (SA and Secret weight < bootstrap Job weight)
+        run: |
+          pip install -q pyyaml
+          python3 - <<'PYEOF'
+          import sys, yaml
+
+          docs = list(yaml.safe_load_all(open("/tmp/rendered.yaml")))
+          hooks = {}
+          for doc in docs:
+              if not doc:
+                  continue
+              ann = (doc.get("metadata") or {}).get("annotations") or {}
+              if "pre-install" in ann.get("helm.sh/hook", ""):
+                  hooks[doc["kind"]] = int(ann.get("helm.sh/hook-weight", 0))
+
+          print("Hook weights:", hooks)
+          sa, secret, job = hooks.get("ServiceAccount"), hooks.get("Secret"), hooks.get("Job")
+          assert sa is not None, "ServiceAccount must be a hook"
+          assert secret is not None, "Secret must be a hook"
+          assert job is not None, "bootstrap Job must be a hook"
+          assert sa < job,     f"ServiceAccount weight ({sa}) must be < Job ({job})"
+          assert secret < job, f"Secret weight ({secret}) must be < Job ({job})"
+          print("Hook ordering OK")
+          PYEOF
