@@ -34,10 +34,12 @@ typecheck:
 
 # Start backend (blocks; use 'dev' for background)
 serve:
+    uv run analytics-agent bootstrap
     uv run uvicorn analytics_agent.main:app --reload --port {{dev_port}}
 
 # Build frontend if stale, then start backend in background (with auto-reload on Python changes)
 dev: build-if-stale
+    uv run analytics-agent bootstrap
     pkill -f "analytics_agent.main" || true
     nohup uv run uvicorn analytics_agent.main:app --reload --port {{dev_port}} > {{log}} 2>&1 &
     sleep 3 && curl -s http://localhost:{{dev_port}}/api/engines | head -c 120
@@ -45,6 +47,7 @@ dev: build-if-stale
 
 # Start backend, rebuilding frontend if stale
 start: build-if-stale
+    uv run analytics-agent bootstrap
     pkill -f "analytics_agent.main" || true
     nohup uv run uvicorn analytics_agent.main:app --port {{port}} > {{log}} 2>&1 &
     sleep 3 && curl -s http://localhost:{{port}}/api/engines | head -c 120
@@ -57,6 +60,7 @@ frontend:
 
 # Start backend (reload mode) + Vite dev server in parallel
 dev-full:
+    uv run analytics-agent bootstrap
     pkill -f "analytics_agent.main" || true
     nohup uv run uvicorn analytics_agent.main:app --reload --port {{dev_port}} > {{log}} 2>&1 &
     @echo "Backend → http://localhost:{{dev_port}}"
