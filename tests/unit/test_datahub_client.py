@@ -78,8 +78,10 @@ async def test_async_credentials_fallback_when_no_db_rows(empty_factory):
     """No matching DB row → returns settings.get_datahub_config() fallback."""
     from analytics_agent.context.datahub import _get_db_datahub_credentials_async
 
-    with patch("analytics_agent.db.base._get_session_factory", return_value=empty_factory), \
-         patch("analytics_agent.context.datahub.settings") as mock_settings:
+    with (
+        patch("analytics_agent.db.base._get_session_factory", return_value=empty_factory),
+        patch("analytics_agent.context.datahub.settings") as mock_settings,
+    ):
         mock_settings.get_datahub_config.return_value = ("http://env-url", "env-tok")
         url, token, any_in_db = await _get_db_datahub_credentials_async()
 
@@ -93,8 +95,10 @@ async def test_async_credentials_fallback_on_db_exception():
     """DB error → falls back to settings.get_datahub_config() without raising."""
     from analytics_agent.context.datahub import _get_db_datahub_credentials_async
 
-    with patch("analytics_agent.db.base._get_session_factory", side_effect=RuntimeError("boom")), \
-         patch("analytics_agent.context.datahub.settings") as mock_settings:
+    with (
+        patch("analytics_agent.db.base._get_session_factory", side_effect=RuntimeError("boom")),
+        patch("analytics_agent.context.datahub.settings") as mock_settings,
+    ):
         mock_settings.get_datahub_config.return_value = ("http://fallback", "fallback-tok")
         url, token, any_in_db = await _get_db_datahub_credentials_async()
 
@@ -122,8 +126,10 @@ def test_sync_credentials_reads_from_db():
 
     fake_factory = MagicMock(return_value=_FakeSessionCM())
 
-    with patch("analytics_agent.db.base._get_session_factory", return_value=fake_factory), \
-         patch("analytics_agent.db.repository.ContextPlatformRepo") as MockRepo:
+    with (
+        patch("analytics_agent.db.base._get_session_factory", return_value=fake_factory),
+        patch("analytics_agent.db.repository.ContextPlatformRepo") as MockRepo,
+    ):
         mock_repo = AsyncMock()
         mock_repo.list_all = AsyncMock(return_value=[fake_platform])
         MockRepo.return_value = mock_repo
@@ -139,8 +145,10 @@ def test_sync_credentials_fallback_on_exception():
     """Sync variant falls back to settings.get_datahub_config() on any error."""
     from analytics_agent.context.datahub import _get_db_datahub_credentials_sync
 
-    with patch("analytics_agent.db.base._get_session_factory", side_effect=RuntimeError("no db")), \
-         patch("analytics_agent.context.datahub.settings") as mock_settings:
+    with (
+        patch("analytics_agent.db.base._get_session_factory", side_effect=RuntimeError("no db")),
+        patch("analytics_agent.context.datahub.settings") as mock_settings,
+    ):
         mock_settings.get_datahub_config.return_value = ("http://sync-fallback", "sfb-tok")
         url, token, any_in_db = _get_db_datahub_credentials_sync()
 
@@ -157,10 +165,13 @@ async def test_aget_datahub_client_returns_none_when_unconfigured():
     """No url+token and no ~/.datahubenv → None."""
     from analytics_agent.context.datahub import aget_datahub_client
 
-    with patch(
-        "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("", "", False)),
-    ), patch("pathlib.Path.exists", return_value=False):
+    with (
+        patch(
+            "analytics_agent.context.datahub._get_db_datahub_credentials_async",
+            new=AsyncMock(return_value=("", "", False)),
+        ),
+        patch("pathlib.Path.exists", return_value=False),
+    ):
         client = await aget_datahub_client()
 
     assert client is None
@@ -171,10 +182,13 @@ async def test_aget_datahub_client_returns_none_when_token_but_no_url():
     """Stale DATAHUB_GMS_TOKEN env var without a URL must not trigger from_env() / localhost probe."""
     from analytics_agent.context.datahub import aget_datahub_client
 
-    with patch(
-        "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("", "some-stale-token", False)),
-    ), patch("pathlib.Path.exists", return_value=False):
+    with (
+        patch(
+            "analytics_agent.context.datahub._get_db_datahub_credentials_async",
+            new=AsyncMock(return_value=("", "some-stale-token", False)),
+        ),
+        patch("pathlib.Path.exists", return_value=False),
+    ):
         client = await aget_datahub_client()
 
     assert client is None
@@ -186,10 +200,13 @@ async def test_aget_datahub_client_returns_none_when_mcp_only_in_db():
     from analytics_agent.context.datahub import aget_datahub_client
 
     # any_datahub_in_db=True but no native url/token — user has MCP DataHub configured
-    with patch(
-        "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("", "", True)),
-    ), patch("pathlib.Path.exists", return_value=True):  # datahubenv exists but must be ignored
+    with (
+        patch(
+            "analytics_agent.context.datahub._get_db_datahub_credentials_async",
+            new=AsyncMock(return_value=("", "", True)),
+        ),
+        patch("pathlib.Path.exists", return_value=True),
+    ):  # datahubenv exists but must be ignored
         client = await aget_datahub_client()
 
     assert client is None
@@ -204,12 +221,15 @@ async def test_aget_datahub_client_uses_asyncio_to_thread():
 
     # asyncio is imported locally inside aget_datahub_client, so we patch the
     # stdlib module directly — it's cached in sys.modules and picked up on re-import.
-    with patch(
-        "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("http://dh.test:8080", "test-tok", True)),
-    ), patch("asyncio.to_thread", new=AsyncMock(return_value=fake_client)) as mock_to_thread, \
-       patch("pathlib.Path.exists", return_value=False), \
-       patch("datahub.sdk.main_client.DataHubClient"):
+    with (
+        patch(
+            "analytics_agent.context.datahub._get_db_datahub_credentials_async",
+            new=AsyncMock(return_value=("http://dh.test:8080", "test-tok", True)),
+        ),
+        patch("asyncio.to_thread", new=AsyncMock(return_value=fake_client)) as mock_to_thread,
+        patch("pathlib.Path.exists", return_value=False),
+        patch("datahub.sdk.main_client.DataHubClient"),
+    ):
         client = await aget_datahub_client()
 
     assert client is fake_client
@@ -231,15 +251,23 @@ async def test_capabilities_cache_hit_skips_client():
 
     fake_client = MagicMock()
     fake_graph = MagicMock()
-    fake_graph.execute_graphql = MagicMock(return_value={"semanticSearchAcrossEntities": {"total": 0}})
+    fake_graph.execute_graphql = MagicMock(
+        return_value={"semanticSearchAcrossEntities": {"total": 0}}
+    )
     fake_client._graph = fake_graph
 
     # aget_datahub_client is imported lazily inside get_datahub_capabilities, so
     # we patch it at its source module, not in settings.
-    with patch(
-        "analytics_agent.context.datahub.aget_datahub_client",
-        new=AsyncMock(return_value=fake_client),
-    ), patch("asyncio.to_thread", new=AsyncMock(return_value={"semanticSearchAcrossEntities": {"total": 0}})):
+    with (
+        patch(
+            "analytics_agent.context.datahub.aget_datahub_client",
+            new=AsyncMock(return_value=fake_client),
+        ),
+        patch(
+            "asyncio.to_thread",
+            new=AsyncMock(return_value={"semanticSearchAcrossEntities": {"total": 0}}),
+        ),
+    ):
         result1 = await get_datahub_capabilities()
         result2 = await get_datahub_capabilities()
 
@@ -274,10 +302,13 @@ async def test_capabilities_cache_expired_hits_client_again():
         call_count += 1
         return {"semanticSearchAcrossEntities": {"total": 0}}
 
-    with patch(
-        "analytics_agent.context.datahub.aget_datahub_client",
-        new=AsyncMock(return_value=fake_client),
-    ), patch("asyncio.to_thread", new=fake_to_thread):
+    with (
+        patch(
+            "analytics_agent.context.datahub.aget_datahub_client",
+            new=AsyncMock(return_value=fake_client),
+        ),
+        patch("asyncio.to_thread", new=fake_to_thread),
+    ):
         await get_datahub_capabilities()
 
     assert call_count == 1  # re-probed because cache was stale
