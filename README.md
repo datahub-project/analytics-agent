@@ -64,7 +64,7 @@ Open the browser — a setup wizard walks you through naming your agent, picking
 | **Multi-turn memory** | Follow-ups like "make it a pie chart" or "filter to Q3" work across turns. |
 | **Collapsible reasoning** | Tool calls and agent thinking are shown but collapsed — visible when you want them, out of the way when you don't. |
 | **4 themes** | DataHub (light/purple), Warm (light/orange), Ocean (dark/blue), Carbon (dark/gray). Switcher in the bottom-left. |
-| **Multiple connections** | Add and manage multiple Snowflake, DuckDB, or SQLAlchemy connections from Settings. Each has its own encrypted credentials. |
+| **Multiple connections** | Add and manage multiple Snowflake, BigQuery, DuckDB, or SQLAlchemy connections from Settings. Each has its own encrypted credentials. |
 
 ---
 
@@ -177,6 +177,80 @@ Generate an RSA key pair, upload the public key to Snowflake, then set `SNOWFLAK
 
 ---
 
+## Connect BigQuery
+
+BigQuery authenticates exclusively via a GCP **service account**. Three credential formats are supported — use whichever fits your deployment:
+
+### Option A — JSON key via environment variable (recommended for containers)
+
+Export the raw service-account JSON (single line, no newlines):
+
+```bash
+export BIGQUERY_CREDENTIALS_JSON='{"type":"service_account","project_id":"my-project",...}'
+```
+
+Or add it to `.env`:
+
+```bash
+BIGQUERY_CREDENTIALS_JSON={"type":"service_account","project_id":"my-project",...}
+```
+
+Then reference the project in `config.yaml`:
+
+```yaml
+# config.yaml
+engines:
+  - type: bigquery
+    name: prod
+    connection:
+      project: "${BIGQUERY_PROJECT}"
+      dataset: "${BIGQUERY_DATASET}"   # optional default dataset
+```
+
+### Option B — Base64-encoded JSON key via `config.yaml`
+
+Encode your key file once:
+
+```bash
+base64 -i my-service-account.json | tr -d '\n'
+```
+
+Then paste the output into `config.yaml`:
+
+```yaml
+engines:
+  - type: bigquery
+    name: prod
+    connection:
+      project: my-gcp-project
+      dataset: my_dataset          # optional
+      credentials_base64: "ey..."
+```
+
+### Option C — Path to a JSON key file
+
+Useful for local development or when the key file is mounted into the container:
+
+```yaml
+engines:
+  - type: bigquery
+    name: prod
+    connection:
+      project: my-gcp-project
+      credentials_path: /secrets/sa-key.json
+```
+
+### Required IAM roles
+
+The service account needs at minimum:
+
+| Role | Purpose |
+|---|---|
+| `roles/bigquery.dataViewer` | Read tables and schemas |
+| `roles/bigquery.jobUser` | Run queries |
+
+---
+
 ## LLM model routing
 
 Four independently configurable model tiers:
@@ -253,7 +327,7 @@ analytics-agent/
 │   ├── context/        # DataHub tool loader (datahub_agent_context)
 │   ├── db/             # SQLAlchemy models + Alembic migrations
 │   │   └── models.py   # Conversation, Message, Integration, Setting
-│   ├── engines/        # Pluggable query engines (Snowflake, DuckDB, SQLAlchemy)
+│   ├── engines/        # Pluggable query engines (Snowflake, BigQuery, DuckDB, SQLAlchemy)
 │   ├── prompts/        # System prompt (system_prompt.md) + chart prompt
 │   └── skills/         # Write-back skills: publish-analysis, save-correction,
 │                       #   improve-context (/improve-context slash command)
