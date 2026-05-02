@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 
-def _get_db_datahub_credentials() -> tuple[str, str]:
-    """Synchronously read the first active native DataHub platform from DB."""
+def _get_db_datahub_credentials_sync() -> tuple[str, str]:
+    """Read the first active native DataHub platform from DB — for thread context."""
     import contextlib
 
     import orjson
@@ -24,7 +24,7 @@ def _get_db_datahub_credentials() -> tuple[str, str]:
         from analytics_agent.db.base import _get_session_factory
         from analytics_agent.db.repository import ContextPlatformRepo
 
-        async def _fetch():
+        async def _fetch() -> tuple[str, str]:
             from analytics_agent.config import DataHubPlatformConfig, parse_platform_config
 
             factory = _get_session_factory()
@@ -37,25 +37,69 @@ def _get_db_datahub_credentials() -> tuple[str, str]:
                     cfg = parse_platform_config(raw)
                     if isinstance(cfg, DataHubPlatformConfig) and cfg.url and cfg.token:
                         return cfg.url, cfg.token
-            return "", ""
-
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # In async context — can't use run_until_complete; return env var fallback
             return settings.get_datahub_config()
-        return loop.run_until_complete(_fetch())
+
+        # asyncio.run() creates a fresh event loop — safe and correct in thread context.
+        return asyncio.run(_fetch())
     except Exception:
         return settings.get_datahub_config()
 
 
+async def _get_db_datahub_credentials_async() -> tuple[str, str]:
+    """Read the first active native DataHub platform from DB — for async handler context."""
+    import contextlib
+
+    import orjson
+
+    try:
+        from analytics_agent.config import DataHubPlatformConfig, parse_platform_config
+        from analytics_agent.db.base import _get_session_factory
+        from analytics_agent.db.repository import ContextPlatformRepo
+
+        factory = _get_session_factory()
+        async with factory() as session:
+            platforms = await ContextPlatformRepo(session).list_all()
+            for plat in platforms:
+                raw: dict = {}
+                with contextlib.suppress(Exception):
+                    raw = orjson.loads(plat.config)
+                cfg = parse_platform_config(raw)
+                if isinstance(cfg, DataHubPlatformConfig) and cfg.url and cfg.token:
+                    return cfg.url, cfg.token
+    except Exception:
+        pass
+    return settings.get_datahub_config()
+
+
+async def aget_datahub_client() -> DataHubClient | None:
+    """Return a DataHubClient for async handler context — non-blocking construction."""
+    import asyncio
+    import pathlib
+
+    url, token = await _get_db_datahub_credentials_async()
+    has_datahubenv = pathlib.Path("~/.datahubenv").expanduser().exists()
+    if not url and not has_datahubenv:
+        return None
+
+    try:
+        from datahub.sdk.main_client import DataHubClient
+    except ImportError:
+        return None
+
+    if url and token:
+        return await asyncio.to_thread(DataHubClient, server=url, token=token)
+    return await asyncio.to_thread(DataHubClient.from_env)
+
+
 def get_datahub_client() -> DataHubClient | None:
-    """Return a DataHubClient for the first active native DataHub platform.
+    """Return a DataHubClient for thread context (agent execution, executor callbacks).
 
     Reads from DB (user-configured via Settings UI) with fallback to env vars.
+    Do NOT call this from async request handlers — use aget_datahub_client() instead.
     """
     import pathlib
 
-    url, token = _get_db_datahub_credentials()
+    url, token = _get_db_datahub_credentials_sync()
     has_config = bool(url and token)
     has_datahubenv = pathlib.Path("~/.datahubenv").expanduser().exists()
     if not has_config and not has_datahubenv:
