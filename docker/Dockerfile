@@ -18,6 +18,7 @@ COPY pyproject.toml uv.lock README.md ./
 COPY backend/ backend/
 
 RUN uv sync --no-dev
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY alembic.ini config.yaml.example ./
 # Use example as the default config; operators override via volume mount or ENGINES_CONFIG env var

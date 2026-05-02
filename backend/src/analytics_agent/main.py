@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -20,130 +19,39 @@ from fastapi.middleware.cors import CORSMiddleware
 from analytics_agent.config import settings
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Run Alembic migrations at startup (sync — Alembic is not async)
-    _run_migrations()
+async def register_engines_from_db() -> None:
+    """Populate the in-memory engine factory from rows in the integrations table.
 
-    # Seed integrations from config.yaml and load all into engine registry
-    await _seed_integrations()
-
-    # Seed context platforms (DataHub, etc.) from config.yaml into DB
-    await _seed_context_platforms()
-
-    # Fail fast if rows are encrypted but the master key is absent
-    await _check_encryption_key_consistency()
-
-    # Apply first-run defaults (skipped if already configured)
-    await _seed_default_settings()
-
-    # Load LLM credentials stored via the onboarding wizard into the singleton.
-    # This is what makes the app work with zero env vars.
-    await _load_llm_config_from_db()
-
-    # Kick off tool discovery for any MCP connections that haven't been discovered yet.
-    # Runs in the background so it doesn't delay startup.
-    import asyncio as _asyncio
-
-    _asyncio.create_task(_discover_mcp_tools_on_boot())
-
-    yield
-
-    # Cleanup engine connections
-    from analytics_agent.engines.factory import close_all
-
-    await close_all()
-
-
-async def _seed_integrations() -> None:
+    This is a per-pod read-only operation. Yaml→DB seeding lives in
+    ``analytics_agent.bootstrap.seed_integrations_from_yaml`` and runs as a
+    Helm pre-install/pre-upgrade hook.
     """
-    Upsert config.yaml engines into the integrations table, then load all
-    integrations (yaml + ui-created) into the engine factory registry.
-    Also migrates any legacy oauth_token:* entries from settings table.
-    """
-    import uuid
-
     import orjson
 
     from analytics_agent.db.base import _get_session_factory
-    from analytics_agent.db.repository import CredentialRepo, IntegrationRepo, SettingsRepo
+    from analytics_agent.db.repository import IntegrationRepo
     from analytics_agent.engines.factory import register_engine
 
+    logger = logging.getLogger(__name__)
     factory = _get_session_factory()
     async with factory() as session:
-        integration_repo = IntegrationRepo(session)
-        cred_repo = CredentialRepo(session)
-        settings_repo = SettingsRepo(session)
+        all_integrations = await IntegrationRepo(session).list_all()
 
-        # 1. Upsert config.yaml engines and remove orphans (yaml-source entries no longer in config).
-        # If the user has edited a yaml-seeded row via the Settings UI the row's source is flipped
-        # to "ui" (see api/settings.py::update_connection); we skip those so the user's edits
-        # survive restarts.
-        config_engine_names = {cfg.effective_name for cfg in settings.load_engines_config()}
-        for cfg in settings.load_engines_config():
-            engine_type = cfg.type
-            engine_name = cfg.effective_name
-            connection = cfg.connection
-            label = f"{engine_type.capitalize()} ({engine_name})"
-            existing = await integration_repo.get(engine_name)
-            if existing is not None and existing.source == "ui":
-                logging.getLogger(__name__).info(
-                    "Skipping yaml seed for '%s' — user-managed via Settings UI", engine_name
-                )
-                continue
-            await integration_repo.upsert(
-                id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"yaml:{engine_name}")),
-                name=engine_name,
-                type=engine_type,
-                label=label,
-                config=orjson.dumps(connection).decode(),
-                source="yaml",
-            )
-        # Delete yaml-source integrations that are no longer in config.yaml
-        for intg in await integration_repo.list_all():
-            if intg.source == "yaml" and intg.name not in config_engine_names:
-                logging.getLogger(__name__).info(
-                    "Removing stale yaml integration '%s' (no longer in config.yaml)", intg.name
-                )
-                await integration_repo.delete(intg.name)
-
-        # 2. Migrate legacy oauth_token:* from settings table
-        all_integrations = await integration_repo.list_all()
-        for intg in all_integrations:
-            old_key = f"snowflake_oauth:{intg.name}"
-            raw = await settings_repo.get(old_key)
-            if raw and intg.credential is None:
-                try:
-                    data = orjson.loads(raw)
-                    method = data.get("method", "")
-                    user = data.get("username") or data.get("user", "")
-                    if method == "externalbrowser" and user:
-                        await cred_repo.upsert(
-                            id=str(uuid.uuid4()),
-                            integration_name=intg.name,
-                            auth_type="sso_externalbrowser",
-                            username=user,
-                        )
-                        await settings_repo.delete(old_key)
-                except Exception:
-                    pass
-
-        # 3. Register all integrations in engine factory
-        all_integrations = await integration_repo.list_all()
-        for intg in all_integrations:
-            try:
-                conn_cfg = orjson.loads(intg.config)
-                register_engine(intg.name, intg.type, conn_cfg)
-            except Exception as e:
-                logging.getLogger(__name__).warning(
-                    "Failed to register engine %s: %s", intg.name, e
-                )
+    for intg in all_integrations:
+        try:
+            conn_cfg = orjson.loads(intg.config)
+            register_engine(intg.name, intg.type, conn_cfg)
+        except Exception as e:
+            logger.warning("Failed to register engine %s: %s", intg.name, e)
 
 
-async def _seed_context_platforms() -> None:
-    """Upsert config.yaml context_platforms into the DB, then propagate DataHub config to env."""
-    import uuid
+async def propagate_datahub_env() -> None:
+    """Copy the first DataHub context platform's URL/token into ``os.environ``.
 
+    Sync callers (agent tools, ``datahub.py``) read these env vars. This is a
+    per-pod read-only operation; yaml→DB seeding for context platforms lives in
+    ``analytics_agent.bootstrap.seed_context_platforms_from_yaml``.
+    """
     import orjson
 
     from analytics_agent.db.base import _get_session_factory
@@ -151,63 +59,41 @@ async def _seed_context_platforms() -> None:
 
     factory = _get_session_factory()
     async with factory() as session:
-        repo = ContextPlatformRepo(session)
+        all_platforms = await ContextPlatformRepo(session).list_all()
 
-        config_platform_names = {cfg.name for cfg in settings.load_context_platforms_config()}
-        for cfg in settings.load_context_platforms_config():
-            existing = await repo.get(cfg.name)
-            if existing:
-                # For yaml-sourced platforms, sync label and env vars (but preserve
-                # user-edited credentials and _discovered_tools metadata).
-                changed = False
-                new_label = cfg.label or cfg.type.capitalize()
-                if existing.label != new_label:
-                    existing.label = new_label
-                    changed = True
-                if existing.source == "yaml":
-                    # Re-apply env dict from config.yaml so new vars (e.g. TOOLS_IS_MUTATION_ENABLED)
-                    # take effect without requiring a manual DB delete.
-                    stored: dict = {}
-                    with contextlib.suppress(Exception):
-                        stored = orjson.loads(existing.config)
-                    yaml_cfg_dict = cfg.model_dump()
-                    new_env = yaml_cfg_dict.get("env", {})
-                    if new_env and stored.get("env") != new_env:
-                        stored["env"] = new_env
-                        # Preserve cached tools
-                        existing.config = orjson.dumps(stored).decode()
-                        changed = True
-                if changed:
-                    await session.commit()
-            else:
-                # First-time creation: seed from config.yaml
-                await repo.upsert(
-                    id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"yaml:{cfg.name}")),
-                    type=cfg.type,
-                    name=cfg.name,
-                    label=cfg.label or cfg.type.capitalize(),
-                    config=orjson.dumps(cfg.model_dump()).decode(),
-                    source="yaml",
-                )
-        # Remove yaml-source platforms no longer in config.yaml
-        for plat in await repo.list_all():
-            if plat.source == "yaml" and plat.name not in config_platform_names:
-                logging.getLogger(__name__).info(
-                    "Removing stale yaml context platform '%s'", plat.name
-                )
-                await repo.delete(plat.name)
+    for plat in all_platforms:
+        if plat.type == "datahub":
+            parsed = orjson.loads(plat.config)
+            if parsed.get("url"):
+                os.environ["DATAHUB_GMS_URL"] = parsed["url"]
+            if parsed.get("token"):
+                os.environ["DATAHUB_GMS_TOKEN"] = parsed["token"]
+            break
 
-        # Propagate the first DataHub platform to os.environ so sync callers
-        # (agent tools, datahub.py) continue working without DB access.
-        all_platforms = await repo.list_all()
-        for plat in all_platforms:
-            if plat.type == "datahub":
-                parsed = orjson.loads(plat.config)
-                if parsed.get("url"):
-                    os.environ["DATAHUB_GMS_URL"] = parsed["url"]
-                if parsed.get("token"):
-                    os.environ["DATAHUB_GMS_TOKEN"] = parsed["token"]
-                break
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Fail fast if rows are encrypted but the master key is absent.
+    # Must run BEFORE any DB read that would deserialize EncryptedJSON columns.
+    await _check_encryption_key_consistency()
+
+    # Per-pod read-only init. All DB-mutating bootstrap work (migrations,
+    # yaml→DB seeds, first-run defaults) is now done by the analytics-agent
+    # CLI, run as a Helm pre-install/pre-upgrade hook.
+    await register_engines_from_db()
+    await propagate_datahub_env()
+    await _load_llm_config_from_db()
+
+    # Background MCP tool discovery — non-blocking, per-platform retry.
+    import asyncio as _asyncio
+
+    _asyncio.create_task(_discover_mcp_tools_on_boot())
+
+    yield
+
+    from analytics_agent.engines.factory import close_all
+
+    await close_all()
 
 
 async def _check_encryption_key_consistency() -> None:
@@ -239,23 +125,6 @@ async def _check_encryption_key_consistency() -> None:
         )
         _logger.error(msg)
         raise RuntimeError(msg)
-
-
-async def _seed_default_settings() -> None:
-    """Write first-run defaults to the settings table (no-op if already set)."""
-    import orjson
-
-    from analytics_agent.db.base import _get_session_factory
-    from analytics_agent.db.repository import SettingsRepo
-
-    factory = _get_session_factory()
-    async with factory() as session:
-        repo = SettingsRepo(session)
-        if await repo.get("enabled_mutation_tools") is None:
-            await repo.set(
-                "enabled_mutation_tools",
-                orjson.dumps(["publish_analysis", "save_correction"]).decode(),
-            )
 
 
 async def _discover_mcp_tools_on_boot() -> None:
@@ -422,60 +291,6 @@ async def _load_llm_config_from_db() -> None:
         os.environ["ENABLE_PROMPT_CACHE"] = "true" if flag_on else "false"
 
 
-def _run_migrations() -> None:
-    """Run Alembic migrations synchronously (Alembic is a sync tool)."""
-    from alembic import command
-    from alembic.config import Config
-
-    if "sqlite" in settings.database_url:
-        db_path = settings.database_url.replace("sqlite+aiosqlite:///", "")
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    elif "mysql" in settings.database_url:
-        _ensure_mysql_schema()
-
-    alembic_cfg = Config("alembic.ini")
-    command.upgrade(alembic_cfg, "head")
-
-
-def _ensure_mysql_schema() -> None:
-    """Create the analytics_agent MySQL schema if it doesn't exist."""
-    import re
-
-    import pymysql
-
-    # Extract schema name from URL: mysql+aiomysql://user:pass@host:port/schema
-    match = re.search(r"/([^/?]+)(\?|$)", settings.database_url)
-    if not match:
-        return
-    schema = match.group(1)
-
-    # Build connection params without the schema (connect to server root)
-    url_no_schema = re.sub(r"/[^/?]+(\?|$)", "/\1", settings.database_url)
-    url_no_schema = re.sub(r"mysql\+aiomysql://", "", settings.database_url)
-    # Parse user:pass@host:port
-    creds_match = re.match(r"([^:]+):([^@]+)@([^:/]+):?(\d+)?", url_no_schema)
-    if not creds_match:
-        return
-    user, password, host, port = creds_match.groups()
-
-    try:
-        conn = pymysql.connect(
-            host=host,
-            port=int(port or 3306),
-            user=user,
-            password=password,
-            connect_timeout=5,
-        )
-        with conn.cursor() as cur:
-            cur.execute(
-                f"CREATE SCHEMA IF NOT EXISTS `{schema}` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-            )
-        conn.commit()
-        conn.close()
-    except Exception as exc:
-        logging.getLogger(__name__).warning("Could not ensure MySQL schema '%s': %s", schema, exc)
-
-
 def create_app() -> FastAPI:
     import os
 
@@ -516,6 +331,10 @@ def create_app() -> FastAPI:
     from analytics_agent.tracing import setup_tracing
 
     app.include_router(api_router)
+
+    @app.get("/health", include_in_schema=False)
+    async def _health() -> dict[str, str]:
+        return {"status": "ok"}
 
     setup_tracing(app)
 

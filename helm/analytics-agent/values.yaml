@@ -1,0 +1,89 @@
+# Default values for analytics-agent.
+replicaCount: 1
+
+# Environment variables rendered into a Secret and mounted via envFrom.
+# Override per-deployment in your environment values file.
+config:
+  env:
+    LOG_LEVEL: INFO
+
+image:
+  # Override per-deployment with your registry/repository.
+  repository: analytics-agent
+  pullPolicy: IfNotPresent
+  # Defaults to .Chart.AppVersion when unset.
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  automount: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  http:
+    port: 80
+    targetPort: 8100
+
+ingress:
+  enabled: false
+  className: ""
+  servicePortName: http
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: app-http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+readinessProbe:
+  httpGet:
+    path: /health
+    port: app-http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+volumes: []
+volumeMounts: []
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# One-shot bootstrap Job (pre-install/pre-upgrade hook).
+# Runs `analytics-agent bootstrap` to apply Alembic migrations and seed
+# config.yaml entries into the database. Disable when migrations are managed
+# externally.
+bootstrap:
+  enabled: true
+  resources: {}
+  podAnnotations: {}

@@ -52,7 +52,9 @@ cd frontend && pnpm dev
 
 **DataHub credentials**: run `datahub init --sso --host https://your-instance.acryl.io/gms` once. The app reads `~/.datahubenv` automatically; or set `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN` in `config.yaml` / `.env`.
 
-**Database**: SQLite at `./data/dev.db` by default. Alembic runs automatically on startup. For Postgres set `DATABASE_URL=postgresql+asyncpg://...`.
+**Database**: SQLite at `./data/dev.db` by default. For Postgres set `DATABASE_URL=postgresql+asyncpg://...`.
+
+**Bootstrap (migrations + seed)**: The FastAPI lifespan no longer runs migrations or seeds — it does read-only initialization (loading engines from the DB, propagating env vars, validating the encryption key). All DB-mutating bootstrap work lives in `analytics_agent.bootstrap` and is invoked via the CLI: `analytics-agent bootstrap` runs Alembic migrate → seed-integrations → seed-context-platforms → seed-defaults, idempotently. Run it before the first `uvicorn` start and after any release that adds migrations. The Helm chart runs it automatically as a `pre-install`/`pre-upgrade` hook.
 
 ---
 
@@ -60,7 +62,7 @@ cd frontend && pnpm dev
 
 | Path | What it does |
 |------|-------------|
-| `backend/src/analytics_agent/main.py` | FastAPI app factory + lifespan (runs Alembic, seeds integrations, mounts SPA) |
+| `backend/src/analytics_agent/main.py` | FastAPI app factory + lifespan (read-only init: loads engines, validates encryption key, mounts SPA — no migrations/seeds) |
 | `backend/src/analytics_agent/agent/graph.py` | LangGraph `StateGraph`: ReAct agent → conditional chart node |
 | `backend/src/analytics_agent/agent/streaming.py` | `astream_events` → SSE event dicts; handles `on_tool_error` |
 | `backend/src/analytics_agent/agent/history.py` | Reconstructs LangChain message history from DB rows; pads orphaned tool calls |
