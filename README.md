@@ -192,7 +192,6 @@ AWS_REGION=us-west-2
 LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
 
-**With `quickstart.sh`:** set `LLM_PROVIDER=bedrock` before running. The script checks that `~/.aws` exists, that your credentials are valid (`aws sts get-caller-identity`), and that Bedrock is accessible in the target region (`aws bedrock list-foundation-models`) — failing fast with actionable messages rather than starting a container that errors on the first query.
 
 ---
 
