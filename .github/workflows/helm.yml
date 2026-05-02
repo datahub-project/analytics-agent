@@ -75,19 +75,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install kind
-        run: |
-          curl -Lo /usr/local/bin/kind \
-            https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
-          chmod +x /usr/local/bin/kind
+      - name: Create kind cluster
+        uses: helm/kind-action@v1
+        with:
+          wait: 60s
 
       - name: Install Helm
         uses: azure/setup-helm@v4
         with:
           version: v3.18.0
-
-      - name: Create kind cluster
-        run: kind create cluster --wait 60s
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
