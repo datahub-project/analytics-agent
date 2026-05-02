@@ -36,7 +36,9 @@ No `.env` editing required. The script:
 - Loads the Olist e-commerce sample dataset + catalog metadata
 - Builds and launches Analytics Agent at **http://localhost:8100**
 
-Open the browser — a setup wizard walks you through naming your agent, picking a model (Anthropic, OpenAI, or Google), and entering your API key. If you already have one of those keys exported in your shell, it's picked up automatically.
+Open the browser — a setup wizard walks you through naming your agent, picking a model (Anthropic, OpenAI, Google, or AWS Bedrock), and entering your API key. If you already have one of those keys exported in your shell, it's picked up automatically.
+
+**Using AWS Bedrock?** Export `LLM_PROVIDER=bedrock` before running the script. The script will verify your AWS credentials and Bedrock access before starting the container, and mount `~/.aws` read-only so boto3 picks up your profiles and SSO cache automatically.
 
 ---
 
@@ -189,6 +191,8 @@ LLM_PROVIDER=bedrock
 AWS_REGION=us-west-2
 LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
+
+**With `quickstart.sh`:** set `LLM_PROVIDER=bedrock` before running. The script checks that `~/.aws` exists, that your credentials are valid (`aws sts get-caller-identity`), and that Bedrock is accessible in the target region (`aws bedrock list-foundation-models`) — failing fast with actionable messages rather than starting a container that errors on the first query.
 
 ---
 
