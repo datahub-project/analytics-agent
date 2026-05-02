@@ -79,7 +79,7 @@ export function ThinkingMessage({ payload, isStreaming = false, usage }: Props) 
       `}</style>
 
       <div
-        className={`rounded-lg overflow-hidden border transition-all duration-300 ${
+        className={`relative rounded-lg border transition-all duration-300 ${
           isStreaming
             ? "thinking-border-active border-transparent bg-muted/30"
             : "border-border bg-muted/20"
@@ -134,8 +134,45 @@ export function ThinkingMessage({ payload, isStreaming = false, usage }: Props) 
 
           {/* Inline cost — shown when done and usage is known */}
           {usage && !isStreaming && (
-            <span className="text-[10px] font-mono text-muted-foreground/45 flex-shrink-0 mr-1">
-              ↑{fmt(usage.input_tokens)} ↓{usage.output_tokens}
+            <span
+              className="relative group/tokens inline-block flex-shrink-0 mr-1"
+              data-print-hide
+            >
+              <span className="text-[10px] font-mono text-muted-foreground/45 cursor-default">
+                ↑{fmt(usage.input_tokens)} ↓{fmt(usage.output_tokens)}
+              </span>
+              <span
+                className="pointer-events-none absolute top-full right-0 mt-1 z-10
+                           min-w-[170px] px-2.5 py-1.5 rounded-md
+                           bg-foreground text-background text-[11px] font-mono
+                           opacity-0 group-hover/tokens:opacity-100 transition-opacity duration-150 shadow-lg
+                           flex flex-col"
+              >
+                <span className="flex justify-between gap-4">
+                  <span className="opacity-70">Input</span>
+                  <span>{usage.input_tokens.toLocaleString()}</span>
+                </span>
+                <span className="flex justify-between gap-4">
+                  <span className="opacity-70">Output</span>
+                  <span>{usage.output_tokens.toLocaleString()}</span>
+                </span>
+                {usage.cache_read_tokens > 0 && (
+                  <span className="flex justify-between gap-4">
+                    <span className="opacity-70">Cache read</span>
+                    <span>{usage.cache_read_tokens.toLocaleString()}</span>
+                  </span>
+                )}
+                {usage.cache_creation_tokens > 0 && (
+                  <span className="flex justify-between gap-4">
+                    <span className="opacity-70">Cache write</span>
+                    <span>{usage.cache_creation_tokens.toLocaleString()}</span>
+                  </span>
+                )}
+                <span className="flex justify-between gap-4 mt-1 pt-1 border-t border-background/20 font-semibold">
+                  <span className="opacity-70">Total</span>
+                  <span>{usage.total_tokens.toLocaleString()}</span>
+                </span>
+              </span>
             </span>
           )}
 

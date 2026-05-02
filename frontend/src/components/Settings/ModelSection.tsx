@@ -56,6 +56,7 @@ export function ModelSection() {
   const [awsSecret, setAwsSecret] = useState("");
   const [awsSessionToken, setAwsSessionToken] = useState("");
   const [showSessionToken, setShowSessionToken] = useState(false);
+  const [enablePromptCache, setEnablePromptCache] = useState(true);
   // Track which provider the saved key belongs to so switching away and back
   // correctly shows/hides the "Key saved" placeholder.
   const [savedProvider, setSavedProvider] = useState<Provider | null>(null);
@@ -93,6 +94,7 @@ export function ModelSection() {
         if (s.has_key) setSavedProvider(knownProvider);
         if (s.aws_region) setAwsRegion(s.aws_region);
         if (s.has_aws_keys) setHasSavedAwsKeys(true);
+        if (s.enable_prompt_cache !== undefined) setEnablePromptCache(s.enable_prompt_cache);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -100,7 +102,7 @@ export function ModelSection() {
   // Reset key status whenever any credential field changes.
   useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken]);
   // Reset save status on any change.
-  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, awsAccessKey, awsSecret, awsRegion, awsSessionToken]);
+  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, awsAccessKey, awsSecret, awsRegion, awsSessionToken, enablePromptCache]);
 
   const handleProvider = (p: Provider) => {
     setProvider(p);
@@ -177,6 +179,7 @@ export function ModelSection() {
         aws_access_key_id: awsAccessKey.trim(),
         aws_secret_access_key: awsSecret.trim(),
         aws_session_token: awsSessionToken.trim(),
+        enable_prompt_cache: enablePromptCache,
       });
 
       if (apiKey.trim()) {
@@ -397,6 +400,28 @@ export function ModelSection() {
                 : "platform.openai.com/api-keys"}
             </p>
           )}
+        </div>
+      )}
+
+      {/* Prompt caching — only meaningful for Anthropic + Bedrock (Claude on
+          Bedrock). Other providers ignore the marker. */}
+      {(provider === "anthropic" || provider === "bedrock") && (
+        <div className="space-y-2">
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={enablePromptCache}
+              onChange={(e) => setEnablePromptCache(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-border accent-primary cursor-pointer"
+            />
+            <span className="flex-1">
+              <span className="text-sm font-medium text-foreground">Enable prompt caching</span>
+              <span className="block text-xs text-muted-foreground/60 mt-0.5">
+                Cache the system prompt and tool definitions across requests. Reduces cost and latency
+                {provider === "bedrock" && " on supported Bedrock regions and models"}.
+              </span>
+            </span>
+          </label>
         </div>
       )}
 

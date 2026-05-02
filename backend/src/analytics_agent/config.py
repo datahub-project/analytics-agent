@@ -157,6 +157,9 @@ class Settings(BaseSettings):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
+    # Anthropic + Bedrock prompt caching (system prompt + tool definitions).
+    # Disable if you hit a Bedrock region/model where caching isn't supported.
+    enable_prompt_cache: bool = True
     # Model IDs — override any tier independently via env vars.
     # Unset tiers fall back to PROVIDER_DEFAULTS[llm_provider][tier].
     llm_model: str = ""  # LLM_MODEL         — main analysis agent
