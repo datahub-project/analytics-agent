@@ -68,10 +68,11 @@ async def test_async_credentials_reads_from_db(configured_factory):
     from analytics_agent.context.datahub import _get_db_datahub_credentials_async
 
     with patch("analytics_agent.db.base._get_session_factory", return_value=configured_factory):
-        url, token = await _get_db_datahub_credentials_async()
+        url, token, any_in_db = await _get_db_datahub_credentials_async()
 
     assert url == "http://dh.test:8080"
     assert token == "test-tok"
+    assert any_in_db is True
 
 
 @pytest.mark.asyncio
@@ -82,10 +83,11 @@ async def test_async_credentials_fallback_when_no_db_rows(empty_factory):
     with patch("analytics_agent.db.base._get_session_factory", return_value=empty_factory), \
          patch("analytics_agent.context.datahub.settings") as mock_settings:
         mock_settings.get_datahub_config.return_value = ("http://env-url", "env-tok")
-        url, token = await _get_db_datahub_credentials_async()
+        url, token, any_in_db = await _get_db_datahub_credentials_async()
 
     assert url == "http://env-url"
     assert token == "env-tok"
+    assert any_in_db is False
 
 
 @pytest.mark.asyncio
@@ -96,10 +98,11 @@ async def test_async_credentials_fallback_on_db_exception():
     with patch("analytics_agent.db.base._get_session_factory", side_effect=RuntimeError("boom")), \
          patch("analytics_agent.context.datahub.settings") as mock_settings:
         mock_settings.get_datahub_config.return_value = ("http://fallback", "fallback-tok")
-        url, token = await _get_db_datahub_credentials_async()
+        url, token, any_in_db = await _get_db_datahub_credentials_async()
 
     assert url == "http://fallback"
     assert token == "fallback-tok"
+    assert any_in_db is False
 
 
 # ── _get_db_datahub_credentials_sync ─────────────────────────────────────────
@@ -127,10 +130,11 @@ def test_sync_credentials_reads_from_db():
         mock_repo.list_all = AsyncMock(return_value=[fake_platform])
         MockRepo.return_value = mock_repo
 
-        url, token = _get_db_datahub_credentials_sync()
+        url, token, any_in_db = _get_db_datahub_credentials_sync()
 
     assert url == "http://dh.test:8080"
     assert token == "sync-tok"
+    assert any_in_db is True
 
 
 def test_sync_credentials_fallback_on_exception():
@@ -140,10 +144,11 @@ def test_sync_credentials_fallback_on_exception():
     with patch("analytics_agent.db.base._get_session_factory", side_effect=RuntimeError("no db")), \
          patch("analytics_agent.context.datahub.settings") as mock_settings:
         mock_settings.get_datahub_config.return_value = ("http://sync-fallback", "sfb-tok")
-        url, token = _get_db_datahub_credentials_sync()
+        url, token, any_in_db = _get_db_datahub_credentials_sync()
 
     assert url == "http://sync-fallback"
     assert token == "sfb-tok"
+    assert any_in_db is False
 
 
 # ── aget_datahub_client ───────────────────────────────────────────────────────
@@ -156,7 +161,7 @@ async def test_aget_datahub_client_returns_none_when_unconfigured():
 
     with patch(
         "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("", "")),
+        new=AsyncMock(return_value=("", "", False)),
     ), patch("pathlib.Path.exists", return_value=False):
         client = await aget_datahub_client()
 
@@ -170,8 +175,23 @@ async def test_aget_datahub_client_returns_none_when_token_but_no_url():
 
     with patch(
         "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("", "some-stale-token")),
+        new=AsyncMock(return_value=("", "some-stale-token", False)),
     ), patch("pathlib.Path.exists", return_value=False):
+        client = await aget_datahub_client()
+
+    assert client is None
+
+
+@pytest.mark.asyncio
+async def test_aget_datahub_client_returns_none_when_mcp_only_in_db():
+    """MCP-only DataHub in DB must suppress ~/.datahubenv probe (search_business_context fix)."""
+    from analytics_agent.context.datahub import aget_datahub_client
+
+    # any_datahub_in_db=True but no native url/token — user has MCP DataHub configured
+    with patch(
+        "analytics_agent.context.datahub._get_db_datahub_credentials_async",
+        new=AsyncMock(return_value=("", "", True)),
+    ), patch("pathlib.Path.exists", return_value=True):  # datahubenv exists but must be ignored
         client = await aget_datahub_client()
 
     assert client is None
@@ -188,7 +208,7 @@ async def test_aget_datahub_client_uses_asyncio_to_thread():
     # stdlib module directly — it's cached in sys.modules and picked up on re-import.
     with patch(
         "analytics_agent.context.datahub._get_db_datahub_credentials_async",
-        new=AsyncMock(return_value=("http://dh.test:8080", "test-tok")),
+        new=AsyncMock(return_value=("http://dh.test:8080", "test-tok", True)),
     ), patch("asyncio.to_thread", new=AsyncMock(return_value=fake_client)) as mock_to_thread, \
        patch("pathlib.Path.exists", return_value=False):
         with patch("datahub.sdk.main_client.DataHubClient"):
