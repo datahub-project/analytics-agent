@@ -151,12 +151,26 @@ def test_sync_credentials_fallback_on_exception():
 
 @pytest.mark.asyncio
 async def test_aget_datahub_client_returns_none_when_unconfigured():
-    """No url and no ~/.datahubenv → None (no DataHubClient import attempted)."""
+    """No url+token and no ~/.datahubenv → None."""
     from analytics_agent.context.datahub import aget_datahub_client
 
     with patch(
         "analytics_agent.context.datahub._get_db_datahub_credentials_async",
         new=AsyncMock(return_value=("", "")),
+    ), patch("pathlib.Path.exists", return_value=False):
+        client = await aget_datahub_client()
+
+    assert client is None
+
+
+@pytest.mark.asyncio
+async def test_aget_datahub_client_returns_none_when_token_but_no_url():
+    """Stale DATAHUB_GMS_TOKEN env var without a URL must not trigger from_env() / localhost probe."""
+    from analytics_agent.context.datahub import aget_datahub_client
+
+    with patch(
+        "analytics_agent.context.datahub._get_db_datahub_credentials_async",
+        new=AsyncMock(return_value=("", "some-stale-token")),
     ), patch("pathlib.Path.exists", return_value=False):
         client = await aget_datahub_client()
 

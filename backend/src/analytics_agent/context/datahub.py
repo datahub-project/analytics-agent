@@ -78,8 +78,6 @@ async def aget_datahub_client() -> DataHubClient | None:
 
     url, token = await _get_db_datahub_credentials_async()
     has_datahubenv = pathlib.Path("~/.datahubenv").expanduser().exists()
-    if not url and not has_datahubenv:
-        return None
 
     try:
         from datahub.sdk.main_client import DataHubClient
@@ -88,7 +86,11 @@ async def aget_datahub_client() -> DataHubClient | None:
 
     if url and token:
         return await asyncio.to_thread(DataHubClient, server=url, token=token)
-    return await asyncio.to_thread(DataHubClient.from_env)
+    # Only fall back to from_env() when a datahubenv file actually exists — a
+    # stale token env var without a URL must not trigger a localhost:8080 probe.
+    if has_datahubenv:
+        return await asyncio.to_thread(DataHubClient.from_env)
+    return None
 
 
 def get_datahub_client() -> DataHubClient | None:
@@ -100,19 +102,20 @@ def get_datahub_client() -> DataHubClient | None:
     import pathlib
 
     url, token = _get_db_datahub_credentials_sync()
-    has_config = bool(url and token)
     has_datahubenv = pathlib.Path("~/.datahubenv").expanduser().exists()
-    if not has_config and not has_datahubenv:
-        return None
 
     try:
         from datahub.sdk.main_client import DataHubClient
     except ImportError:
         return None
 
-    if has_config:
+    if url and token:
         return DataHubClient(server=url, token=token)
-    return DataHubClient.from_env()
+    # Only fall back to from_env() when a datahubenv file actually exists — a
+    # stale token env var without a URL must not trigger a localhost:8080 probe.
+    if has_datahubenv:
+        return DataHubClient.from_env()
+    return None
 
 
 # Lightweight schema-fields query — avoids the 42KB entity_details.gql that
