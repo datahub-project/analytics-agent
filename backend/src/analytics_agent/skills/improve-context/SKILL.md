@@ -2,7 +2,7 @@
 name: improve_context
 description: Use this skill when the user types /improve-context or asks to capture learnings, improve documentation, or enrich the knowledge base based on this conversation.
 metadata:
-  author: talkster
+  author: analytics-agent
   version: "1.0"
 ---
 

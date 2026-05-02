@@ -37,7 +37,7 @@ def test_context_platform_config_full():
     assert plat.token == "tok123"
 
 
-def test_talkster_yaml_config_parse():
+def test_yaml_config_parse():
     data = {
         "engines": [{"type": "snowflake", "name": "prod", "connection": {"account": "xy12345"}}],
         "context_platforms": [
@@ -52,7 +52,7 @@ def test_talkster_yaml_config_parse():
     assert cfg.context_platforms[0].url == "http://localhost:8080"
 
 
-def test_talkster_yaml_config_empty():
+def test_yaml_config_empty():
     cfg = AnalyticsAgentYamlConfig.model_validate({})
     assert cfg.engines == []
     assert cfg.context_platforms == []

@@ -23,7 +23,7 @@ uv run python -c "import analytics_agent.main"
 uv run pytest tests/unit/ -v
 
 # Test the full agent pipeline (needs credentials)
-cd /path/to/talkster && set -a && source .env && set +a && \
+cd /path/to/analytics-agent && set -a && source .env && set +a && \
 uv run pytest tests/integration/ -v -s
 ```
 
