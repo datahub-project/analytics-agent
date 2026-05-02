@@ -15,12 +15,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-
 from analytics_agent.db.models import Base
 from analytics_agent.db.repository import ContextPlatformRepo
-
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 # ── In-memory DB fixtures ─────────────────────────────────────────────────────
 
@@ -210,9 +208,9 @@ async def test_aget_datahub_client_uses_asyncio_to_thread():
         "analytics_agent.context.datahub._get_db_datahub_credentials_async",
         new=AsyncMock(return_value=("http://dh.test:8080", "test-tok", True)),
     ), patch("asyncio.to_thread", new=AsyncMock(return_value=fake_client)) as mock_to_thread, \
-       patch("pathlib.Path.exists", return_value=False):
-        with patch("datahub.sdk.main_client.DataHubClient"):
-            client = await aget_datahub_client()
+       patch("pathlib.Path.exists", return_value=False), \
+       patch("datahub.sdk.main_client.DataHubClient"):
+        client = await aget_datahub_client()
 
     assert client is fake_client
     mock_to_thread.assert_awaited_once()

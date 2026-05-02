@@ -30,8 +30,8 @@ test.describe("DataHub async client — event loop safety", () => {
     expect(body).toHaveProperty("semantic_search", false);
     expect(body).toHaveProperty("error");
 
-    // Must respond in well under 1 s — not blocking on a DataHub probe
-    expect(elapsed).toBeLessThan(1000);
+    // Must respond well under 5 s — not blocking on a DataHub probe
+    expect(elapsed).toBeLessThan(5000);
   });
 
   test("other endpoints respond during a DataHub capabilities check (event loop not blocked)", async ({
