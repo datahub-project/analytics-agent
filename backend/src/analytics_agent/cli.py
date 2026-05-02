@@ -55,12 +55,14 @@ def seed_defaults() -> None:
 @cli.command("bootstrap")
 def bootstrap_cmd() -> None:
     """Run migrations + all seeds (idempotent). Intended for Helm hooks."""
+
+    async def _run_all_seeds() -> None:
+        await bootstrap.seed_integrations_from_yaml()
+        await bootstrap.seed_context_platforms_from_yaml()
+        await bootstrap.seed_default_settings()
+
     click.echo("→ Running migrations…")
     bootstrap.run_migrations()
-    click.echo("→ Seeding integrations…")
-    asyncio.run(bootstrap.seed_integrations_from_yaml())
-    click.echo("→ Seeding context platforms…")
-    asyncio.run(bootstrap.seed_context_platforms_from_yaml())
-    click.echo("→ Writing first-run defaults…")
-    asyncio.run(bootstrap.seed_default_settings())
+    click.echo("→ Seeding integrations, context platforms, and defaults…")
+    asyncio.run(_run_all_seeds())
     click.echo("✓ Bootstrap complete.")
