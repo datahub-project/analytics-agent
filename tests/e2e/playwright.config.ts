@@ -39,6 +39,10 @@ export default defineConfig({
       // MOCK_LLM_DELAY_MS controls inter-chunk pacing so tests can switch mid-stream.
       MOCK_LLM: "1",
       MOCK_LLM_DELAY_MS: "80",
+      // Isolate the test server from the developer's ~/.datahubenv so
+      // DataHubClient.from_env() doesn't probe an unreachable host.
+      // The test server only reads ~ for datahubenv; no other dotfiles matter.
+      HOME: testDbPath.replace(/\/[^/]+$/, ""),
     },
     timeout: 30_000,
   },
