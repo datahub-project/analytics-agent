@@ -85,20 +85,8 @@ jobs:
         with:
           version: v3.18.0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver: docker
-
       - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/Dockerfile
-          tags: analytics-agent:test
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: docker build -f docker/Dockerfile -t analytics-agent:test .
 
       - name: Load image into kind
         run: kind load docker-image analytics-agent:test
