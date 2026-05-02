@@ -65,9 +65,23 @@ check_cmd python3      "Install Python 3.11+: https://python.org"
 _LLM_KEY_SOURCE=""
 # Explicit LLM_PROVIDER=bedrock takes priority — Bedrock has no single env var,
 # so we treat it as opt-in via either LLM_PROVIDER or the presence of ~/.aws.
-if [[ "${LLM_PROVIDER:-}" == "bedrock" && -d "$HOME/.aws" ]]; then
+if [[ "${LLM_PROVIDER:-}" == "bedrock" ]]; then
+    if [[ ! -d "$HOME/.aws" ]]; then
+        die "LLM_PROVIDER=bedrock set but ~/.aws not found. Run 'aws configure' or 'aws sso login' first, then retry."
+    fi
+    go "Verifying AWS credentials..."
+    if ! aws sts get-caller-identity &>/dev/null; then
+        die "AWS credentials not valid or expired. Run 'aws sso login' (or 'aws configure') and retry."
+    fi
+    _aws_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
+    go "Verifying Bedrock access in region ${_aws_region}..."
+    if ! aws bedrock list-foundation-models --region "$_aws_region" --output text &>/dev/null; then
+        die "Bedrock not accessible in region ${_aws_region}. Check that:
+  • Bedrock is enabled in your account (console.aws.amazon.com/bedrock)
+  • Your IAM role has bedrock:ListFoundationModels permission"
+    fi
     _LLM_KEY_SOURCE="bedrock"
-    ok "Bedrock selected — will mount ~/.aws into the container (read-only)"
+    ok "Bedrock accessible in ${_aws_region} — will mount ~/.aws into the container (read-only)"
 elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     _LLM_KEY_SOURCE="anthropic"
     ok "ANTHROPIC_API_KEY found — will be pre-configured in the container"
