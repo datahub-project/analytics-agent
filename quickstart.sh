@@ -178,9 +178,19 @@ gms = cfg.get('gms') or {}
 print(gms.get('server',''), gms.get('token',''))
 " 2>/dev/null) || true
         if [[ "$existing_host" == "$DATAHUB_GMS_URL" && -n "$existing_token" ]]; then
-            DATAHUB_GMS_TOKEN="$existing_token"
-            ok "Reusing token from ~/.datahubenv (host matches ${DATAHUB_GMS_URL})"
-            return
+            # Validate the token is actually accepted by this DataHub instance
+            # before trusting it — an expired or stale token would silently
+            # break ingestion later in the script.
+            if curl -sf \
+                -H "Authorization: Bearer $existing_token" \
+                -H "Content-Type: application/json" \
+                -X POST "$DATAHUB_GMS_URL/api/v2/graphql" \
+                -d '{"query":"{ me { corpUser { urn } } }"}' &>/dev/null; then
+                DATAHUB_GMS_TOKEN="$existing_token"
+                ok "Reusing token from ~/.datahubenv (verified against ${DATAHUB_GMS_URL})"
+                return
+            fi
+            # Token rejected — fall through to mint a fresh one.
         fi
     fi
 
