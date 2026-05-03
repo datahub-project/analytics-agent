@@ -426,8 +426,7 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
             creds_path = connection.get("credentials_path", "")
             creds_b64 = connection.get("credentials_base64", "")
             has_creds = bool(creds_json or creds_path or creds_b64)
-            # ADC is always available as fallback; configured = project is set
-            configured = bool(project)
+            configured = bool(project and has_creds)
             conns.append(
                 ConnectionStatus(
                     name=name,
@@ -652,7 +651,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
             creds_path = conn_cfg.get("credentials_path", "")
             creds_b64 = conn_cfg.get("credentials_base64", "")
             has_creds = bool(creds_json or creds_path or creds_b64)
-            status_str = "connected" if project else "unconfigured"
+            status_str = "connected" if (project and has_creds) else "unconfigured"
             fields = [
                 ConnectionField(
                     key="project",
