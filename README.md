@@ -181,6 +181,12 @@ Generate an RSA key pair, upload the public key to Snowflake, then set `SNOWFLAK
 
 BigQuery authenticates exclusively via a GCP **service account**. Three credential formats are supported — use whichever fits your deployment:
 
+> **BigQuery dependencies are optional.** Install them before use:
+>
+> ```bash
+> uv sync --extra bigquery
+> ```
+
 ### Option A — JSON key via environment variable (recommended for containers)
 
 Export the raw service-account JSON (single line, no newlines):

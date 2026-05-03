@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -212,6 +212,26 @@ class Settings(BaseSettings):
     oauth_master_key: str = (
         ""  # Fernet key for encrypting OAuth secrets/tokens; auto-generated if blank
     )
+
+    # BigQuery — env var; picked up automatically by BigQueryQueryEngine
+    # when no config.yaml entry overrides them.
+    bigquery_project: str = ""
+
+    @model_validator(mode="after")
+    def _check_optional_deps(self) -> Settings:
+        if self.bigquery_project:
+            try:
+                import google.cloud.bigquery  # noqa: F401
+                import sqlalchemy_bigquery  # noqa: F401
+            except ImportError as exc:
+                raise ImportError(
+                    f"BigQuery dependencies are not installed, but bigquery_project="
+                    f"'{self.bigquery_project}'"
+                    f"is set.\n\n"
+                    f"Install the missing dependencies with:\n\n"
+                    f"    uv sync --extra bigquery\n"
+                ) from exc
+        return self
 
     def _load_yaml(self) -> AnalyticsAgentYamlConfig:
         path = Path(self.engines_config)
