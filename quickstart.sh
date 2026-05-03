@@ -63,7 +63,26 @@ check_cmd python3      "Install Python 3.11+: https://python.org"
 # 2. LLM API key (optional here — the browser wizard handles it if not set)
 # ──────────────────────────────────────────────────────────────────────────────
 _LLM_KEY_SOURCE=""
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+# Explicit LLM_PROVIDER=bedrock takes priority — Bedrock has no single env var,
+# so we treat it as opt-in via either LLM_PROVIDER or the presence of ~/.aws.
+if [[ "${LLM_PROVIDER:-}" == "bedrock" ]]; then
+    if [[ ! -d "$HOME/.aws" ]]; then
+        die "LLM_PROVIDER=bedrock set but ~/.aws not found. Run 'aws configure' or 'aws sso login' first, then retry."
+    fi
+    go "Verifying AWS credentials..."
+    if ! aws sts get-caller-identity &>/dev/null; then
+        die "AWS credentials not valid or expired. Run 'aws sso login' (or 'aws configure') and retry."
+    fi
+    _aws_region="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
+    go "Verifying Bedrock access in region ${_aws_region}..."
+    if ! aws bedrock list-foundation-models --region "$_aws_region" --output text &>/dev/null; then
+        die "Bedrock not accessible in region ${_aws_region}. Check that:
+  • Bedrock is enabled in your account (console.aws.amazon.com/bedrock)
+  • Your IAM role has bedrock:ListFoundationModels permission"
+    fi
+    _LLM_KEY_SOURCE="bedrock"
+    ok "Bedrock accessible in ${_aws_region} — will mount ~/.aws into the container (read-only)"
+elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
     _LLM_KEY_SOURCE="anthropic"
     ok "ANTHROPIC_API_KEY found — will be pre-configured in the container"
 elif [[ -n "${OPENAI_API_KEY:-}" ]]; then
@@ -142,6 +161,40 @@ DATAHUB_GMS_TOKEN=""
 # fresh token, extract it, then restore the backup so the user's regular env is
 # untouched.  Can be skipped by pre-setting DATAHUB_GMS_TOKEN in the environment.
 _provision_local_token() {
+    # 1) Honor pre-set env var.
+    if [[ -n "${DATAHUB_GMS_TOKEN:-}" ]]; then
+        ok "Using DATAHUB_GMS_TOKEN from environment"
+        return
+    fi
+
+    # 2) Reuse ~/.datahubenv if it already points at the same GMS host.
+    if [[ -f "$HOME/.datahubenv" ]]; then
+        local existing_host existing_token
+        read -r existing_host existing_token < <(uv run python3 -c "
+import yaml
+with open('$HOME/.datahubenv') as f:
+    cfg = yaml.safe_load(f) or {}
+gms = cfg.get('gms') or {}
+print(gms.get('server',''), gms.get('token',''))
+" 2>/dev/null) || true
+        if [[ "$existing_host" == "$DATAHUB_GMS_URL" && -n "$existing_token" ]]; then
+            # Validate the token is actually accepted by this DataHub instance
+            # before trusting it — an expired or stale token would silently
+            # break ingestion later in the script.
+            if curl -sf \
+                -H "Authorization: Bearer $existing_token" \
+                -H "Content-Type: application/json" \
+                -X POST "$DATAHUB_GMS_URL/api/v2/graphql" \
+                -d '{"query":"{ me { corpUser { urn } } }"}' &>/dev/null; then
+                DATAHUB_GMS_TOKEN="$existing_token"
+                ok "Reusing token from ~/.datahubenv (verified against ${DATAHUB_GMS_URL})"
+                return
+            fi
+            # Token rejected — fall through to mint a fresh one.
+        fi
+    fi
+
+    # 3) Fall back to minting a fresh token via 'datahub init'.
     go "Provisioning local DataHub token via 'datahub init'..."
 
     # Use a temp HOME so datahub init writes to a throwaway dir,
@@ -153,7 +206,7 @@ _provision_local_token() {
         --username datahub \
         --password datahub \
         --force \
-        --host "$DATAHUB_GMS_URL" 2>/dev/null
+        --host "$DATAHUB_GMS_URL" 2>/dev/null || true
 
     local token
     token=$(uv run python3 -c "
@@ -390,6 +443,12 @@ elif [[ "$_LLM_KEY_SOURCE" == "openai" ]]; then
     printf '\nLLM_PROVIDER=openai\nOPENAI_API_KEY=%s\n' "${OPENAI_API_KEY}" >> .env.quickstart
 elif [[ "$_LLM_KEY_SOURCE" == "google" ]]; then
     printf '\nLLM_PROVIDER=google\nGOOGLE_API_KEY=%s\n' "${GOOGLE_API_KEY}" >> .env.quickstart
+elif [[ "$_LLM_KEY_SOURCE" == "bedrock" ]]; then
+    {
+        printf '\nLLM_PROVIDER=bedrock\n'
+        printf 'AWS_REGION=%s\n' "${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
+        [[ -n "${AWS_PROFILE:-}" ]] && printf 'AWS_PROFILE=%s\n' "$AWS_PROFILE"
+    } >> .env.quickstart
 fi
 
 ok ".env.quickstart written (uses host.docker.internal — your .env is untouched)"
@@ -418,10 +477,17 @@ cd "$REPO_ROOT"
 # Stop and remove any previous quickstart container
 docker rm -f analytics-agent-quickstart 2>/dev/null && warn "Removed previous analytics-agent-quickstart container" || true
 
+# Mount ~/.aws read-only when using Bedrock so boto3 can pick up profiles / SSO cache.
+_AWS_MOUNT=()
+if [[ "$_LLM_KEY_SOURCE" == "bedrock" ]]; then
+    _AWS_MOUNT=(-v "$HOME/.aws:/root/.aws:ro")
+fi
+
 docker run -d \
     --name analytics-agent-quickstart \
     --env-file .env.quickstart \
     -v "${REPO_ROOT}/config.yaml:/app/config.yaml:ro" \
+    "${_AWS_MOUNT[@]}" \
     -p 8100:8100 \
     analytics-agent-quickstart
 

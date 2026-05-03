@@ -4,11 +4,12 @@ from typing import Literal
 
 import orjson
 from langchain.agents import create_agent
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
 from analytics_agent.agent.llm import get_llm
 from analytics_agent.agent.state import AgentState
+from analytics_agent.config import settings
 from analytics_agent.prompts.system import build_system_prompt
 
 # Write-back skills are opt-in; only included when explicitly enabled by the user
@@ -100,11 +101,37 @@ def build_graph(
     for tool in all_tools:
         tool.handle_tool_error = True
 
+    # Prompt caching for the system prompt + tool definitions. A breakpoint on
+    # the last system block caches tools+system together (render order is
+    # tools → system → messages). Anthropic and Bedrock use different syntaxes;
+    # other providers ignore the marker entirely.
+    system_for_agent: str | SystemMessage = system_prompt
+    if settings.enable_prompt_cache:
+        if settings.llm_provider == "anthropic":
+            system_for_agent = SystemMessage(
+                content=[
+                    {
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+            )
+        elif settings.llm_provider == "bedrock":
+            # Bedrock Converse uses a separate cachePoint block as a separator
+            # rather than an inline cache_control field.
+            system_for_agent = SystemMessage(
+                content=[
+                    {"text": system_prompt},
+                    {"cachePoint": {"type": "default"}},
+                ]
+            )
+
     react_agent = create_agent(
         model=llm,
         tools=all_tools,
         state_schema=AgentState,
-        system_prompt=system_prompt,
+        system_prompt=system_for_agent,
     )
 
     graph = StateGraph(AgentState)

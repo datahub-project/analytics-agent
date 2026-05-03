@@ -244,6 +244,7 @@ export interface LlmSettings {
   has_key: boolean;
   has_aws_keys?: boolean;
   aws_region?: string;
+  enable_prompt_cache?: boolean;
 }
 
 /** Bedrock-only credential fields. All optional — leave blank to use the
@@ -287,6 +288,7 @@ export async function saveLlmSettings(s: {
   provider: string;
   api_key: string;
   model?: string;
+  enable_prompt_cache?: boolean;
 } & BedrockCredentials): Promise<void> {
   const res = await fetch("/api/settings/llm", {
     method: "PUT",
@@ -299,6 +301,7 @@ export async function saveLlmSettings(s: {
       aws_access_key_id: s.aws_access_key_id ?? "",
       aws_secret_access_key: s.aws_secret_access_key ?? "",
       aws_session_token: s.aws_session_token ?? "",
+      enable_prompt_cache: s.enable_prompt_cache ?? true,
     }),
   });
   if (!res.ok) throw new Error("Failed to save LLM settings");

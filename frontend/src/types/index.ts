@@ -51,6 +51,8 @@ export interface UsagePayload {
   cache_read_tokens: number;
   cache_creation_tokens: number;
   node: string;
+  model?: string;
+  provider?: string;
 }
 
 export interface Engine {
@@ -88,6 +90,8 @@ export interface TurnUsage {
   cache_read_tokens: number;
   cache_creation_tokens: number;
   calls: number;
+  model?: string;
+  provider?: string;
 }
 
 // UI message (may be streaming)

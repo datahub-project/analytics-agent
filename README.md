@@ -36,7 +36,9 @@ No `.env` editing required. The script:
 - Loads the Olist e-commerce sample dataset + catalog metadata
 - Builds and launches Analytics Agent at **http://localhost:8100**
 
-Open the browser — a setup wizard walks you through naming your agent, picking a model (Anthropic, OpenAI, or Google), and entering your API key. If you already have one of those keys exported in your shell, it's picked up automatically.
+Open the browser — a setup wizard walks you through naming your agent, picking a model (Anthropic, OpenAI, Google, or AWS Bedrock), and entering your API key. If you already have one of those keys exported in your shell, it's picked up automatically.
+
+**Using AWS Bedrock?** Export `LLM_PROVIDER=bedrock` before running the script. The script will verify your AWS credentials and Bedrock access before starting the container, and mount `~/.aws` read-only so boto3 picks up your profiles and SSO cache automatically.
 
 ---
 
@@ -82,6 +84,18 @@ just start     # builds frontend, starts backend at :8100
 Open **http://localhost:8100** — a setup wizard handles the LLM key and connections on first run.
 
 > **Without `just`:** `uv sync && cd frontend && pnpm install && pnpm build && cd .. && uv run uvicorn analytics_agent.main:app --port 8100`
+
+### First-time setup
+
+Before the first `uvicorn` start (or after pulling a release that adds migrations), run:
+
+```bash
+uv run analytics-agent bootstrap
+```
+
+This applies Alembic migrations, seeds engines and context platforms from `config.yaml`, and writes first-run setting defaults. The command is idempotent — re-running it on an up-to-date database is a no-op.
+
+For Kubernetes deployments, the Helm chart runs `analytics-agent bootstrap` automatically as a `pre-install`/`pre-upgrade` hook (see `helm/analytics-agent/README.md`).
 
 ### Optional: pre-configure via `.env`
 
@@ -263,6 +277,7 @@ LLM_PROVIDER=bedrock
 AWS_REGION=us-west-2
 LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
+
 
 ---
 

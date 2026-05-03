@@ -39,6 +39,8 @@ _MOCK_USAGE = {
     "cache_read_tokens": 0,
     "cache_creation_tokens": 0,
     "node": "mock",
+    "model": "mock-model",
+    "provider": "mock",
 }
 
 

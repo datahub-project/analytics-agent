@@ -1191,11 +1191,13 @@ async def _test_context_platform(plat) -> DataHubTestResponse:
             error="DataHub URL or token not configured.",
         )
     try:
+        import asyncio
+
         from datahub.sdk.main_client import DataHubClient
 
-        client = DataHubClient(server=url, token=token)
+        client = await asyncio.to_thread(DataHubClient, server=url, token=token)
         graph = client._graph  # type: ignore[attr-defined]
-        r = graph.execute_graphql("{ me { corpUser { urn username } } }")
+        r = await asyncio.to_thread(graph.execute_graphql, "{ me { corpUser { urn username } } }")
         username = (r.get("me") or {}).get("corpUser", {}).get("username", "unknown")
         return DataHubTestResponse(
             success=True,
@@ -1226,9 +1228,11 @@ async def test_connection(
     # Legacy hardcoded path for the "default" datahub (env-var based, no DB row yet).
     # The virtual fallback connection is named "default"; also accept "datahub" for compat.
     if name in ("datahub", "default"):
-        from analytics_agent.context.datahub import get_datahub_client
+        import asyncio
 
-        client = get_datahub_client()
+        from analytics_agent.context.datahub import aget_datahub_client
+
+        client = await aget_datahub_client()
         if client is None:
             return DataHubTestResponse(
                 success=False,
@@ -1242,7 +1246,9 @@ async def test_connection(
 
             # 1. get_me — identity + auth check
             try:
-                r = graph.execute_graphql("{ me { corpUser { urn username } } }")
+                r = await asyncio.to_thread(
+                    graph.execute_graphql, "{ me { corpUser { urn username } } }"
+                )
                 username = (r.get("me") or {}).get("corpUser", {}).get("username", "unknown")
                 checks.append(
                     DataHubCheckResult(
@@ -1264,8 +1270,9 @@ async def test_connection(
 
             # 2. basic search — dataset index reachable
             try:
-                r = graph.execute_graphql(
-                    '{ searchAcrossEntities(input: {types: [DATASET], query: "*", count: 1}) { total } }'
+                r = await asyncio.to_thread(
+                    graph.execute_graphql,
+                    '{ searchAcrossEntities(input: {types: [DATASET], query: "*", count: 1}) { total } }',
                 )
                 total = (r.get("searchAcrossEntities") or {}).get("total", 0)
                 checks.append(
@@ -1287,8 +1294,7 @@ async def test_connection(
                 )
 
             # 3. landscape — facet aggregations (platforms + domains)
-            try:
-                r = graph.execute_graphql("""
+            _LANDSCAPE_QUERY = """
                 {
                   searchAcrossEntities(input: {
                     types: [DATASET], query: "*", count: 0
@@ -1297,7 +1303,9 @@ async def test_connection(
                     facets { field aggregations { value count } }
                   }
                 }
-                """)
+                """
+            try:
+                r = await asyncio.to_thread(graph.execute_graphql, _LANDSCAPE_QUERY)
                 result = r.get("searchAcrossEntities") or {}
                 facets = result.get("facets") or []
                 pf = next((f for f in facets if f["field"] == "platform"), None)
@@ -1357,20 +1365,35 @@ async def test_connection(
         return DataHubTestResponse(success=False, error=str(e))
 
 
+_capabilities_cache: dict | None = None
+_capabilities_cache_ts: float = 0.0
+_CAPABILITIES_TTL = 300  # 5 minutes
+
+
 @router.get("/datahub/capabilities")
 async def get_datahub_capabilities() -> dict:
     """Probe the connected DataHub instance for optional feature availability."""
-    from analytics_agent.context.datahub import get_datahub_client
+    import asyncio
+    import time
 
-    client = get_datahub_client()
+    global _capabilities_cache, _capabilities_cache_ts
+
+    now = time.monotonic()
+    if _capabilities_cache is not None and now - _capabilities_cache_ts < _CAPABILITIES_TTL:
+        return _capabilities_cache
+
+    from analytics_agent.context.datahub import aget_datahub_client
+
+    client = await aget_datahub_client()
     if client is None:
         return {"semantic_search": False, "error": "DataHub not configured"}
 
     semantic_search = False
     try:
         graph = client._graph  # type: ignore[attr-defined]
-        result = graph.execute_graphql(  # type: ignore[attr-defined]
-            query=(
+        result = await asyncio.to_thread(
+            graph.execute_graphql,
+            (
                 "{ semanticSearchAcrossEntities("
                 ' input: { query: "*", count: 0, types: [DOCUMENT] }'
                 ") { total } }"
@@ -1386,16 +1409,20 @@ async def get_datahub_capabilities() -> dict:
             for k in ("FieldUndefined", "InvalidSyntax", "ValidationError", "Unknown field")
         )
 
-    return {"semantic_search": semantic_search}
+    _capabilities_cache = {"semantic_search": semantic_search}
+    _capabilities_cache_ts = now
+    return _capabilities_cache
 
 
 @router.get("/connections/{name}/datahub-coverage", response_model=DataHubCoverageResponse)
 async def get_datahub_coverage(name: str) -> DataHubCoverageResponse:
     """Return how many datasets DataHub has indexed for this engine connection's platform."""
-    from analytics_agent.context.datahub import get_datahub_client
+    import asyncio
+
+    from analytics_agent.context.datahub import aget_datahub_client
     from analytics_agent.engines.factory import get_engine
 
-    client = get_datahub_client()
+    client = await aget_datahub_client()
     if client is None:
         return DataHubCoverageResponse(covered=False, dataset_count=0)
 
@@ -1422,8 +1449,9 @@ async def get_datahub_coverage(name: str) -> DataHubCoverageResponse:
 
     # Primary: GraphQL search with platform URN filter — total comes from the API
     try:
-        gql_result = graph.execute_graphql(  # type: ignore[attr-defined]
-            query=(
+        gql_result = await asyncio.to_thread(
+            graph.execute_graphql,
+            (
                 '{ search(input: {type: DATASET, query: "*", start: 0, count: 0,'
                 f' filters: [{{field: "platform", value: "{platform_urn}"}}]'
                 "}) { total } }"
@@ -1438,8 +1466,9 @@ async def get_datahub_coverage(name: str) -> DataHubCoverageResponse:
     # Fallback: text search by platform name, count unique URNs containing the platform URN.
     # Handles DataHub versions where the platform filter silently returns 0.
     try:
-        gql_result = graph.execute_graphql(  # type: ignore[attr-defined]
-            query=(
+        gql_result = await asyncio.to_thread(
+            graph.execute_graphql,
+            (
                 f'{{ search(input: {{type: DATASET, query: "{dh_platform}",'
                 " start: 0, count: 50}) { total searchResults { entity { urn } } } }"
             ),
@@ -1782,6 +1811,7 @@ class LlmSettingsResponse(BaseModel):
     # to decide whether to show a masked-placeholder in the settings UI.
     has_aws_keys: bool = False
     aws_region: str = ""
+    enable_prompt_cache: bool = True
 
 
 class UpdateLlmSettingsRequest(BaseModel):
@@ -1793,6 +1823,8 @@ class UpdateLlmSettingsRequest(BaseModel):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
+    # Prompt caching for system prompt + tool definitions (Anthropic + Bedrock).
+    enable_prompt_cache: bool = True
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1821,6 +1853,7 @@ async def get_llm_settings() -> LlmSettingsResponse:
         has_key=has_key,
         has_aws_keys=has_aws_keys,
         aws_region=cfg.aws_region,
+        enable_prompt_cache=cfg.enable_prompt_cache,
     )
 
 
@@ -1962,6 +1995,8 @@ async def update_llm_settings(
         new_cfg["aws_secret_access_key"] = _fernet_encrypt(body.aws_secret_access_key)
     if body.aws_session_token:
         new_cfg["aws_session_token"] = _fernet_encrypt(body.aws_session_token)
+    # Bool — always persisted (no truthy gate; the user may want to set it false).
+    new_cfg["enable_prompt_cache"] = "true" if body.enable_prompt_cache else "false"
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -1994,6 +2029,8 @@ async def update_llm_settings(
     if body.aws_session_token:
         os.environ["AWS_SESSION_TOKEN"] = body.aws_session_token
         cfg.aws_session_token = body.aws_session_token
+    cfg.enable_prompt_cache = body.enable_prompt_cache
+    os.environ["ENABLE_PROMPT_CACHE"] = "true" if body.enable_prompt_cache else "false"
 
     return {"success": True, "message": "LLM settings saved."}
 

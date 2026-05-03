@@ -1,18 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Settings2, ChevronDown, ChevronRight } from "lucide-react";
 import type { UIMessage, TurnUsage } from "@/types";
-import { shouldShowSeparator, getSepUsage } from "@/lib/groupMessages";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage, ToolResultMessage } from "./ToolCallMessage";
 import { SqlMessage } from "./SqlMessage";
 import { ChartMessage } from "./ChartMessage";
 import { ErrorMessage } from "./ErrorMessage";
-
-function fmt(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
-  return `${(n / 1_000_000).toFixed(2)}M`;
-}
+import { TurnTotalBadge } from "./TokenBadge";
 
 interface Props {
   workMessages: UIMessage[];
@@ -64,8 +58,11 @@ export function AgentWorkBlock({
   // Live timer while streaming
   useEffect(() => {
     if (!isStreaming) {
+      // Only freeze if streaming actually ran (liveElapsed > 0).
+      // Without this guard, history-loaded turns (never streamed) set
+      // frozenElapsed to ~0 and the ?? fallback to tsElapsed is skipped.
       if (frozenElapsed.current === null && liveElapsed > 0) {
-        frozenElapsed.current = liveElapsed;
+        frozenElapsed.current = Math.round((Date.now() - startRef.current) / 1000);
       }
       return;
     }
@@ -143,9 +140,7 @@ export function AgentWorkBlock({
         </span>
 
         {effectiveTurnUsage && !isStreaming && (
-          <span className="text-[10px] font-mono text-muted-foreground/45 flex-shrink-0">
-            ↑{fmt(effectiveTurnUsage.input_tokens)} ↓{fmt(effectiveTurnUsage.output_tokens)}
-          </span>
+          <TurnTotalBadge turnUsage={effectiveTurnUsage} />
         )}
 
         {!isStreaming && (
@@ -161,24 +156,9 @@ export function AgentWorkBlock({
           ref={bodyRef}
           className="border border-t-0 border-border/70 rounded-b-lg px-3 py-2 space-y-1 max-h-72 overflow-y-auto bg-muted/5"
         >
-          {workMessages.map((msg, idx) => {
-            const showSep = shouldShowSeparator(workMessages, idx);
-            const sepUsage = showSep ? getSepUsage(workMessages, idx) : undefined;
-
+          {workMessages.map((msg) => {
             return (
               <div key={msg.id}>
-                {showSep && (
-                  <div className="flex items-center gap-2 py-1">
-                    <div className="flex-1 h-px bg-border/50" />
-                    {sepUsage && (
-                      <span className="text-[9px] font-mono text-muted-foreground/40 flex-shrink-0">
-                        ↑{fmt(sepUsage.input_tokens)} ↓{sepUsage.output_tokens}
-                      </span>
-                    )}
-                    <div className="flex-1 h-px bg-border/50" />
-                  </div>
-                )}
-
                 {msg.event_type === "TEXT" && msg.isThinking && showReasoning && (
                   <ThinkingMessage payload={msg.payload as never} isStreaming={false} usage={msg.usage} />
                 )}
