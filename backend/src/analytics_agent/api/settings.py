@@ -418,15 +418,14 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
         connection = cfg.connection
 
         if engine_type == "bigquery":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
             project = connection.get("project", "")
             dataset = connection.get("dataset", "")
-            creds_json = os.environ.get("BIGQUERY_CREDENTIALS_JSON", "") or connection.get(
-                "credentials_json", ""
+            has_creds = any(
+                connection.get(k) or os.environ.get(_CM["bigquery"].env_map.get(k, ""), "")
+                for k in _CM["bigquery"].credential_keys
             )
-            creds_path = connection.get("credentials_path", "")
-            creds_b64 = connection.get("credentials_base64", "")
-            has_creds = bool(creds_json or creds_path or creds_b64)
-            configured = bool(project and has_creds)
+            configured = _CM["bigquery"].is_configured(connection)
             conns.append(
                 ConnectionStatus(
                     name=name,
@@ -459,14 +458,13 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
                 )
             )
         elif engine_type == "snowflake":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
             account = connection.get("account", "")
             user = connection.get("user", "")
             warehouse = connection.get("warehouse", "")
             database = connection.get("database", "")
             schema = connection.get("schema", "")
-            password = os.environ.get("SNOWFLAKE_PASSWORD", "")
-            private_key_pem = os.environ.get("SNOWFLAKE_PRIVATE_KEY", "").strip().strip('"')
-            configured = bool(account and user and (password or private_key_pem))
+            configured = _CM["snowflake"].is_configured(connection)
             conns.append(
                 ConnectionStatus(
                     name=name,
@@ -591,19 +589,10 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
         is_sso_connected = cred is not None and cred.auth_type == "sso_externalbrowser"
 
         if intg.type == "snowflake":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
             account = conn_cfg.get("account", "")
             user = conn_cfg.get("user", "")
-            # Check both env vars (legacy yaml flow) and stored config (UI-created connections).
-            password    = os.environ.get("SNOWFLAKE_PASSWORD", "")    or conn_cfg.get("password", "")
-            private_key = (os.environ.get("SNOWFLAKE_PRIVATE_KEY", "").strip().strip('"')
-                           or conn_cfg.get("private_key", ""))
-            pat_token   = os.environ.get("SNOWFLAKE_PAT_TOKEN", "")   or conn_cfg.get("pat_token", "")
-            # SSO-only connections don't need a service user or password
-            if is_sso_connected:
-                has_creds = bool(account)
-            else:
-                has_creds = bool(account and user and (password or private_key or pat_token))
-            status_str = "connected" if has_creds else "unconfigured"
+            status_str = "connected" if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected) else "unconfigured"
             fields = [
                 ConnectionField(
                     key="account",
@@ -646,15 +635,14 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     )
                 )
         elif intg.type == "bigquery":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
             project = conn_cfg.get("project", "")
             dataset = conn_cfg.get("dataset", "")
-            creds_json = os.environ.get("BIGQUERY_CREDENTIALS_JSON", "") or conn_cfg.get(
-                "credentials_json", ""
+            has_creds = any(
+                conn_cfg.get(k) or os.environ.get(_CM["bigquery"].env_map.get(k, ""), "")
+                for k in _CM["bigquery"].credential_keys
             )
-            creds_path = conn_cfg.get("credentials_path", "")
-            creds_b64 = conn_cfg.get("credentials_base64", "")
-            has_creds = bool(creds_json or creds_path or creds_b64)
-            status_str = "connected" if (project and has_creds) else "unconfigured"
+            status_str = "connected" if _CM["bigquery"].is_configured(conn_cfg) else "unconfigured"
             fields = [
                 ConnectionField(
                     key="project",

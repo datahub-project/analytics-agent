@@ -17,6 +17,30 @@ class ConnectorSpec:
     env_map: dict[str, str] = field(default_factory=dict)
     # Subset of env_map whose values are credentials (kept in .env, not logged).
     secret_env_vars: dict[str, str] = field(default_factory=dict)
+    # Keys that must ALL be present for a connection to be considered configured.
+    required_keys: list[str] = field(default_factory=list)
+    # Keys where ANY ONE being present counts as having credentials.
+    credential_keys: list[str] = field(default_factory=list)
+
+    def is_configured(self, conn_cfg: dict, sso_connected: bool = False) -> bool:
+        """True when the connection has enough config to attempt a real query.
+
+        Checks both the stored config dict and the corresponding env vars so
+        yaml-sourced connections (which may use ${VAR} substitution) are handled
+        the same way as UI-created ones.
+        """
+        def _has(key: str) -> bool:
+            return bool(
+                conn_cfg.get(key)
+                or os.environ.get(self.env_map.get(key, ""), "")
+            )
+
+        if not all(_has(k) for k in self.required_keys):
+            return False
+        # SSO connections don't need a stored credential — auth is in the session.
+        if sso_connected:
+            return True
+        return any(_has(k) for k in self.credential_keys)
 
     def _binary_name(self) -> str:
         """Return the CLI entry-point name (same as the package name by convention)."""
@@ -72,6 +96,8 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
             "private_key": "SNOWFLAKE_PRIVATE_KEY",
             "pat_token":   "SNOWFLAKE_PAT_TOKEN",
         },
+        required_keys=["account", "user"],
+        credential_keys=["password", "private_key", "pat_token"],
     ),
     "bigquery": ConnectorSpec(
         package="analytics-agent-connector-bigquery",
@@ -85,6 +111,8 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
         secret_env_vars={
             "credentials_json": "BIGQUERY_CREDENTIALS_JSON",
         },
+        required_keys=["project"],
+        credential_keys=["credentials_json", "credentials_base64", "credentials_path"],
     ),
 }
 
