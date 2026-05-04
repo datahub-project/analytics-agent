@@ -1,0 +1,19 @@
+[project]
+name = "analytics-agent-connector-bigquery"
+version = "0.1.0"
+description = "BigQuery MCP connector for Analytics Agent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "sqlalchemy-bigquery>=1.11.0",
+    "google-cloud-bigquery>=3.11.0",
+    "orjson>=3.10.0",
+]
+
+[project.scripts]
+analytics-agent-connector-bigquery = "analytics_agent_connector_bigquery.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

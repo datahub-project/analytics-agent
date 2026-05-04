@@ -1618,10 +1618,9 @@ def _resolve_secrets(intg_type: str, secrets: dict[str, str]) -> dict[str, str]:
     particular engine's credential fields.  Raises ``HTTPException(400)`` for
     any secret key the engine does not recognise.
     """
-    from analytics_agent.engines.factory import _engine_cls
+    from analytics_agent.engines.factory import get_secret_env_vars
 
-    engine_cls = _engine_cls(intg_type)
-    mapping: dict[str, str] = getattr(engine_cls, "secret_env_vars", {}) if engine_cls else {}
+    mapping = get_secret_env_vars(intg_type)
 
     unknown = [k for k in secrets if k not in mapping]
     if unknown:
