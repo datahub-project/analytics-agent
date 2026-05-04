@@ -1,37 +1,42 @@
 import type { UIMessage, TurnUsage } from "@/types";
 
-const WORK_TYPES = new Set(["TOOL_CALL", "TOOL_RESULT", "SQL", "CHART", "ERROR", "THINKING"]);
+const WORK_TYPES = new Set(["TOOL_CALL", "TOOL_RESULT", "SQL", "ERROR", "THINKING"]);
 
 export interface TurnGroup {
   key: string;
   userMsg?: UIMessage;
   workMsgs: UIMessage[];
+  /** Chart events extracted from workMsgs — rendered outside the collapsible work block. */
+  chartMsgs: UIMessage[];
   finalMsg?: UIMessage;
   isActivelyStreaming: boolean;
 }
 
 export function groupIntoTurns(messages: UIMessage[], globalStreaming: boolean): TurnGroup[] {
   const groups: TurnGroup[] = [];
-  let current: TurnGroup = { key: "init", workMsgs: [], isActivelyStreaming: false };
+  let current: TurnGroup = { key: "init", workMsgs: [], chartMsgs: [], isActivelyStreaming: false };
 
   for (const msg of messages) {
     if (msg.role === "user") {
-      if (current.userMsg || current.workMsgs.length > 0 || current.finalMsg) {
+      if (current.userMsg || current.workMsgs.length > 0 || current.chartMsgs.length > 0 || current.finalMsg) {
         groups.push(current);
       }
-      current = { key: msg.id, userMsg: msg, workMsgs: [], isActivelyStreaming: false };
+      current = { key: msg.id, userMsg: msg, workMsgs: [], chartMsgs: [], isActivelyStreaming: false };
       continue;
     }
 
     if (msg.event_type === "TEXT" && !msg.isThinking) {
       if (msg.isStreaming) current.isActivelyStreaming = true;
       current.finalMsg = msg;
+    } else if (msg.event_type === "CHART") {
+      // Charts rendered outside the collapsible work block so they stay visible when collapsed.
+      current.chartMsgs.push(msg);
     } else if (WORK_TYPES.has(msg.event_type) || (msg.event_type === "TEXT" && msg.isThinking)) {
       current.workMsgs.push(msg);
     }
   }
 
-  if (current.userMsg || current.workMsgs.length > 0 || current.finalMsg) {
+  if (current.userMsg || current.workMsgs.length > 0 || current.chartMsgs.length > 0 || current.finalMsg) {
     if (globalStreaming && !current.finalMsg?.isStreaming) {
       current.isActivelyStreaming = globalStreaming;
     }
