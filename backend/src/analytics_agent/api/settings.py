@@ -1343,7 +1343,7 @@ async def test_connection(
         if execute_sql:
             result = execute_sql.invoke(
                 {
-                    "sql": "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema != 'INFORMATION_SCHEMA'"
+                    "sql": "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE()"
                 }
             )
             parsed = orjson.loads(result) if isinstance(result, str) else result
