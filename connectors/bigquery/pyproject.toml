@@ -9,6 +9,10 @@ dependencies = [
     "sqlalchemy-bigquery>=1.11.0",
     "google-cloud-bigquery>=3.11.0",
     "orjson>=3.10.0",
+    # cryptography 42.x is the last series before mandatory hardware crypto
+    # instructions were assumed — newer versions (43+) cause SIGILL in Docker
+    # Desktop's ARM64 VM which doesn't expose all hardware crypto extensions.
+    "cryptography>=42.0.0,<43.0.0",
 ]
 
 [project.scripts]

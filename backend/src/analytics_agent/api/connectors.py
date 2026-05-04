@@ -129,6 +129,10 @@ async def test_connector(connector_type: str, body: TestConnectionBody) -> TestC
         list_tables = next((t for t in tools if t.name == "list_tables"), None)
         if list_tables:
             result = await list_tables.ainvoke({"schema": ""})
+            # MCP tools return a list of content blocks: [{"type":"text","text":"..."}]
+            # Unwrap to get the actual JSON string.
+            if isinstance(result, list) and result and isinstance(result[0], dict):
+                result = result[0].get("text", "")
             tables = orjson.loads(result) if isinstance(result, str) else result
             if isinstance(tables, list):
                 return TestConnectionResult(ok=True, message=f"Connected — {len(tables)} tables accessible")
