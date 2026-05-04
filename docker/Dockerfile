@@ -18,16 +18,24 @@ COPY pyproject.toml uv.lock README.md ./
 COPY backend/ backend/
 
 RUN uv sync --no-dev
-ENV PATH="/app/.venv/bin:$PATH"
+# Add venv and uv tool bin dirs to PATH.
+# uv tool install puts binaries in ~/.local/bin (i.e. /root/.local/bin for root).
+ENV PATH="/app/.venv/bin:/root/.local/bin:$PATH"
 
 # Pre-install connector packages so they're available offline at runtime.
 # Override at build time: docker build --build-arg CONNECTORS="snowflake bigquery"
 # Set to empty string to build a connector-free image: --build-arg CONNECTORS=""
 ARG CONNECTORS="snowflake bigquery"
+COPY connectors/ connectors/
 RUN if [ -n "$CONNECTORS" ]; then \
       for c in $CONNECTORS; do \
-        echo "→ Installing connector: analytics-agent-connector-$c" && \
-        uv tool install "analytics-agent-connector-$c"; \
+        if [ -d "connectors/$c" ]; then \
+          echo "→ Installing connector from local source: $c" && \
+          uv tool install "connectors/$c"; \
+        else \
+          echo "→ Installing connector from PyPI: analytics-agent-connector-$c" && \
+          uv tool install "analytics-agent-connector-$c"; \
+        fi; \
       done; \
     fi
 
@@ -40,5 +48,4 @@ COPY --from=fe-build /app/frontend/dist ./frontend/dist
 
 EXPOSE 8100
 
-CMD ["uv", "run", "uvicorn", "analytics_agent.main:app", \
-     "--host", "0.0.0.0", "--port", "8100"]
+CMD ["sh", "-c", "analytics-agent bootstrap && uvicorn analytics_agent.main:app --host 0.0.0.0 --port 8100"]
