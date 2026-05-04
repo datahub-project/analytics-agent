@@ -351,9 +351,11 @@ function PasswordFields({
 function PrivateKeyFields({
   fields,
   setField,
+  hasExistingKey,
 }: {
   fields: Record<string, string>;
   setField: (k: string, v: string) => void;
+  hasExistingKey?: boolean;
 }) {
   return (
     <div className="space-y-3">
@@ -377,6 +379,11 @@ function PrivateKeyFields({
           placeholder={"-----BEGIN RSA PRIVATE KEY-----\n…\n-----END RSA PRIVATE KEY-----"}
           rows={7}
         />
+        {hasExistingKey && !fields.private_key && (
+          <p className="text-[11px] text-emerald-600/80 dark:text-emerald-400/70 mt-1 flex items-center gap-1">
+            <span>✓</span> Key saved — paste a new key above to rotate it.
+          </p>
+        )}
       </div>
       <div>
         <div className="flex items-center justify-between mb-1">
@@ -613,7 +620,10 @@ export function SnowflakeAuthSection({ connectedAuth, onConnect, onDisconnect }:
   const [selectedMethod, setSelectedMethod] = useState<AuthMethod>(
     (connectedAuth?.method as AuthMethod) ?? "sso"
   );
-  const [fields, setFields] = useState<Record<string, string>>({});
+  // Pre-fill username from the active connection so the user sees who's configured.
+  const [fields, setFields] = useState<Record<string, string>>(
+    connectedAuth?.username ? { username: connectedAuth.username } : {}
+  );
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -722,7 +732,11 @@ export function SnowflakeAuthSection({ connectedAuth, onConnect, onDisconnect }:
           <PasswordFields fields={fields} setField={setField} onSubmit={handleConnect} />
         )}
         {selectedMethod === "privatekey" && (
-          <PrivateKeyFields fields={fields} setField={setField} />
+          <PrivateKeyFields
+            fields={fields}
+            setField={setField}
+            hasExistingKey={connectedAuth?.method === "privatekey"}
+          />
         )}
         {selectedMethod === "sso" && (
           <SsoFields

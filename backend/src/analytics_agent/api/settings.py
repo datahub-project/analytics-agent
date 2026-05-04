@@ -101,6 +101,9 @@ class ConnectionStatus(BaseModel):
     oauth: OAuthStatus = OAuthStatus()
     source: str = "yaml"  # "yaml" | "ui"
     disabled: bool = False  # master toggle — connection fully off
+    # Active auth method for connections that don't use the OAuth/SSO flow.
+    # Lets the frontend pre-select the correct tab in the auth section.
+    auth_method: str | None = None  # "privatekey" | "password" | "pat" | None
 
 
 class McpConfigRequest(BaseModel):
@@ -418,15 +421,15 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
         connection = cfg.connection
 
         if engine_type == "bigquery":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             project = connection.get("project", "")
             dataset = connection.get("dataset", "")
-            creds_json = os.environ.get("BIGQUERY_CREDENTIALS_JSON", "") or connection.get(
-                "credentials_json", ""
+            has_creds = any(
+                connection.get(k) or os.environ.get(_CM["bigquery"].env_map.get(k, ""), "")
+                for k in _CM["bigquery"].credential_keys
             )
-            creds_path = connection.get("credentials_path", "")
-            creds_b64 = connection.get("credentials_base64", "")
-            has_creds = bool(creds_json or creds_path or creds_b64)
-            configured = bool(project and has_creds)
+            configured = _CM["bigquery"].is_configured(connection)
             conns.append(
                 ConnectionStatus(
                     name=name,
@@ -459,14 +462,15 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
                 )
             )
         elif engine_type == "snowflake":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             account = connection.get("account", "")
             user = connection.get("user", "")
             warehouse = connection.get("warehouse", "")
             database = connection.get("database", "")
             schema = connection.get("schema", "")
-            password = os.environ.get("SNOWFLAKE_PASSWORD", "")
-            private_key_pem = os.environ.get("SNOWFLAKE_PRIVATE_KEY", "").strip().strip('"')
-            configured = bool(account and user and (password or private_key_pem))
+            password = os.environ.get("SNOWFLAKE_PASSWORD", "") or connection.get("password", "")
+            configured = _CM["snowflake"].is_configured(connection)
             conns.append(
                 ConnectionStatus(
                     name=name,
@@ -591,16 +595,26 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
         is_sso_connected = cred is not None and cred.auth_type == "sso_externalbrowser"
 
         if intg.type == "snowflake":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             account = conn_cfg.get("account", "")
             user = conn_cfg.get("user", "")
-            password = os.environ.get("SNOWFLAKE_PASSWORD", "")
-            private_key = os.environ.get("SNOWFLAKE_PRIVATE_KEY", "").strip().strip('"')
-            # SSO-only connections don't need a service user or password
+            status_str = (
+                "connected"
+                if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected)
+                else "unconfigured"
+            )
+            # Detect active auth method so the frontend can pre-select the right tab.
             if is_sso_connected:
-                has_creds = bool(account)
+                active_auth_method = "sso"
+            elif conn_cfg.get("private_key") or os.environ.get("SNOWFLAKE_PRIVATE_KEY", ""):
+                active_auth_method = "privatekey"
+            elif conn_cfg.get("pat_token") or os.environ.get("SNOWFLAKE_PAT_TOKEN", ""):
+                active_auth_method = "pat"
+            elif conn_cfg.get("password") or os.environ.get("SNOWFLAKE_PASSWORD", ""):
+                active_auth_method = "password"
             else:
-                has_creds = bool(account and user and (password or private_key))
-            status_str = "connected" if has_creds else "unconfigured"
+                active_auth_method = None
             fields = [
                 ConnectionField(
                     key="account",
@@ -631,6 +645,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 ),
             ]
             if intg.source == "yaml":
+                password = os.environ.get("SNOWFLAKE_PASSWORD", "") or conn_cfg.get("password", "")
                 # Password field only for yaml connections (managed via env)
                 fields.append(
                     ConnectionField(
@@ -643,15 +658,15 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     )
                 )
         elif intg.type == "bigquery":
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             project = conn_cfg.get("project", "")
             dataset = conn_cfg.get("dataset", "")
-            creds_json = os.environ.get("BIGQUERY_CREDENTIALS_JSON", "") or conn_cfg.get(
-                "credentials_json", ""
+            has_creds = any(
+                conn_cfg.get(k) or os.environ.get(_CM["bigquery"].env_map.get(k, ""), "")
+                for k in _CM["bigquery"].credential_keys
             )
-            creds_path = conn_cfg.get("credentials_path", "")
-            creds_b64 = conn_cfg.get("credentials_base64", "")
-            has_creds = bool(creds_json or creds_path or creds_b64)
-            status_str = "connected" if (project and has_creds) else "unconfigured"
+            status_str = "connected" if _CM["bigquery"].is_configured(conn_cfg) else "unconfigured"
             fields = [
                 ConnectionField(
                     key="project",
@@ -742,6 +757,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 tools=_build_tool_toggles(intg.type, disabled),
                 oauth=oauth_status,
                 source=intg.source,
+                auth_method=active_auth_method if intg.type == "snowflake" else None,
             )
         )
 
@@ -1336,29 +1352,29 @@ async def test_connection(
 
     try:
         from analytics_agent.engines.factory import get_engine
+        from analytics_agent.engines.mcp.engine import MCPQueryEngine
 
         engine = get_engine(name)
-        tools = engine.get_tools()
-        execute_sql = next((t for t in tools if t.name == "execute_sql"), None)
-        if execute_sql:
-            result = execute_sql.invoke(
-                {
-                    "sql": "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema != 'INFORMATION_SCHEMA'"
-                }
-            )
-            parsed = orjson.loads(result) if isinstance(result, str) else result
-            if "error" not in parsed and parsed.get("rows"):
-                count = parsed["rows"][0].get("N", parsed["rows"][0].get("n", "?"))
-                return DataHubTestResponse(
-                    success=True, message=f"Connected — {count} tables accessible"
-                )
+
+        # MCP engines require async tool discovery and invocation.
+        if isinstance(engine, MCPQueryEngine):
+            tools = await engine.get_tools_async()
+        else:
+            tools = engine.get_tools()
+
         list_tables = next((t for t in tools if t.name == "list_tables"), None)
         if list_tables:
-            result = list_tables.invoke({"schema": ""})
+            result = await list_tables.ainvoke({"schema": ""})
+            # MCP tools wrap result in [{type:text, text:"..."}] content blocks.
+            if isinstance(result, list) and result and isinstance(result[0], dict):
+                result = result[0].get("text", "")
             tables = orjson.loads(result) if isinstance(result, str) else result
-            return DataHubTestResponse(
-                success=True, message=f"Connected — {len(tables)} tables visible"
-            )
+            if isinstance(tables, list):
+                return DataHubTestResponse(
+                    success=True, message=f"Connected — {len(tables)} tables accessible"
+                )
+            if isinstance(tables, dict) and "error" in tables:
+                return DataHubTestResponse(success=False, error=tables["error"])
         return DataHubTestResponse(success=True, message="Engine connected")
     except Exception as e:
         return DataHubTestResponse(success=False, error=str(e))
@@ -1618,10 +1634,9 @@ def _resolve_secrets(intg_type: str, secrets: dict[str, str]) -> dict[str, str]:
     particular engine's credential fields.  Raises ``HTTPException(400)`` for
     any secret key the engine does not recognise.
     """
-    from analytics_agent.engines.factory import _engine_cls
+    from analytics_agent.engines.factory import get_secret_env_vars
 
-    engine_cls = _engine_cls(intg_type)
-    mapping: dict[str, str] = getattr(engine_cls, "secret_env_vars", {}) if engine_cls else {}
+    mapping = get_secret_env_vars(intg_type)
 
     unknown = [k for k in secrets if k not in mapping]
     if unknown:

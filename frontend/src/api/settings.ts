@@ -35,6 +35,8 @@ export interface Connection {
   oauth: OAuthStatus;
   source: "yaml" | "ui";
   disabled?: boolean;
+  /** Active non-SSO auth method — lets the frontend pre-select the correct auth tab. */
+  auth_method?: "privatekey" | "password" | "pat" | "sso" | null;
 }
 
 // McpConfig lives in the plugin system — re-exported here for API consumers
@@ -322,4 +324,48 @@ export async function saveDisplaySettings(s: DisplaySettings): Promise<void> {
     body: JSON.stringify({ app_name: s.app_name, logo_url: s.logo_url }),
   });
   if (!res.ok) throw new Error("Save failed");
+}
+
+// --- Connectors ---
+
+export interface ConnectorStatus {
+  type: string;
+  package: string;
+  installed: boolean;
+}
+
+export async function getConnectorStatus(type: string): Promise<ConnectorStatus> {
+  const res = await fetch(`/api/connectors/${type}/status`);
+  if (!res.ok) throw new Error(`Failed to check connector status for ${type}`);
+  return res.json();
+}
+
+export async function installConnector(type: string): Promise<void> {
+  const res = await fetch(`/api/connectors/${type}/install`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Failed to install connector ${type}`);
+  }
+}
+
+export interface ConnectorTestResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function testConnectorConfig(
+  type: string,
+  config: Record<string, string>,
+  secrets: Record<string, string> = {}
+): Promise<ConnectorTestResult> {
+  const res = await fetch(`/api/connectors/${type}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config, secrets }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? "Test failed");
+  }
+  return res.json();
 }

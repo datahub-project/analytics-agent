@@ -43,11 +43,8 @@ dependencies = [
     # DataHub context
     "datahub-agent-context[langchain]>=1.5.0",
     "acryl-datahub[base]>=1.5.0",
-    # Query engines
-    "snowflake-connector-python[pandas,secure-local-storage]>=3.10.0",
+    # Query engines (SQLAlchemy-based; heavy native connectors are separate packages)
     "pymysql>=1.1.0",
-    "sqlalchemy-bigquery>=1.11.0",
-    "google-cloud-bigquery>=3.11.0",
     # Observability (OTEL) — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-exporter-otlp-proto-http>=1.25.0",

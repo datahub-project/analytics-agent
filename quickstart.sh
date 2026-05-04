@@ -184,7 +184,7 @@ print(gms.get('server',''), gms.get('token',''))
             if curl -sf \
                 -H "Authorization: Bearer $existing_token" \
                 -H "Content-Type: application/json" \
-                -X POST "$DATAHUB_GMS_URL/api/v2/graphql" \
+                -X POST "$DATAHUB_GMS_URL/api/graphql" \
                 -d '{"query":"{ me { corpUser { urn } } }"}' &>/dev/null; then
                 DATAHUB_GMS_TOKEN="$existing_token"
                 ok "Reusing token from ~/.datahubenv (verified against ${DATAHUB_GMS_URL})"
@@ -487,7 +487,7 @@ docker run -d \
     --name analytics-agent-quickstart \
     --env-file .env.quickstart \
     -v "${REPO_ROOT}/config.yaml:/app/config.yaml:ro" \
-    "${_AWS_MOUNT[@]}" \
+    ${_AWS_MOUNT:+"${_AWS_MOUNT[@]}"} \
     -p 8100:8100 \
     analytics-agent-quickstart
 

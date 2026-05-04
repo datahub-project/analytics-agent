@@ -72,9 +72,12 @@ cd frontend && pnpm dev
 | `backend/src/analytics_agent/api/settings.py` | Connection CRUD + test + tool toggles + prompt + display settings |
 | `backend/src/analytics_agent/api/oauth.py` | SSO browser flow, PAT storage, OAuth popup flow, credential encryption |
 | `backend/src/analytics_agent/context/datahub.py` | Builds DataHub LangChain tools via `datahub_agent_context.build_langchain_tools()` |
-| `backend/src/analytics_agent/engines/resolver.py` | **Single credential resolution point** — loads Integration + credential from DB |
-| `backend/src/analytics_agent/engines/snowflake/engine.py` | Snowflake `QueryEngine`: execute_sql, list_tables, get_schema, preview_table; SSO/key-pair/PAT auth |
-| `backend/src/analytics_agent/engines/factory.py` | Engine registry; `register_engine` / `unregister_engine` for dynamic connections |
+| `backend/src/analytics_agent/engines/factory.py` | Engine registry + `ConnectorSpec` map; native connectors (Snowflake, BigQuery) resolved to MCP subprocesses |
+| `backend/src/analytics_agent/engines/mcp/engine.py` | `MCPQueryEngine` — discovers tools from a subprocess via `get_tools_async()`, caches client to keep subprocess alive |
+| `backend/src/analytics_agent/engines/sqlalchemy/engine.py` | In-process engine for MySQL, PostgreSQL, SQLite via SQLAlchemy |
+| `backend/src/analytics_agent/api/connectors.py` | Connector lifecycle: `GET /api/connectors/{type}/status`, `POST /api/connectors/{type}/install`, `POST /api/connectors/{type}/test` |
+| `connectors/snowflake/` | Standalone MCP server package — runs as a subprocess launched by the core via `uvx`; owns all Snowflake deps |
+| `connectors/bigquery/` | Standalone MCP server package — same pattern for BigQuery/GCP deps |
 | `backend/src/analytics_agent/db/models.py` | SQLAlchemy models: Conversation, Message, Integration, IntegrationCredential, Setting |
 | `backend/src/analytics_agent/db/repository.py` | Repos: ConversationRepo, MessageRepo, SettingsRepo, IntegrationRepo, CredentialRepo |
 | `backend/src/analytics_agent/prompts/system_prompt.md` | Agent system prompt (edit here — loaded at runtime) |
@@ -86,25 +89,63 @@ cd frontend && pnpm dev
 
 ---
 
+## Engine architecture — MCP subprocess isolation
+
+Heavy native connectors (Snowflake, BigQuery) run as **isolated MCP server subprocesses** launched by the core via `uvx`. The core package has no Snowflake or BigQuery Python deps.
+
+```
+analytics-agent (core)
+  └── MCPQueryEngine ──stdio──▶ analytics-agent-connector-snowflake (own venv)
+                     ──stdio──▶ analytics-agent-connector-bigquery  (own venv)
+                     ──SSE───▶  any remote MCP server
+```
+
+**`ConnectorSpec`** in `factory.py` describes each native connector:
+
+```python
+"snowflake": ConnectorSpec(
+    package="analytics-agent-connector-snowflake",
+    env_map={"account": "SNOWFLAKE_ACCOUNT", "private_key": "SNOWFLAKE_PRIVATE_KEY", ...},
+    secret_env_vars={"password": "SNOWFLAKE_PASSWORD", "private_key": "SNOWFLAKE_PRIVATE_KEY", ...},
+    required_keys=["account", "user"],
+    credential_keys=["password", "private_key", "pat_token"],
+)
+```
+
+`config.yaml` syntax is **unchanged** — `type: snowflake` works as before. The factory resolves it to an `MCPQueryEngine` that launches the connector subprocess via `uvx`, passing connection config as env vars. Users never see MCP or uvx.
+
+**Connector packages** live in `connectors/<name>/` — each is a standalone Python package with its own `pyproject.toml`, deps, and an MCP server entry-point:
+
+```bash
+connectors/
+  snowflake/
+    pyproject.toml   # name: analytics-agent-connector-snowflake
+    analytics_agent_connector_snowflake/server.py  # FastMCP server, 4 tools
+  bigquery/
+    pyproject.toml   # name: analytics-agent-connector-bigquery
+    analytics_agent_connector_bigquery/server.py
+```
+
+**Docker pre-baking** — the Dockerfile installs connector packages at build time via `uv tool install` so they're available offline:
+
+```dockerfile
+ARG CONNECTORS="snowflake bigquery"
+COPY connectors/ connectors/
+RUN for c in $CONNECTORS; do uv tool install "connectors/$c"; done
+```
+
+**UI install flow** — for new installs the Settings "Add data source" form checks `GET /api/connectors/{type}/status`. If the package isn't found, an "Install connector" step runs `uv tool install` before showing the config form.
+
 ## Integrations + credential architecture
 
 Connections are stored in two DB tables:
 
-- **`integrations`** — connection topology (account, warehouse, database, user). `source="yaml"` for `config.yaml` connections, `source="ui"` for UI-created ones.
-- **`integration_credentials`** — encrypted auth per connection: `auth_type` ∈ `{sso_externalbrowser, private_key, pat, oauth, password}`.
+- **`integrations`** — connection topology (`account`, `warehouse`, `database`, `user`, credentials). `source="yaml"` for `config.yaml` connections, `source="ui"` for UI-created ones.
+- `integration_credentials` — encrypted per-connection auth (SSO sessions; legacy from before credential fields moved to `integrations.config`).
 
-**Credential resolution** happens in `engines/resolver.py::resolve_engine(engine_name, session)`:
-1. Looks up `integration_credentials` for the engine
-2. Decrypts the credential and returns a configured engine clone
-3. Falls back to env vars for `source="yaml"` connections (backwards compat)
+Credentials for MCP connectors are stored as plain fields in `integrations.config` (e.g. `{"account": "...", "private_key": "-----BEGIN..."}`). They are forwarded to the subprocess as env vars via `ConnectorSpec.build_mcp_config()`.
 
-**Never thread individual credential fields** (`oauth_token`, `sso_user`, etc.) through `graph.py` or agent code. Pass the engine object returned by `resolve_engine`.
-
-```python
-# chat.py — the only place credentials are resolved
-engine = await resolve_engine(engine_name, session)
-graph = build_graph(engine=engine, engine_name=engine_name, ...)
-```
+`ConnectorSpec.is_configured(conn_cfg)` is the single source of truth for whether a connection has enough credentials to be shown as "Connected". Adding a new connector type means declaring `required_keys` and `credential_keys` on its spec — `settings.py` never needs to be touched for status logic.
 
 ### Connection write wire format — `{config, secrets}`
 
@@ -118,33 +159,8 @@ accept a single wire shape:
 }
 ```
 
-- `config` values are merged directly into `integrations.config` (DB) for engines,
-  or into the context-platform's config JSON for DataHub.
-- `secrets` keys are validated against each engine's own
-  `QueryEngine.secret_env_vars` allow-list (e.g.
-  `SnowflakeQueryEngine.secret_env_vars = {"password": "SNOWFLAKE_PASSWORD", ...}`)
-  and translated to env-var names before being written to `.env` and
-  `os.environ`. Unknown secret keys are rejected with **HTTP 400**. The API
-  layer stays ignorant of any particular engine's credential fields.
-- `_upsert_env_vars` always double-quotes every value so PEM blocks and passwords
-  with special characters (`#`, `$`, `\`, spaces) round-trip correctly.
-
-**How the frontend splits values** — each `ConnectionField` returned by
-`GET /connections` has an optional `secret_key` attribute. If present, the field's
-value is routed to `body.secrets[secret_key]`; otherwise it goes to
-`body.config[key]`. See `splitConnectionValues` in `frontend/src/api/settings.ts`.
-
-**Staged follow-up steps (tracked):**
-
-- **1 - route `body.secrets` to `integration_credentials`** (encrypted, per-connection).
-  Adds a `password` auth_type and a `password` branch in `resolver.py`, plus
-  `with_password` on `SnowflakeQueryEngine`. After 1 lands, `.env` stops accumulating
-  per-connection secrets and two Snowflake connections with different passwords can
-  coexist without collision.
-- **2 - `GET /api/settings/connections/schemas/{type}`** + frontend renders forms
-  generically from the schema. Promotes `QueryEngine.secret_env_vars` into a full
-  typed schema (fields, labels, placeholders, required flags) shared with the
-  frontend; handler becomes validate -> dispatch.
+- `config` values are stored in `integrations.config` (DB).
+- `secrets` keys are validated via `factory.get_secret_env_vars(type)` and written to `.env` / `os.environ`. Unknown secret keys are rejected with HTTP 400.
 
 ---
 
@@ -240,14 +256,142 @@ if _dist.exists():
 
 ---
 
-## Adding a new query engine
+## Adding a new query engine (connector package pattern)
 
-1. Create `engines/<name>/engine.py` implementing `QueryEngine`:
-   - Expose four tools: `execute_sql`, `list_tables`, `get_schema`, `preview_table`
-   - All tools must catch exceptions and return `{"error": str(e)}` — never raise
-2. Register in `engines/factory.py` → `_engine_cls()` dict
-3. Add connection config to `config.yaml` OR let users add via the Settings UI
-4. Add tool list to `api/settings.py` → `_KNOWN_TOOLS`
+All new native connectors follow the MCP subprocess model. The core package gains no new deps.
+
+### 1. Create the connector package
+
+```
+connectors/<name>/
+  pyproject.toml
+  README.md
+  analytics_agent_connector_<name>/
+    __init__.py
+    server.py          # FastMCP server exposing 4 tools
+```
+
+`pyproject.toml` minimal shape:
+```toml
+[project]
+name = "analytics-agent-connector-<name>"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+    "orjson>=3.10.0",
+    "<your-db-driver>",
+    # cryptography pinned <43 to avoid SIGILL on some ARM hosts:
+    "cryptography>=42.0.0,<43.0.0",
+]
+[project.scripts]
+analytics-agent-connector-<name> = "analytics_agent_connector_<name>.server:main"
+```
+
+`server.py` template:
+```python
+import os
+from mcp.server.fastmcp import FastMCP
+import orjson
+
+mcp = FastMCP("<name>-connector")
+SQL_ROW_LIMIT = int(os.environ.get("SQL_ROW_LIMIT", "500"))
+
+@mcp.tool()
+def execute_sql(sql: str) -> str:
+    """Execute SQL. Returns JSON with columns and rows."""
+    ...
+
+@mcp.tool()
+def list_tables(schema: str = "") -> str: ...
+
+@mcp.tool()
+def get_schema(table: str) -> str: ...
+
+@mcp.tool()
+def preview_table(table: str, limit: int = 10) -> str: ...
+
+def main() -> None:
+    mcp.run()
+```
+
+Rules:
+- All tools must return `orjson.dumps(result).decode()` — never raise
+- Read all config from env vars (`<NAME>_HOST`, `<NAME>_USER`, etc.)
+- Connection objects should be module-level globals (one process per config)
+
+### 2. Register in `engines/factory.py`
+
+Add a `ConnectorSpec` to `_CONNECTOR_MAP`:
+
+```python
+"<name>": ConnectorSpec(
+    package="analytics-agent-connector-<name>",
+    env_map={
+        "host":     "<NAME>_HOST",
+        "user":     "<NAME>_USER",
+        "password": "<NAME>_PASSWORD",
+        # ... map every config.yaml key → subprocess env var
+    },
+    secret_env_vars={
+        "password": "<NAME>_PASSWORD",
+    },
+    required_keys=["host", "user"],
+    credential_keys=["password"],   # at least one must be present for "connected" status
+),
+```
+
+That's all for the backend — `settings.py` status logic, `chat.py` routing, and the test endpoint all work automatically.
+
+### 3. Add to `api/settings.py` → `_KNOWN_TOOLS`
+
+```python
+"<name>": [
+    {"name": "list_tables",   "label": "List tables"},
+    {"name": "get_schema",    "label": "Table schema"},
+    {"name": "preview_table", "label": "Preview data"},
+    {"name": "execute_sql",   "label": "Execute SQL"},
+],
+```
+
+### 4. Add frontend plugin
+
+Create `frontend/src/components/Settings/connections/plugins/<name>.tsx`:
+
+```typescript
+import { SimpleFormShell } from "../SimpleFormShell";
+import type { ConnectionPlugin } from "../types";
+
+export const <name>Plugin: ConnectionPlugin = {
+  id: "<name>",
+  serviceId: "<name>",
+  label: "My DB",
+  category: "engine",
+  transport: "native",   // triggers install check + form
+  description: "Connect to My DB",
+  Form: ({ onDone, onCancel }) => (
+    <SimpleFormShell
+      fields={[
+        { key: "host",     label: "Host",     required: true, placeholder: "localhost" },
+        { key: "user",     label: "User",     placeholder: "admin" },
+        { key: "password", label: "Password", type: "password" as const },
+      ]}
+      onCancel={onCancel}
+      onDone={onDone}
+    />
+  ),
+};
+```
+
+Register it in `frontend/src/components/Settings/connections/index.ts`.
+
+### 5. Add to Dockerfile
+
+```dockerfile
+ARG CONNECTORS="snowflake bigquery <name>"
+```
+
+The Dockerfile loop installs all listed connectors at build time.
 
 ---
 
@@ -279,7 +423,7 @@ GitHub Actions (`.github/workflows/docker.yml`) builds and pushes to GHCR on eve
 
 **Do not** use `EventSource` in the frontend — the chat endpoint is a POST. Use `fetch()` + `ReadableStream` (`frontend/src/api/stream.ts`).
 
-**Do not** thread credential fields through `graph.py` — use `resolver.py` to get a pre-configured engine and pass the engine object.
+**Do not** put connector-specific Python deps in the core `pyproject.toml` — new connectors belong in `connectors/<name>/` as separate MCP server packages.
 
 **Do not** store chart Vega-Lite specs as the tool return value — use the `_pending_charts` side-channel.
 
@@ -289,4 +433,4 @@ GitHub Actions (`.github/workflows/docker.yml`) builds and pushes to GHCR on eve
 
 **`chat.py` uses its own session**: `_event_stream` opens a fresh `AsyncSession` independent of the `Depends(get_session)` session — FastAPI closes `Depends` sessions before `StreamingResponse` iterates the generator.
 
-**Snowflake Decimal/date types**: `_run_query` in `snowflake/engine.py` coerces `Decimal` → `int`/`float` and `datetime` → ISO string before serialisation. Do not remove this — `orjson` rejects `Decimal`.
+**Connector type coercion**: each connector's `_run_query` must coerce DB-specific types (`Decimal`, `datetime`, `bytes`, `UUID`) to JSON-native Python types before returning. `orjson` rejects `Decimal` — convert to `int`/`float` depending on whether it has a fractional part.

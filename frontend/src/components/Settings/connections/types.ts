@@ -7,8 +7,8 @@ export interface FieldDef {
   key: string;
   label: string;
   placeholder?: string;
-  /** text = default, mono = code font, password = masked, array = dynamic list, keyvalue = key=value pairs */
-  type?: "text" | "mono" | "password" | "array" | "keyvalue";
+  /** text = default, mono = code font, password = masked, array = dynamic list, keyvalue = key=value pairs, json = validated + pretty-printed textarea */
+  type?: "text" | "mono" | "password" | "array" | "keyvalue" | "json";
   required?: boolean;
   hint?: string;
   /** Called on blur — normalise/transform the raw value before it's stored. */

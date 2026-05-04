@@ -1,8 +1,72 @@
 import { useState } from "react";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
 import type { FieldDef, NewConnectionPayload } from "./types";
 import { ArrayField } from "./fields/ArrayField";
 import { KeyValueField } from "./fields/KeyValueField";
+
+// ── JSON field ────────────────────────────────────────────────────────────
+
+function JsonField({
+  def,
+  value,
+  onChange,
+}: {
+  def: FieldDef;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  const validate = (v: string) => {
+    if (!v.trim()) { setError(null); return; }
+    try { JSON.parse(v); setError(null); }
+    catch { setError("Invalid JSON"); }
+  };
+
+  const handleBlur = () => {
+    if (!value.trim()) return;
+    try {
+      // Pretty-print on blur so it's readable
+      onChange(JSON.stringify(JSON.parse(value), null, 2));
+      setError(null);
+    } catch {
+      setError("Invalid JSON");
+    }
+  };
+
+  const isValid = value.trim() && !error;
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <label className="text-xs text-muted-foreground">
+          {def.label}
+          {def.required && <span className="text-red-400 ml-0.5">*</span>}
+        </label>
+        {value.trim() && (
+          isValid
+            ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+            : <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+        )}
+      </div>
+      <textarea
+        value={value}
+        placeholder={def.placeholder}
+        rows={4}
+        onChange={(e) => { onChange(e.target.value); validate(e.target.value); }}
+        onBlur={handleBlur}
+        className={[
+          "w-full text-xs font-mono bg-background border rounded px-2.5 py-1.5 resize-y",
+          "focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/40",
+          "leading-relaxed",
+          error ? "border-red-400" : "border-border",
+        ].join(" ")}
+      />
+      {error && <p className="text-xs text-red-400 flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+      {def.hint && <p className="text-xs text-muted-foreground/60">{def.hint}</p>}
+    </div>
+  );
+}
 
 // ── Primitive: single field ───────────────────────────────────────────────
 
@@ -50,6 +114,10 @@ function FormField({
         hint={def.hint}
       />
     );
+  }
+
+  if (def.type === "json") {
+    return <JsonField def={def} value={value} onChange={onChange} />;
   }
 
   if (def.type === "password") {
