@@ -57,17 +57,20 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
     "snowflake": ConnectorSpec(
         package="analytics-agent-connector-snowflake",
         env_map={
-            "account":   "SNOWFLAKE_ACCOUNT",
-            "user":      "SNOWFLAKE_USER",
-            "warehouse": "SNOWFLAKE_WAREHOUSE",
-            "database":  "SNOWFLAKE_DATABASE",
-            "schema":    "SNOWFLAKE_SCHEMA",
-            "role":      "SNOWFLAKE_ROLE",
-            "password":  "SNOWFLAKE_PASSWORD",
+            "account":     "SNOWFLAKE_ACCOUNT",
+            "user":        "SNOWFLAKE_USER",
+            "warehouse":   "SNOWFLAKE_WAREHOUSE",
+            "database":    "SNOWFLAKE_DATABASE",
+            "schema":      "SNOWFLAKE_SCHEMA",
+            "role":        "SNOWFLAKE_ROLE",
+            "password":    "SNOWFLAKE_PASSWORD",
+            "private_key": "SNOWFLAKE_PRIVATE_KEY",
+            "pat_token":   "SNOWFLAKE_PAT_TOKEN",
         },
         secret_env_vars={
             "password":    "SNOWFLAKE_PASSWORD",
             "private_key": "SNOWFLAKE_PRIVATE_KEY",
+            "pat_token":   "SNOWFLAKE_PAT_TOKEN",
         },
     ),
     "bigquery": ConnectorSpec(
