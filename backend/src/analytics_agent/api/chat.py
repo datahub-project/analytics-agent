@@ -17,10 +17,14 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from opentelemetry import trace as _otrace
+
 from analytics_agent.agent.analysis import CONTEXT_TOOLS
 from analytics_agent.db.base import get_session
 from analytics_agent.db.models import Message
-from analytics_agent.db.repository import ConversationRepo, MessageRepo
+from analytics_agent.db.repository import ConversationRepo, IntegrationRepo, MessageRepo
+
+_tracer = _otrace.get_tracer(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +333,28 @@ async def _run_and_broadcast(
                                 _context_call_counts.get(conversation_id, 0) + 1
                             )
                             _maybe_schedule_quality(conversation_id, factory)
+
+                    # Telemetry spans — annotate once, emit to both OTEL and Mixpanel.
+                    _evt_type = evt.get("event")
+                    if _evt_type == "SQL":
+                        _payload = evt.get("payload", {})
+                        _intg = await IntegrationRepo(session).get(engine_name)
+                        _engine_type = _intg.type if _intg else engine_name
+                        with _tracer.start_as_current_span("query.completed") as _span:
+                            _span.set_attribute("engine.type", _engine_type)
+                            _span.set_attribute("row.count", len(_payload.get("rows", [])))
+                    elif _evt_type == "CHART":
+                        _payload = evt.get("payload", {})
+                        _chart_type = _payload.get("chart_type") or ""
+                        if not _chart_type:
+                            _mark = (_payload.get("vega_lite_spec") or {}).get("mark") or "unknown"
+                            _chart_type = (
+                                _mark.get("type", "unknown")
+                                if isinstance(_mark, dict)
+                                else str(_mark)
+                            )
+                        with _tracer.start_as_current_span("chart.generated") as _span:
+                            _span.set_attribute("chart.type", _chart_type)
 
                 _broadcast(evt)
 
