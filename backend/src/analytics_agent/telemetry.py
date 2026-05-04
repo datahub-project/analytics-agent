@@ -74,7 +74,7 @@ KNOWN_SPAN_NAMES: frozenset[str] = frozenset({
 # Any attribute not listed here is silently dropped (anonymization guarantee).
 _ATTRIBUTE_ALLOWLIST: dict[str, frozenset[str]] = {
     "agent.started": frozenset({
-        "llm.provider", "engines.count", "engines.types", "prompt_cache.enabled",
+        "llm.provider", "engines.count", "engine_types", "prompt_cache.enabled",
     }),
     "query.completed": frozenset({"engine.type", "row.count"}),
     "connection.tested": frozenset({"engine.type", "connection.success"}),
