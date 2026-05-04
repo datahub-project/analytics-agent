@@ -593,13 +593,16 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
         if intg.type == "snowflake":
             account = conn_cfg.get("account", "")
             user = conn_cfg.get("user", "")
-            password = os.environ.get("SNOWFLAKE_PASSWORD", "")
-            private_key = os.environ.get("SNOWFLAKE_PRIVATE_KEY", "").strip().strip('"')
+            # Check both env vars (legacy yaml flow) and stored config (UI-created connections).
+            password    = os.environ.get("SNOWFLAKE_PASSWORD", "")    or conn_cfg.get("password", "")
+            private_key = (os.environ.get("SNOWFLAKE_PRIVATE_KEY", "").strip().strip('"')
+                           or conn_cfg.get("private_key", ""))
+            pat_token   = os.environ.get("SNOWFLAKE_PAT_TOKEN", "")   or conn_cfg.get("pat_token", "")
             # SSO-only connections don't need a service user or password
             if is_sso_connected:
                 has_creds = bool(account)
             else:
-                has_creds = bool(account and user and (password or private_key))
+                has_creds = bool(account and user and (password or private_key or pat_token))
             status_str = "connected" if has_creds else "unconfigured"
             fields = [
                 ConnectionField(
