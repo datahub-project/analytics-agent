@@ -1,5 +1,7 @@
 import { create } from "zustand";
 import { saveToolToggles, type Connection } from "@/api/settings";
+import { listEngines } from "@/api/conversations";
+import { useConversationsStore } from "@/store/conversations";
 
 interface ConnectionSettingsState {
   disabledTools: string[];
@@ -93,6 +95,9 @@ export const useConnectionSettingsStore = create<ConnectionSettingsState>((set, 
     set({ disabledConnections: next, saving: true });
     try {
       await saveToolToggles(disabledTools, enabledMutations, next);
+      // Refresh engine dropdown so it only shows enabled data sources.
+      const engines = await listEngines();
+      useConversationsStore.getState().setEngines(engines);
     } finally {
       set({ saving: false });
     }

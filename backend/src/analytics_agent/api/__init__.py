@@ -15,8 +15,18 @@ api_router.include_router(connectors.router)
 @api_router.get("/api/engines", tags=["engines"])
 async def list_engines():
     from analytics_agent.engines.factory import list_engines as _list
+    from analytics_agent.db.base import _get_session_factory
+    from analytics_agent.db.repository import SettingsRepo
+    import contextlib, orjson
 
-    return _list()
+    disabled: set[str] = set()
+    with contextlib.suppress(Exception):
+        async with _get_session_factory()() as session:
+            raw = await SettingsRepo(session).get("disabled_connections")
+            if raw:
+                disabled = set(orjson.loads(raw))
+
+    return [e for e in _list() if e["name"] not in disabled]
 
 
 @api_router.get("/api/greeting", tags=["user"])
