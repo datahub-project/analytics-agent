@@ -208,6 +208,9 @@ class Settings(BaseSettings):
     # instead of connecting to the real server.  Set to "1" in e2e test environments.
     mock_mcp_tools: bool = False
 
+    # Telemetry — anonymous usage metrics. Set DATAHUB_TELEMETRY_ENABLED=false to opt out.
+    datahub_telemetry_enabled: bool = True
+
     # OAuth SSO (all integrations share one master encryption key)
     oauth_master_key: str = (
         ""  # Fernet key for encrypting OAuth secrets/tokens; auto-generated if blank

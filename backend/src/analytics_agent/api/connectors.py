@@ -6,9 +6,12 @@ import logging
 import subprocess
 
 from fastapi import APIRouter, HTTPException
+from opentelemetry import trace as _otrace
 from pydantic import BaseModel
 
 from analytics_agent.engines.factory import _CONNECTOR_MAP
+
+_tracer = _otrace.get_tracer(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -120,37 +123,49 @@ async def test_connector(connector_type: str, body: TestConnectionBody) -> TestC
         if value:
             merged[friendly_key] = value
 
-    try:
-        factory_fn = _engine_cls(connector_type)
-        if not factory_fn:
-            return TestConnectionResult(ok=False, message=f"Unknown engine type: {connector_type}")
-
-        engine = factory_fn(merged)
-        tools = (
-            await engine.get_tools_async()
-            if hasattr(engine, "get_tools_async")
-            else engine.get_tools()
-        )
-        list_tables = next((t for t in tools if t.name == "list_tables"), None)
-        if list_tables:
-            result = await list_tables.ainvoke({"schema": ""})
-            # MCP tools return a list of content blocks: [{"type":"text","text":"..."}]
-            # Unwrap to get the actual JSON string.
-            if isinstance(result, list) and result and isinstance(result[0], dict):
-                result = result[0].get("text", "")
-            tables = orjson.loads(result) if isinstance(result, str) else result
-            if isinstance(tables, list):
-                return TestConnectionResult(
-                    ok=True, message=f"Connected — {len(tables)} tables accessible"
-                )
-            if isinstance(tables, dict) and "error" in tables:
-                return TestConnectionResult(ok=False, message=tables["error"])
-        return TestConnectionResult(ok=True, message="Connected")
-    except Exception as e:
-        return TestConnectionResult(ok=False, message=str(e))
-    finally:
+    _success = False
+    with _tracer.start_as_current_span("connection.tested") as _span:
+        _span.set_attribute("engine.type", connector_type)
         try:
-            if "engine" in dir():
-                await engine.aclose()
-        except Exception:
-            pass
+            factory_fn = _engine_cls(connector_type)
+            if not factory_fn:
+                _span.set_attribute("connection.success", False)
+                return TestConnectionResult(
+                    ok=False, message=f"Unknown engine type: {connector_type}"
+                )
+
+            engine = factory_fn(merged)
+            tools = (
+                await engine.get_tools_async()
+                if hasattr(engine, "get_tools_async")
+                else engine.get_tools()
+            )
+            list_tables = next((t for t in tools if t.name == "list_tables"), None)
+            if list_tables:
+                result = await list_tables.ainvoke({"schema": ""})
+                # MCP tools return a list of content blocks: [{"type":"text","text":"..."}]
+                # Unwrap to get the actual JSON string.
+                if isinstance(result, list) and result and isinstance(result[0], dict):
+                    result = result[0].get("text", "")
+                tables = orjson.loads(result) if isinstance(result, str) else result
+                if isinstance(tables, list):
+                    _success = True
+                    _span.set_attribute("connection.success", True)
+                    return TestConnectionResult(
+                        ok=True, message=f"Connected — {len(tables)} tables accessible"
+                    )
+                if isinstance(tables, dict) and "error" in tables:
+                    _span.set_attribute("connection.success", False)
+                    return TestConnectionResult(ok=False, message=tables["error"])
+            _success = True
+            _span.set_attribute("connection.success", True)
+            return TestConnectionResult(ok=True, message="Connected")
+        except Exception as e:
+            _span.set_attribute("connection.success", False)
+            return TestConnectionResult(ok=False, message=str(e))
+        finally:
+            try:
+                if "engine" in dir():
+                    await engine.aclose()
+            except Exception:
+                pass

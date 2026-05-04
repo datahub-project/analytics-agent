@@ -60,6 +60,8 @@ dependencies = [
     "cryptography>=42.0.0",
     "keyring>=25.7.0",
     "langchain-google-genai>=4.2.2",
+    # Telemetry
+    "mixpanel>=4.10.0",
 ]
 
 [project.urls]

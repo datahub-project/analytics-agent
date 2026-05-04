@@ -84,6 +84,34 @@ async def lifespan(app: FastAPI):
     await propagate_datahub_env()
     await _load_llm_config_from_db()
 
+    # Telemetry — initialize after LLM config is loaded so settings.llm_provider
+    # reflects any DB-stored override. The agent.started span is picked up by
+    # MixpanelSpanProcessor (registered in setup_tracing) once enabled=True.
+
+    from opentelemetry import trace as _otrace
+
+    from analytics_agent.db.base import _get_session_factory as _sf
+    from analytics_agent.db.repository import IntegrationRepo as _IR
+    from analytics_agent.telemetry import init_telemetry
+
+    _factory = _sf()
+    await init_telemetry(_factory)
+
+    async with _factory() as _sess:
+        _integrations = await _IR(_sess).list_all()
+    # Union DB-seeded engines with YAML-loaded engines so deployments that skip
+    # bootstrap (config.yaml only, no Helm) still report their engine types.
+    _engine_types = list(
+        {i.type for i in _integrations} | {c.type for c in settings.load_engines_config()}
+    )
+
+    _tracer = _otrace.get_tracer("analytics_agent")
+    with _tracer.start_as_current_span("agent.started") as _span:
+        _span.set_attribute("llm.provider", settings.llm_provider)
+        _span.set_attribute("engine_types", _engine_types)
+        _span.set_attribute("engines.count", len(_engine_types))
+        _span.set_attribute("prompt_cache.enabled", settings.enable_prompt_cache)
+
     # Background MCP tool discovery — non-blocking, per-platform retry.
     import asyncio as _asyncio
 
