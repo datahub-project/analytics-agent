@@ -100,7 +100,11 @@ async def lifespan(app: FastAPI):
 
     async with _factory() as _sess:
         _integrations = await _IR(_sess).list_all()
-    _engine_types = list({i.type for i in _integrations})
+    # Union DB-seeded engines with YAML-loaded engines so deployments that skip
+    # bootstrap (config.yaml only, no Helm) still report their engine types.
+    _engine_types = list(
+        {i.type for i in _integrations} | {c.type for c in settings.load_engines_config()}
+    )
 
     _tracer = _otrace.get_tracer("analytics_agent")
     with _tracer.start_as_current_span("agent.started") as _span:
