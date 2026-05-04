@@ -29,11 +29,9 @@ class ConnectorSpec:
         yaml-sourced connections (which may use ${VAR} substitution) are handled
         the same way as UI-created ones.
         """
+
         def _has(key: str) -> bool:
-            return bool(
-                conn_cfg.get(key)
-                or os.environ.get(self.env_map.get(key, ""), "")
-            )
+            return bool(conn_cfg.get(key) or os.environ.get(self.env_map.get(key, ""), ""))
 
         if not all(_has(k) for k in self.required_keys):
             return False
@@ -81,20 +79,20 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
     "snowflake": ConnectorSpec(
         package="analytics-agent-connector-snowflake",
         env_map={
-            "account":     "SNOWFLAKE_ACCOUNT",
-            "user":        "SNOWFLAKE_USER",
-            "warehouse":   "SNOWFLAKE_WAREHOUSE",
-            "database":    "SNOWFLAKE_DATABASE",
-            "schema":      "SNOWFLAKE_SCHEMA",
-            "role":        "SNOWFLAKE_ROLE",
-            "password":    "SNOWFLAKE_PASSWORD",
+            "account": "SNOWFLAKE_ACCOUNT",
+            "user": "SNOWFLAKE_USER",
+            "warehouse": "SNOWFLAKE_WAREHOUSE",
+            "database": "SNOWFLAKE_DATABASE",
+            "schema": "SNOWFLAKE_SCHEMA",
+            "role": "SNOWFLAKE_ROLE",
+            "password": "SNOWFLAKE_PASSWORD",
             "private_key": "SNOWFLAKE_PRIVATE_KEY",
-            "pat_token":   "SNOWFLAKE_PAT_TOKEN",
+            "pat_token": "SNOWFLAKE_PAT_TOKEN",
         },
         secret_env_vars={
-            "password":    "SNOWFLAKE_PASSWORD",
+            "password": "SNOWFLAKE_PASSWORD",
             "private_key": "SNOWFLAKE_PRIVATE_KEY",
-            "pat_token":   "SNOWFLAKE_PAT_TOKEN",
+            "pat_token": "SNOWFLAKE_PAT_TOKEN",
         },
         required_keys=["account", "user"],
         credential_keys=["password", "private_key", "pat_token"],
@@ -102,11 +100,11 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
     "bigquery": ConnectorSpec(
         package="analytics-agent-connector-bigquery",
         env_map={
-            "project":            "BIGQUERY_PROJECT",
-            "dataset":            "BIGQUERY_DATASET",
-            "credentials_json":   "BIGQUERY_CREDENTIALS_JSON",
+            "project": "BIGQUERY_PROJECT",
+            "dataset": "BIGQUERY_DATASET",
+            "credentials_json": "BIGQUERY_CREDENTIALS_JSON",
             "credentials_base64": "BIGQUERY_CREDENTIALS_BASE64",
-            "credentials_path":   "BIGQUERY_CREDENTIALS_PATH",
+            "credentials_path": "BIGQUERY_CREDENTIALS_PATH",
         },
         secret_env_vars={
             "credentials_json": "BIGQUERY_CREDENTIALS_JSON",
@@ -152,13 +150,13 @@ def _engine_cls(engine_type: str):
         return _make_connector
 
     return {
-        "mysql":      SQLAlchemyQueryEngine,
-        "sqlite":     SQLAlchemyQueryEngine,
+        "mysql": SQLAlchemyQueryEngine,
+        "sqlite": SQLAlchemyQueryEngine,
         "postgresql": SQLAlchemyQueryEngine,
         "sqlalchemy": SQLAlchemyQueryEngine,
-        "mcp":        MCPQueryEngine,
-        "mcp-stdio":  MCPQueryEngine,
-        "mcp-sse":    MCPQueryEngine,
+        "mcp": MCPQueryEngine,
+        "mcp-stdio": MCPQueryEngine,
+        "mcp-sse": MCPQueryEngine,
     }.get(engine_type)
 
 

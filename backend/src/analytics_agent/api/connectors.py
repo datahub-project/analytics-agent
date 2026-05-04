@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import subprocess
 import logging
+import subprocess
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -110,8 +110,9 @@ async def test_connector(connector_type: str, body: TestConnectionBody) -> TestC
     if not spec:
         raise HTTPException(status_code=404, detail=f"Unknown connector type: {connector_type!r}")
 
-    from analytics_agent.engines.factory import _engine_cls
     import orjson
+
+    from analytics_agent.engines.factory import _engine_cls
 
     # Merge secrets into the config using the env_map to translate friendly keys
     merged = dict(body.config)
@@ -125,7 +126,11 @@ async def test_connector(connector_type: str, body: TestConnectionBody) -> TestC
             return TestConnectionResult(ok=False, message=f"Unknown engine type: {connector_type}")
 
         engine = factory_fn(merged)
-        tools = await engine.get_tools_async() if hasattr(engine, "get_tools_async") else engine.get_tools()
+        tools = (
+            await engine.get_tools_async()
+            if hasattr(engine, "get_tools_async")
+            else engine.get_tools()
+        )
         list_tables = next((t for t in tools if t.name == "list_tables"), None)
         if list_tables:
             result = await list_tables.ainvoke({"schema": ""})
@@ -135,7 +140,9 @@ async def test_connector(connector_type: str, body: TestConnectionBody) -> TestC
                 result = result[0].get("text", "")
             tables = orjson.loads(result) if isinstance(result, str) else result
             if isinstance(tables, list):
-                return TestConnectionResult(ok=True, message=f"Connected — {len(tables)} tables accessible")
+                return TestConnectionResult(
+                    ok=True, message=f"Connected — {len(tables)} tables accessible"
+                )
             if isinstance(tables, dict) and "error" in tables:
                 return TestConnectionResult(ok=False, message=tables["error"])
         return TestConnectionResult(ok=True, message="Connected")

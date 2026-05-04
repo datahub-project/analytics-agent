@@ -14,10 +14,13 @@ api_router.include_router(connectors.router)
 
 @api_router.get("/api/engines", tags=["engines"])
 async def list_engines():
-    from analytics_agent.engines.factory import list_engines as _list
+    import contextlib
+
+    import orjson
+
     from analytics_agent.db.base import _get_session_factory
     from analytics_agent.db.repository import SettingsRepo
-    import contextlib, orjson
+    from analytics_agent.engines.factory import list_engines as _list
 
     disabled: set[str] = set()
     with contextlib.suppress(Exception):

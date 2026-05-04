@@ -422,6 +422,7 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
 
         if engine_type == "bigquery":
             from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             project = connection.get("project", "")
             dataset = connection.get("dataset", "")
             has_creds = any(
@@ -462,11 +463,13 @@ def _get_engine_connections(disabled: set[str]) -> list[ConnectionStatus]:
             )
         elif engine_type == "snowflake":
             from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             account = connection.get("account", "")
             user = connection.get("user", "")
             warehouse = connection.get("warehouse", "")
             database = connection.get("database", "")
             schema = connection.get("schema", "")
+            password = os.environ.get("SNOWFLAKE_PASSWORD", "") or connection.get("password", "")
             configured = _CM["snowflake"].is_configured(connection)
             conns.append(
                 ConnectionStatus(
@@ -593,9 +596,14 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
 
         if intg.type == "snowflake":
             from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             account = conn_cfg.get("account", "")
             user = conn_cfg.get("user", "")
-            status_str = "connected" if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected) else "unconfigured"
+            status_str = (
+                "connected"
+                if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected)
+                else "unconfigured"
+            )
             # Detect active auth method so the frontend can pre-select the right tab.
             if is_sso_connected:
                 active_auth_method = "sso"
@@ -637,6 +645,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 ),
             ]
             if intg.source == "yaml":
+                password = os.environ.get("SNOWFLAKE_PASSWORD", "") or conn_cfg.get("password", "")
                 # Password field only for yaml connections (managed via env)
                 fields.append(
                     ConnectionField(
@@ -650,6 +659,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 )
         elif intg.type == "bigquery":
             from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
             project = conn_cfg.get("project", "")
             dataset = conn_cfg.get("dataset", "")
             has_creds = any(
