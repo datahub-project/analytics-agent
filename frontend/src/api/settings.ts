@@ -323,3 +323,25 @@ export async function saveDisplaySettings(s: DisplaySettings): Promise<void> {
   });
   if (!res.ok) throw new Error("Save failed");
 }
+
+// --- Connectors ---
+
+export interface ConnectorStatus {
+  type: string;
+  package: string;
+  installed: boolean;
+}
+
+export async function getConnectorStatus(type: string): Promise<ConnectorStatus> {
+  const res = await fetch(`/api/connectors/${type}/status`);
+  if (!res.ok) throw new Error(`Failed to check connector status for ${type}`);
+  return res.json();
+}
+
+export async function installConnector(type: string): Promise<void> {
+  const res = await fetch(`/api/connectors/${type}/install`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Failed to install connector ${type}`);
+  }
+}

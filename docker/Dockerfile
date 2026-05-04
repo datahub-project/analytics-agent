@@ -20,6 +20,17 @@ COPY backend/ backend/
 RUN uv sync --no-dev
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Pre-install connector packages so they're available offline at runtime.
+# Override at build time: docker build --build-arg CONNECTORS="snowflake bigquery"
+# Set to empty string to build a connector-free image: --build-arg CONNECTORS=""
+ARG CONNECTORS="snowflake bigquery"
+RUN if [ -n "$CONNECTORS" ]; then \
+      for c in $CONNECTORS; do \
+        echo "→ Installing connector: analytics-agent-connector-$c" && \
+        uv tool install "analytics-agent-connector-$c"; \
+      done; \
+    fi
+
 COPY alembic.ini config.yaml.example ./
 # Use example as the default config; operators override via volume mount or ENGINES_CONFIG env var
 RUN cp config.yaml.example config.yaml
