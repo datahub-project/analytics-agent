@@ -18,12 +18,28 @@ class ConnectorSpec:
     # Subset of env_map whose values are credentials (kept in .env, not logged).
     secret_env_vars: dict[str, str] = field(default_factory=dict)
 
+    def _binary_name(self) -> str:
+        """Return the CLI entry-point name (same as the package name by convention)."""
+        return self.package
+
     def build_mcp_config(self, connection: dict) -> dict:
         """Build the MCPQueryEngine config dict for a stdio subprocess connector.
+
+        Uses the installed binary (placed in PATH by `uv tool install`) as the
+        command. Falls back to `uvx <package>` only if the binary is not found —
+        uvx will then download and run the package from PyPI on demand.
 
         Starts with the full parent environment so the subprocess inherits PATH,
         HOME, etc., then overlays any values explicitly set in the connection config.
         """
+        import shutil
+
+        binary = self._binary_name()
+        if shutil.which(binary):
+            command, args = binary, []
+        else:
+            command, args = "uvx", [self.package]
+
         env = dict(os.environ)
         for conn_key, env_var in self.env_map.items():
             val = connection.get(conn_key)
@@ -31,8 +47,8 @@ class ConnectorSpec:
                 env[env_var] = str(val)
         return {
             "transport": "stdio",
-            "command": "uvx",
-            "args": [self.package],
+            "command": command,
+            "args": args,
             "env": env,
         }
 
