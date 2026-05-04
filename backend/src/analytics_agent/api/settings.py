@@ -1339,26 +1339,14 @@ async def test_connection(
 
         engine = get_engine(name)
         tools = engine.get_tools()
-        execute_sql = next((t for t in tools if t.name == "execute_sql"), None)
-        if execute_sql:
-            result = execute_sql.invoke(
-                {
-                    "sql": "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema = DATABASE()"
-                }
-            )
-            parsed = orjson.loads(result) if isinstance(result, str) else result
-            if "error" not in parsed and parsed.get("rows"):
-                count = parsed["rows"][0].get("N", parsed["rows"][0].get("n", "?"))
-                return DataHubTestResponse(
-                    success=True, message=f"Connected — {count} tables accessible"
-                )
         list_tables = next((t for t in tools if t.name == "list_tables"), None)
         if list_tables:
             result = list_tables.invoke({"schema": ""})
             tables = orjson.loads(result) if isinstance(result, str) else result
-            return DataHubTestResponse(
-                success=True, message=f"Connected — {len(tables)} tables visible"
-            )
+            if isinstance(tables, list):
+                return DataHubTestResponse(
+                    success=True, message=f"Connected — {len(tables)} tables accessible"
+                )
         return DataHubTestResponse(success=True, message="Engine connected")
     except Exception as e:
         return DataHubTestResponse(success=False, error=str(e))
