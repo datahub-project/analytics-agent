@@ -1,5 +1,8 @@
+# Target linux/amd64 — the standard for cloud deployments (AWS, GCP, Azure).
+# On Apple Silicon Macs, add --platform linux/amd64 to docker build to match
+# this target and avoid ARM-only library issues in connector packages.
 # ── Stage 1: build React frontend ────────────────────────────────────────────
-FROM node:20-alpine AS fe-build
+FROM --platform=linux/amd64 node:20-alpine AS fe-build
 WORKDIR /app
 
 COPY frontend/package.json frontend/pnpm-lock.yaml ./frontend/
@@ -9,7 +12,7 @@ COPY frontend ./frontend
 RUN cd frontend && pnpm build
 
 # ── Stage 2: Python runtime ───────────────────────────────────────────────────
-FROM python:3.12-slim
+FROM --platform=linux/amd64 python:3.12-slim
 WORKDIR /app
 
 RUN pip install uv
