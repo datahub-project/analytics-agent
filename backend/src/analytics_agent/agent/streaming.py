@@ -144,6 +144,10 @@ async def stream_graph_events(
                 output = data.get("output", "")
                 if hasattr(output, "content"):
                     output = output.content
+                # MCP tools return a list of content blocks: [{"type":"text","text":"...","id":"..."}]
+                # Unwrap to the inner text so the rest of the pipeline sees a plain JSON string.
+                if isinstance(output, list) and output and isinstance(output[0], dict) and "text" in output[0]:
+                    output = output[0]["text"]
                 output_str = output if isinstance(output, str) else orjson.dumps(output).decode()
 
                 if name == "execute_sql":
