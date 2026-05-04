@@ -345,3 +345,25 @@ export async function installConnector(type: string): Promise<void> {
     throw new Error(body.detail ?? `Failed to install connector ${type}`);
   }
 }
+
+export interface ConnectorTestResult {
+  ok: boolean;
+  message: string;
+}
+
+export async function testConnectorConfig(
+  type: string,
+  config: Record<string, string>,
+  secrets: Record<string, string> = {}
+): Promise<ConnectorTestResult> {
+  const res = await fetch(`/api/connectors/${type}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ config, secrets }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? "Test failed");
+  }
+  return res.json();
+}

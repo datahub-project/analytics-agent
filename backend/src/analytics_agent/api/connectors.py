@@ -26,6 +26,16 @@ class InstallResult(BaseModel):
     message: str
 
 
+class TestConnectionBody(BaseModel):
+    config: dict
+    secrets: dict = {}
+
+
+class TestConnectionResult(BaseModel):
+    ok: bool
+    message: str
+
+
 def _is_installed(package: str) -> bool:
     """Check if a connector package is installed via `uv tool install`."""
     try:
@@ -86,3 +96,50 @@ async def install_connector(connector_type: str) -> InstallResult:
 
     logger.info("Connector installed: %s", spec.package)
     return InstallResult(ok=True, message=f"{spec.package} installed successfully.")
+
+
+@router.post("/{connector_type}/test", response_model=TestConnectionResult)
+async def test_connector(connector_type: str, body: TestConnectionBody) -> TestConnectionResult:
+    """Ephemeral connection test — instantiates the engine from the supplied config
+    without saving anything, calls list_tables, and returns the result.
+
+    Secrets (e.g. credentials_json) are passed in body.secrets under the
+    friendly key name and overlaid onto body.config before building the engine.
+    """
+    spec = _CONNECTOR_MAP.get(connector_type)
+    if not spec:
+        raise HTTPException(status_code=404, detail=f"Unknown connector type: {connector_type!r}")
+
+    from analytics_agent.engines.factory import _engine_cls
+    import orjson
+
+    # Merge secrets into the config using the env_map to translate friendly keys
+    merged = dict(body.config)
+    for friendly_key, value in body.secrets.items():
+        if value:
+            merged[friendly_key] = value
+
+    try:
+        factory_fn = _engine_cls(connector_type)
+        if not factory_fn:
+            return TestConnectionResult(ok=False, message=f"Unknown engine type: {connector_type}")
+
+        engine = factory_fn(merged)
+        tools = await engine.get_tools_async() if hasattr(engine, "get_tools_async") else engine.get_tools()
+        list_tables = next((t for t in tools if t.name == "list_tables"), None)
+        if list_tables:
+            result = list_tables.invoke({"schema": ""})
+            tables = orjson.loads(result) if isinstance(result, str) else result
+            if isinstance(tables, list):
+                return TestConnectionResult(ok=True, message=f"Connected — {len(tables)} tables accessible")
+            if isinstance(tables, dict) and "error" in tables:
+                return TestConnectionResult(ok=False, message=tables["error"])
+        return TestConnectionResult(ok=True, message="Connected")
+    except Exception as e:
+        return TestConnectionResult(ok=False, message=str(e))
+    finally:
+        try:
+            if "engine" in dir():
+                await engine.aclose()
+        except Exception:
+            pass
