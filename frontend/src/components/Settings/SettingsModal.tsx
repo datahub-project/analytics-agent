@@ -550,14 +550,18 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 function ConnectionCard({
   connection,
   disabledTools,
+  disabledConnections,
   onToolToggle,
+  onGlobalToggle,
   toolSaving,
   onOAuthChange,
   onDelete,
 }: {
   connection: Connection;
   disabledTools: Set<string>;
+  disabledConnections: Set<string>;
   onToolToggle: (name: string, currentlyEnabled: boolean) => void;
+  onGlobalToggle: (enable: boolean, connection: Connection) => void;
   toolSaving: boolean;
   onOAuthChange: () => void;
   onDelete?: (name: string) => void;
@@ -663,6 +667,21 @@ function ConnectionCard({
           <span className="text-muted-foreground/50 ml-1">
             {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </span>
+        </button>
+        {/* Enable / disable toggle */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onGlobalToggle(!disabledConnections.has(connection.name), connection); }}
+          disabled={toolSaving}
+          title={disabledConnections.has(connection.name) ? "Enable data source" : "Disable data source"}
+          className={`mx-1 relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+            !disabledConnections.has(connection.name) ? "bg-primary" : "bg-muted-foreground/30"
+          }`}
+          role="switch"
+          aria-checked={!disabledConnections.has(connection.name)}
+        >
+          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 mt-0.5 ${
+            !disabledConnections.has(connection.name) ? "translate-x-4" : "translate-x-0.5"
+          }`} />
         </button>
         {/* Source indicator / delete */}
         {(connection.source ?? "yaml") === "yaml" ? (
@@ -1005,7 +1024,9 @@ function ConnectionsSection() {
             key={conn.name}
             connection={conn}
             disabledTools={disabledTools}
+            disabledConnections={disabledConnections}
             onToolToggle={handleToolToggle}
+            onGlobalToggle={handleGlobalContextToggle}
             toolSaving={toolSaving}
             onOAuthChange={refreshConnections}
             onDelete={handleDelete}
