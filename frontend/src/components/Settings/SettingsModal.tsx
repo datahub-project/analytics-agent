@@ -670,7 +670,7 @@ function ConnectionCard({
         </button>
         {/* Enable / disable toggle */}
         <button
-          onClick={(e) => { e.stopPropagation(); onGlobalToggle(!disabledConnections.has(connection.name), connection); }}
+          onClick={(e) => { e.stopPropagation(); onGlobalToggle(disabledConnections.has(connection.name), connection); }}
           disabled={toolSaving}
           title={disabledConnections.has(connection.name) ? "Enable data source" : "Disable data source"}
           className={`mx-1 relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
