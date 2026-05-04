@@ -1336,17 +1336,29 @@ async def test_connection(
 
     try:
         from analytics_agent.engines.factory import get_engine
+        from analytics_agent.engines.mcp.engine import MCPQueryEngine
 
         engine = get_engine(name)
-        tools = engine.get_tools()
+
+        # MCP engines require async tool discovery and invocation.
+        if isinstance(engine, MCPQueryEngine):
+            tools = await engine.get_tools_async()
+        else:
+            tools = engine.get_tools()
+
         list_tables = next((t for t in tools if t.name == "list_tables"), None)
         if list_tables:
-            result = list_tables.invoke({"schema": ""})
+            result = await list_tables.ainvoke({"schema": ""})
+            # MCP tools wrap result in [{type:text, text:"..."}] content blocks.
+            if isinstance(result, list) and result and isinstance(result[0], dict):
+                result = result[0].get("text", "")
             tables = orjson.loads(result) if isinstance(result, str) else result
             if isinstance(tables, list):
                 return DataHubTestResponse(
                     success=True, message=f"Connected — {len(tables)} tables accessible"
                 )
+            if isinstance(tables, dict) and "error" in tables:
+                return DataHubTestResponse(success=False, error=tables["error"])
         return DataHubTestResponse(success=True, message="Engine connected")
     except Exception as e:
         return DataHubTestResponse(success=False, error=str(e))
