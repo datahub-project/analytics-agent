@@ -18,6 +18,7 @@ Client ID (priority order):
   2. "telemetry_client_id" key in DB settings table
   3. Fresh UUID — persisted to DB for next startup
 """
+
 from __future__ import annotations
 
 import importlib.metadata
@@ -49,32 +50,82 @@ _DB_CLIENT_ID_KEY = "telemetry_client_id"
 
 # Full CI environment variable set copied from DataHub CLI telemetry.py.
 # If any of these are set, we're almost certainly in a CI pipeline.
-_CI_ENV_VARS: frozenset[str] = frozenset({
-    "APPCENTER", "APPCIRCLE", "APPVEYOR", "AZURE_PIPELINES", "BAMBOO",
-    "BITBUCKET", "BITRISE", "BUDDY", "BUILDKITE", "BUILD_ID", "CI",
-    "CIRCLE", "CIRCLECI", "CIRRUS", "CIRRUS_CI", "CI_NAME", "CODEBUILD",
-    "CODEBUILD_BUILD_ID", "CODEFRESH", "CODESHIP", "CYPRESS_HOST", "DRONE",
-    "DSARI", "EAS_BUILD", "GITHUB_ACTIONS", "GITLAB", "GITLAB_CI", "GOCD",
-    "HEROKU_TEST_RUN_ID", "HUDSON", "JENKINS", "JENKINS_URL", "LAYERCI",
-    "MAGNUM", "NETLIFY", "NEVERCODE", "RENDER", "SAIL", "SCREWDRIVER",
-    "SEMAPHORE", "SHIPPABLE", "SOLANO", "STRIDER", "TASKCLUSTER", "TEAMCITY",
-    "TEAMCITY_VERSION", "TF_BUILD", "TRAVIS", "VERCEL", "WERCKER_ROOT",
-})
+_CI_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "APPCENTER",
+        "APPCIRCLE",
+        "APPVEYOR",
+        "AZURE_PIPELINES",
+        "BAMBOO",
+        "BITBUCKET",
+        "BITRISE",
+        "BUDDY",
+        "BUILDKITE",
+        "BUILD_ID",
+        "CI",
+        "CIRCLE",
+        "CIRCLECI",
+        "CIRRUS",
+        "CIRRUS_CI",
+        "CI_NAME",
+        "CODEBUILD",
+        "CODEBUILD_BUILD_ID",
+        "CODEFRESH",
+        "CODESHIP",
+        "CYPRESS_HOST",
+        "DRONE",
+        "DSARI",
+        "EAS_BUILD",
+        "GITHUB_ACTIONS",
+        "GITLAB",
+        "GITLAB_CI",
+        "GOCD",
+        "HEROKU_TEST_RUN_ID",
+        "HUDSON",
+        "JENKINS",
+        "JENKINS_URL",
+        "LAYERCI",
+        "MAGNUM",
+        "NETLIFY",
+        "NEVERCODE",
+        "RENDER",
+        "SAIL",
+        "SCREWDRIVER",
+        "SEMAPHORE",
+        "SHIPPABLE",
+        "SOLANO",
+        "STRIDER",
+        "TASKCLUSTER",
+        "TEAMCITY",
+        "TEAMCITY_VERSION",
+        "TF_BUILD",
+        "TRAVIS",
+        "VERCEL",
+        "WERCKER_ROOT",
+    }
+)
 
 # Span names we care about — everything else is ignored by MixpanelSpanProcessor.
-KNOWN_SPAN_NAMES: frozenset[str] = frozenset({
-    "agent.started",
-    "query.completed",
-    "connection.tested",
-    "chart.generated",
-})
+KNOWN_SPAN_NAMES: frozenset[str] = frozenset(
+    {
+        "agent.started",
+        "query.completed",
+        "connection.tested",
+        "chart.generated",
+    }
+)
 
 # Attribute allowlist per span name — the only keys forwarded to Mixpanel.
 # Any attribute not listed here is silently dropped (anonymization guarantee).
 _ATTRIBUTE_ALLOWLIST: dict[str, frozenset[str]] = {
-    "agent.started": frozenset({
-        "llm.provider", "engines.count", "engine_types", "prompt_cache.enabled",
-    }),
+    "agent.started": frozenset(
+        {
+            "llm.provider",
+            "engines.count",
+            "engine_types",
+            "prompt_cache.enabled",
+        }
+    ),
     "query.completed": frozenset({"engine.type", "row.count"}),
     "connection.tested": frozenset({"engine.type", "connection.success"}),
     "chart.generated": frozenset({"chart.type"}),
@@ -82,6 +133,7 @@ _ATTRIBUTE_ALLOWLIST: dict[str, frozenset[str]] = {
 
 
 # ── TelemetryClient ───────────────────────────────────────────────────────────
+
 
 class TelemetryClient:
     """Singleton that owns Mixpanel initialization and synchronous event emission.
@@ -171,9 +223,7 @@ class TelemetryClient:
                 ),
             )
             self.enabled = True
-            logger.info(
-                "Telemetry enabled (client_id=%s...)", self.client_id[:8]
-            )
+            logger.info("Telemetry enabled (client_id=%s...)", self.client_id[:8])
         except Exception as exc:
             logger.debug("Telemetry init failed: %s", exc)
 
@@ -209,6 +259,7 @@ class TelemetryClient:
 
 # ── MixpanelSpanProcessor ─────────────────────────────────────────────────────
 
+
 class MixpanelSpanProcessor(SpanProcessor):
     """OTEL SpanProcessor that routes known business spans to Mixpanel.
 
@@ -222,9 +273,7 @@ class MixpanelSpanProcessor(SpanProcessor):
 
     def __init__(self, client: TelemetryClient) -> None:
         self._client = client
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="mixpanel-telemetry"
-        )
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mixpanel-telemetry")
 
     def on_start(self, span, parent_context=None) -> None:  # noqa: ARG002
         pass

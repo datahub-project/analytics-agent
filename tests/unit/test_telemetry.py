@@ -4,6 +4,7 @@ Covers opt-out behavior, client_id resolution, the attribute allowlist
 (PII guard), and that no Mixpanel calls are made when disabled.
 No network access — Mixpanel is always mocked or disabled.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ import pytest
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _fresh_client():
     """Return a new TelemetryClient (not the module singleton)."""
     from analytics_agent.telemetry import TelemetryClient
@@ -23,6 +25,7 @@ def _fresh_client():
 
 
 # ── Opt-out: CI environment ───────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_ci_env_var_disables_telemetry(monkeypatch):
@@ -47,6 +50,7 @@ async def test_generic_ci_var_disables_telemetry(monkeypatch):
 
 # ── Opt-out: DATAHUB_TELEMETRY_ENABLED env var ────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_env_var_false_disables_telemetry(monkeypatch):
     monkeypatch.delenv("CI", raising=False)
@@ -62,6 +66,7 @@ async def test_env_var_false_disables_telemetry(monkeypatch):
 
 
 # ── Opt-out: ~/.datahub/telemetry-config.json ────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_cli_config_opt_out_respected(monkeypatch, tmp_path):
@@ -80,6 +85,7 @@ async def test_cli_config_opt_out_respected(monkeypatch, tmp_path):
 
 
 # ── Client ID: reuse from CLI config ─────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_cli_client_id_is_reused(monkeypatch, tmp_path):
@@ -102,12 +108,11 @@ async def test_cli_client_id_is_reused(monkeypatch, tmp_path):
 
 # ── Client ID: DB fallback when no CLI config ────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_db_fallback_stores_and_returns_client_id(monkeypatch, tmp_path):
     # Point CLI config to a non-existent path so fallback triggers
-    monkeypatch.setattr(
-        "analytics_agent.telemetry._CLI_CONFIG_FILE", tmp_path / "nonexistent.json"
-    )
+    monkeypatch.setattr("analytics_agent.telemetry._CLI_CONFIG_FILE", tmp_path / "nonexistent.json")
 
     stored: dict[str, str] = {}
 
@@ -130,9 +135,7 @@ async def test_db_fallback_stores_and_returns_client_id(monkeypatch, tmp_path):
             mock_settings.datahub_telemetry_enabled = True
             # SettingsRepo is imported lazily inside _resolve_db_client_id;
             # patch at the source module so the local import picks it up.
-            with patch(
-                "analytics_agent.db.repository.SettingsRepo", return_value=mock_repo
-            ):
+            with patch("analytics_agent.db.repository.SettingsRepo", return_value=mock_repo):
                 with patch("mixpanel.Mixpanel"), patch("mixpanel.Consumer"):
                     await client.initialize(mock_factory)
 
@@ -143,6 +146,7 @@ async def test_db_fallback_stores_and_returns_client_id(monkeypatch, tmp_path):
 
 
 # ── MixpanelSpanProcessor: attribute allowlist (PII guard) ───────────────────
+
 
 def test_span_processor_drops_unknown_spans():
     """Spans not in KNOWN_SPAN_NAMES must never reach track_sync."""
@@ -175,9 +179,9 @@ def test_span_processor_strips_non_allowlisted_attributes():
     mock_span.attributes = {
         "engine.type": "snowflake",
         "row.count": 42,
-        "sql": "SELECT * FROM users",        # banned
-        "schema": "production",              # banned
-        "conversation_id": "conv-abc-123",   # banned
+        "sql": "SELECT * FROM users",  # banned
+        "schema": "production",  # banned
+        "conversation_id": "conv-abc-123",  # banned
     }
 
     captured: list[tuple] = []
@@ -224,8 +228,17 @@ def test_pii_guard_all_event_types():
     )
 
     BANNED_KEYS = {
-        "sql", "query", "schema", "database", "user", "username",
-        "conversation_id", "message_id", "text", "prompt", "error",
+        "sql",
+        "query",
+        "schema",
+        "database",
+        "user",
+        "username",
+        "conversation_id",
+        "message_id",
+        "text",
+        "prompt",
+        "error",
     }
 
     client = TelemetryClient()
@@ -254,6 +267,7 @@ def test_pii_guard_all_event_types():
 
 # ── source property: namespacing guarantee ───────────────────────────────────
 
+
 def test_source_property_present_on_every_event():
     """Every Mixpanel event must carry source='analytics-agent'.
 
@@ -277,13 +291,12 @@ def test_source_property_present_on_every_event():
         mock_span.attributes = {"engine.type": "snowflake", "row.count": 1}
 
         captured: list[dict] = []
-        with patch.object(
-            client, "track_sync", side_effect=lambda _n, p: captured.append(p)
-        ):
+        with patch.object(client, "track_sync", side_effect=lambda _n, p: captured.append(p)):
             processor.on_end(mock_span)
             processor._executor.shutdown(wait=True)
 
         from concurrent.futures import ThreadPoolExecutor
+
         processor._executor = ThreadPoolExecutor(max_workers=1)
 
         # track_sync merges _global_props + filtered span props before sending
@@ -311,10 +324,9 @@ def test_source_not_strippable_by_allowlist():
 
 # ── _read_cli_config: handles malformed file gracefully ──────────────────────
 
+
 def test_read_cli_config_missing_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        "analytics_agent.telemetry._CLI_CONFIG_FILE", tmp_path / "missing.json"
-    )
+    monkeypatch.setattr("analytics_agent.telemetry._CLI_CONFIG_FILE", tmp_path / "missing.json")
     client = _fresh_client()
     client_id, enabled = client._read_cli_config()
     assert client_id is None

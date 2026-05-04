@@ -44,9 +44,7 @@ def setup_tracing(app=None) -> None:
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
             provider.add_span_processor(
-                BatchSpanProcessor(
-                    OTLPSpanExporter(endpoint=f"{endpoint.rstrip('/')}/v1/traces")
-                )
+                BatchSpanProcessor(OTLPSpanExporter(endpoint=f"{endpoint.rstrip('/')}/v1/traces"))
             )
 
             # Auto-instrument FastAPI (request/response spans)
@@ -83,9 +81,7 @@ def setup_tracing(app=None) -> None:
             except Exception as e:
                 logger.warning("OTEL LangChain instrumentation skipped: %s", e)
 
-            logger.info(
-                "OTEL tracing enabled — service=%s endpoint=%s", service_name, endpoint
-            )
+            logger.info("OTEL tracing enabled — service=%s endpoint=%s", service_name, endpoint)
         else:
             logger.debug(
                 "OTEL export disabled (OTEL_EXPORTER_OTLP_ENDPOINT not set); "
