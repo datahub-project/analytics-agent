@@ -61,10 +61,9 @@ def setup_tracing(app=None) -> None:
             # keyword arg. Patch the name in the instrumentor's own module namespace so the
             # already-bound reference is fixed.
             try:
-                from opentelemetry.instrumentation.langchain import LangchainInstrumentor
-
                 import opentelemetry.instrumentation.langchain as _lc_mod
                 import wrapt as _wrapt
+                from opentelemetry.instrumentation.langchain import LangchainInstrumentor
 
                 _orig_wrapt = _wrapt.wrap_function_wrapper
 

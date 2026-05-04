@@ -14,10 +14,9 @@ from typing import Any, cast
 import orjson
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response, StreamingResponse
+from opentelemetry import trace as _otrace
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from opentelemetry import trace as _otrace
 
 from analytics_agent.agent.analysis import CONTEXT_TOOLS
 from analytics_agent.db.base import get_session

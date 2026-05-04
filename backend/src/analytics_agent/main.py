@@ -87,7 +87,6 @@ async def lifespan(app: FastAPI):
     # Telemetry — initialize after LLM config is loaded so settings.llm_provider
     # reflects any DB-stored override. The agent.started span is picked up by
     # MixpanelSpanProcessor (registered in setup_tracing) once enabled=True.
-    import json as _json
 
     from opentelemetry import trace as _otrace
 
