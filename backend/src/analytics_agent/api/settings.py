@@ -101,6 +101,9 @@ class ConnectionStatus(BaseModel):
     oauth: OAuthStatus = OAuthStatus()
     source: str = "yaml"  # "yaml" | "ui"
     disabled: bool = False  # master toggle — connection fully off
+    # Active auth method for connections that don't use the OAuth/SSO flow.
+    # Lets the frontend pre-select the correct tab in the auth section.
+    auth_method: str | None = None  # "privatekey" | "password" | "pat" | None
 
 
 class McpConfigRequest(BaseModel):
@@ -593,6 +596,17 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
             account = conn_cfg.get("account", "")
             user = conn_cfg.get("user", "")
             status_str = "connected" if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected) else "unconfigured"
+            # Detect active auth method so the frontend can pre-select the right tab.
+            if is_sso_connected:
+                active_auth_method = "sso"
+            elif conn_cfg.get("private_key") or os.environ.get("SNOWFLAKE_PRIVATE_KEY", ""):
+                active_auth_method = "privatekey"
+            elif conn_cfg.get("pat_token") or os.environ.get("SNOWFLAKE_PAT_TOKEN", ""):
+                active_auth_method = "pat"
+            elif conn_cfg.get("password") or os.environ.get("SNOWFLAKE_PASSWORD", ""):
+                active_auth_method = "password"
+            else:
+                active_auth_method = None
             fields = [
                 ConnectionField(
                     key="account",
@@ -733,6 +747,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 tools=_build_tool_toggles(intg.type, disabled),
                 oauth=oauth_status,
                 source=intg.source,
+                auth_method=active_auth_method if intg.type == "snowflake" else None,
             )
         )
 

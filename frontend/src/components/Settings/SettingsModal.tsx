@@ -767,6 +767,11 @@ function ConnectionCard({
                 connectedAuth={
                   connection.oauth?.connected
                     ? { method: "sso" as const, username: connection.oauth.username }
+                    : connection.auth_method
+                    ? {
+                        method: connection.auth_method as "password" | "privatekey" | "sso" | "pat" | "oauth",
+                        username: connection.fields.find((f) => f.key === "user")?.value ?? "",
+                      }
                     : null
                 }
                 onConnect={async (method, fields) => {

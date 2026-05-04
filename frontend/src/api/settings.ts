@@ -35,6 +35,8 @@ export interface Connection {
   oauth: OAuthStatus;
   source: "yaml" | "ui";
   disabled?: boolean;
+  /** Active non-SSO auth method — lets the frontend pre-select the correct auth tab. */
+  auth_method?: "privatekey" | "password" | "pat" | "sso" | null;
 }
 
 // McpConfig lives in the plugin system — re-exported here for API consumers
