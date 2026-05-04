@@ -32,7 +32,7 @@ class MCPQueryEngine(QueryEngine):
             self._mcp_cfg = json.loads(mcp_raw) if isinstance(mcp_raw, str) else mcp_raw
         except Exception:
             pass
-        self._client = None
+        self._client: Any = None
         self._tools: list[BaseTool] | None = None
 
     def _build_conn(self) -> dict[str, Any]:
