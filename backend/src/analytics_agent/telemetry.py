@@ -143,12 +143,16 @@ class TelemetryClient:
         else:
             self.client_id = await self._resolve_db_client_id(session_factory)
 
-        # Build global properties attached to every Mixpanel event
+        # Build global properties attached to every Mixpanel event.
+        # "source" is the primary segmentation key in the shared DataHub Mixpanel
+        # project — it lets dashboards filter analytics-agent events with a single
+        # predicate without relying on event name patterns.
         try:
             version = importlib.metadata.version("datahub-analytics-agent")
         except Exception:
             version = "unknown"
         self._global_props = {
+            "source": "analytics-agent",
             "analytics_agent_version": version,
             "python_version": platform.python_version(),
             "os": platform.system(),
