@@ -28,7 +28,11 @@ export function ConnectorInstallStep({
           setPhase("needs_install");
         }
       })
-      .catch(() => setPhase("needs_install")); // treat check failure as needing install
+      .catch((e: unknown) => {
+        // 404 means this plugin has no managed connector package (e.g. DataHub
+        // is built-in). Any other error is also treated as "skip install".
+        onReady();
+      });
   }, [connectorType, onReady]);
 
   const handleInstall = async () => {
