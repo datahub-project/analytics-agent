@@ -8,7 +8,9 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # Bind-mount to host so DB survives container removal and `docker compose down`.
+      # $HOME expands to the host user's home directory.
+      - ${HOME}/.datahub/analytics-agent/postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U talk_to_data"]
       interval: 5s
@@ -29,6 +31,3 @@ services:
         condition: service_healthy
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-
-volumes:
-  postgres_data:

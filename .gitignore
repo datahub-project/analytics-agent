@@ -21,6 +21,7 @@ data/
 node_modules/
 frontend/dist/
 frontend/.vite/
+backend/src/analytics_agent/static/
 
 # IDE
 .idea/

@@ -23,6 +23,33 @@
 
 ## ⚡ Quickstart
 
+### Option A — pip / uvx (recommended, no Docker needed)
+
+```bash
+# Install and launch — no git clone, no repo, no Docker
+pip install datahub-analytics-agent
+analytics-agent quickstart
+
+# Or with uv (no virtualenv management):
+uvx datahub-analytics-agent quickstart
+```
+
+The wizard asks for your LLM provider + API key, optionally connects a data source, then starts the agent at **http://localhost:8100**. Config and the database are stored in `~/.datahub/analytics-agent/`.
+
+Re-running `analytics-agent quickstart` detects the existing config and offers to start, reconfigure, or cancel — so it doubles as the "just start the agent" command for repeat users.
+
+**Other server commands:**
+
+```bash
+analytics-agent start    # start from existing config (no wizard)
+analytics-agent stop     # stop the running server
+analytics-agent status   # show whether server is running + URL
+analytics-agent logs     # tail ~/.datahub/analytics-agent/logs/agent.log
+analytics-agent config   # open config dir in $EDITOR or print its path
+```
+
+### Option B — Docker + sample data (full demo)
+
 > **Requires:** Docker, DataHub CLI (`pip install acryl-datahub`), `uv`, Python 3.11+
 
 ```bash
@@ -31,12 +58,7 @@ cd analytics-agent
 bash quickstart.sh
 ```
 
-No `.env` editing required. The script:
-- Starts a local DataHub instance (or connects to an existing one)
-- Loads the Olist e-commerce sample dataset + catalog metadata
-- Builds and launches Analytics Agent at **http://localhost:8100**
-
-Open the browser — a setup wizard walks you through naming your agent, picking a model (Anthropic, OpenAI, Google, or AWS Bedrock), and entering your API key. If you already have one of those keys exported in your shell, it's picked up automatically.
+The script starts a local DataHub instance, loads the Olist e-commerce sample dataset and catalog metadata, then builds and launches Analytics Agent at **http://localhost:8100**. Postgres data is persisted to `~/.datahub/analytics-agent/postgres-data/` so it survives container restarts.
 
 **Using AWS Bedrock?** Export `LLM_PROVIDER=bedrock` before running the script. The script will verify your AWS credentials and Bedrock access before starting the container, and mount `~/.aws` read-only so boto3 picks up your profiles and SSO cache automatically.
 
@@ -68,22 +90,24 @@ Open the browser — a setup wizard walks you through naming your agent, picking
 
 ---
 
-## Manual setup (without quickstart.sh)
+## Manual setup (for contributors / development)
 
-> **Manual setup also requires:** `node` and `just` (`brew install node just`)
+> This section is for hacking on the agent itself. For everyday use, `analytics-agent quickstart` is simpler.
+
+> **Also requires:** `node`
 
 ### 1. Clone and install
 
 ```bash
 git clone https://github.com/datahub-project/analytics-agent.git
 cd analytics-agent
-just install   # uv sync + pnpm install
-just start     # builds frontend, starts backend at :8100
+make install   # uv sync + pnpm install
+make start     # builds frontend, starts backend at :8100
 ```
 
 Open **http://localhost:8100** — a setup wizard handles the LLM key and connections on first run.
 
-> **Without `just`:** `uv sync && cd frontend && pnpm install && pnpm build && cd .. && uv run uvicorn analytics_agent.main:app --port 8100`
+> **Without `make`:** `uv sync && cd frontend && pnpm install && pnpm build && cd .. && uv run uvicorn analytics_agent.main:app --port 8100`
 
 ### First-time setup
 
@@ -113,15 +137,15 @@ DATAHUB_GMS_URL=https://your-instance.acryl.io/gms
 DATAHUB_GMS_TOKEN=eyJhbGci...
 ```
 
-### Useful just tasks
+### Useful make targets
 
 | Command | What it does |
 |---|---|
-| `just start` | Build frontend if stale, start backend |
-| `just start-remote` | Start + show DataHub connection status |
-| `just nuke` | Wipe the DB and start from scratch |
-| `just dev` | Hot-reload backend (use `just dev-full` for frontend HMR too) |
-| `just logs` | Tail backend logs |
+| `make start` | Build frontend if stale, start backend |
+| `make start-remote` | Start + show DataHub connection status |
+| `make nuke` | Wipe the DB and start from scratch |
+| `make dev` | Hot-reload backend (use `make dev-full` for frontend HMR too) |
+| `make logs` | Tail backend logs |
 
 ### Development mode (hot reload)
 
@@ -283,7 +307,7 @@ LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 ## Database
 
-The quickstart uses the DataHub MySQL container. For non-quickstart runs, SQLite is the default (`./data/dev.db`). Set `DATABASE_URL` in `.env` to switch backends — see `.env.example` for Postgres and SQLite formats.
+The `analytics-agent quickstart` path uses SQLite at `~/.datahub/analytics-agent/data/agent.db`. The Docker quickstart uses Postgres, with data persisted to `~/.datahub/analytics-agent/postgres-data/`. For dev/Helm deployments, set `DATABASE_URL` explicitly — see `.env.example` for Postgres and SQLite formats.
 
 ---
 

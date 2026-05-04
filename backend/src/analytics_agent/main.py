@@ -9,9 +9,19 @@ from dotenv import load_dotenv
 
 # Load .env into os.environ before anything else so load_engines_config()
 # env-var substitution (os.environ.get) resolves correctly.
-# Try project root first, then fall back to cwd search.
-_env_file = Path(__file__).parents[3] / ".env"
-load_dotenv(_env_file if _env_file.exists() else None, override=True)
+# Resolution order: ANALYTICS_AGENT_CONFIG_DIR/.env → project root .env → cwd .env
+_config_dir = Path(
+    os.environ.get("ANALYTICS_AGENT_CONFIG_DIR", "~/.datahub/analytics-agent")
+).expanduser()
+_env_candidates = [_config_dir / ".env", Path(__file__).parents[3] / ".env"]
+_loaded_env = False
+for _env_file in _env_candidates:
+    if _env_file.exists():
+        load_dotenv(_env_file, override=True)
+        _loaded_env = True
+        break
+if not _loaded_env:
+    load_dotenv(override=True)  # fall back to cwd .env search
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -370,7 +380,12 @@ def create_app() -> FastAPI:
     # Only activates when frontend/dist/ exists (production / pnpm build).
     # Falls back gracefully: serves API-only if dist is absent (dev mode).
     _env_dist = os.getenv("FRONTEND_DIST", "")
-    _dist = Path(_env_dist) if _env_dist else Path(__file__).parents[3] / "frontend" / "dist"
+    if _env_dist:
+        _dist = Path(_env_dist)
+    elif (Path(__file__).parent / "static").exists():
+        _dist = Path(__file__).parent / "static"  # bundled in wheel
+    else:
+        _dist = Path(__file__).parents[3] / "frontend" / "dist"  # dev / repo
 
     if _dist.exists():
         logger.info("Serving frontend from %s", _dist)
