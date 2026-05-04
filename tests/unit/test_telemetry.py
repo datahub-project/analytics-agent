@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,10 +57,12 @@ async def test_env_var_false_disables_telemetry(monkeypatch):
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
     client = _fresh_client()
-    with patch.object(client, "_is_ci", return_value=False):
-        with patch("analytics_agent.config.settings") as mock_settings:
-            mock_settings.datahub_telemetry_enabled = False
-            await client.initialize(None)
+    with (
+        patch.object(client, "_is_ci", return_value=False),
+        patch("analytics_agent.config.settings") as mock_settings,
+    ):
+        mock_settings.datahub_telemetry_enabled = False
+        await client.initialize(None)
 
     assert not client.enabled
 
@@ -76,10 +78,12 @@ async def test_cli_config_opt_out_respected(monkeypatch, tmp_path):
     monkeypatch.setattr("analytics_agent.telemetry._CLI_CONFIG_FILE", cfg_file)
 
     client = _fresh_client()
-    with patch.object(client, "_is_ci", return_value=False):
-        with patch("analytics_agent.config.settings") as mock_settings:
-            mock_settings.datahub_telemetry_enabled = True
-            await client.initialize(None)
+    with (
+        patch.object(client, "_is_ci", return_value=False),
+        patch("analytics_agent.config.settings") as mock_settings,
+    ):
+        mock_settings.datahub_telemetry_enabled = True
+        await client.initialize(None)
 
     assert not client.enabled
 
@@ -96,11 +100,14 @@ async def test_cli_client_id_is_reused(monkeypatch, tmp_path):
     monkeypatch.setattr("analytics_agent.telemetry._CLI_CONFIG_FILE", cfg_file)
 
     client = _fresh_client()
-    with patch.object(client, "_is_ci", return_value=False):
-        with patch("analytics_agent.config.settings") as mock_settings:
-            mock_settings.datahub_telemetry_enabled = True
-            with patch("mixpanel.Mixpanel"), patch("mixpanel.Consumer"):
-                await client.initialize(None)
+    with (
+        patch.object(client, "_is_ci", return_value=False),
+        patch("analytics_agent.config.settings") as mock_settings,
+        patch("mixpanel.Mixpanel"),
+        patch("mixpanel.Consumer"),
+    ):
+        mock_settings.datahub_telemetry_enabled = True
+        await client.initialize(None)
 
     assert client.client_id == expected_id
     assert client.enabled
@@ -111,7 +118,6 @@ async def test_cli_client_id_is_reused(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_db_fallback_stores_and_returns_client_id(monkeypatch, tmp_path):
-    # Point CLI config to a non-existent path so fallback triggers
     monkeypatch.setattr("analytics_agent.telemetry._CLI_CONFIG_FILE", tmp_path / "nonexistent.json")
 
     stored: dict[str, str] = {}
@@ -130,14 +136,15 @@ async def test_db_fallback_stores_and_returns_client_id(monkeypatch, tmp_path):
     mock_factory = MagicMock(return_value=mock_session)
 
     client = _fresh_client()
-    with patch.object(client, "_is_ci", return_value=False):
-        with patch("analytics_agent.config.settings") as mock_settings:
-            mock_settings.datahub_telemetry_enabled = True
-            # SettingsRepo is imported lazily inside _resolve_db_client_id;
-            # patch at the source module so the local import picks it up.
-            with patch("analytics_agent.db.repository.SettingsRepo", return_value=mock_repo):
-                with patch("mixpanel.Mixpanel"), patch("mixpanel.Consumer"):
-                    await client.initialize(mock_factory)
+    with (
+        patch.object(client, "_is_ci", return_value=False),
+        patch("analytics_agent.config.settings") as mock_settings,
+        patch("analytics_agent.db.repository.SettingsRepo", return_value=mock_repo),
+        patch("mixpanel.Mixpanel"),
+        patch("mixpanel.Consumer"),
+    ):
+        mock_settings.datahub_telemetry_enabled = True
+        await client.initialize(mock_factory)
 
     assert client.enabled
     assert "telemetry_client_id" in stored
@@ -219,8 +226,6 @@ def test_span_processor_no_calls_when_disabled():
 
 def test_pii_guard_all_event_types():
     """No PII/query fields can appear in any event payload regardless of span name."""
-    from concurrent.futures import ThreadPoolExecutor
-
     from analytics_agent.telemetry import (
         KNOWN_SPAN_NAMES,
         MixpanelSpanProcessor,
@@ -252,7 +257,10 @@ def test_pii_guard_all_event_types():
         mock_span.attributes["engine.type"] = "snowflake"
 
         captured: list[dict] = []
-        with patch.object(client, "track_sync", side_effect=lambda _n, p: captured.append(p)):
+        # Use default-arg binding (_c=captured) to avoid B023 loop-variable capture.
+        with patch.object(
+            client, "track_sync", side_effect=lambda _n, p, _c=captured: _c.append(p)
+        ):
             processor.on_end(mock_span)
             processor._executor.shutdown(wait=True)
 
@@ -271,9 +279,8 @@ def test_pii_guard_all_event_types():
 def test_source_property_present_on_every_event():
     """Every Mixpanel event must carry source='analytics-agent'.
 
-    This is the primary segmentation key in the shared DataHub Mixpanel project.
-    It must come from _global_props (added in track_sync after allowlist filtering)
-    so it can never be accidentally stripped by MixpanelSpanProcessor.
+    It comes from _global_props (merged in track_sync after allowlist filtering)
+    so it can never be stripped by MixpanelSpanProcessor.
     """
     from analytics_agent.telemetry import MixpanelSpanProcessor, TelemetryClient
 
@@ -291,31 +298,24 @@ def test_source_property_present_on_every_event():
         mock_span.attributes = {"engine.type": "snowflake", "row.count": 1}
 
         captured: list[dict] = []
-        with patch.object(client, "track_sync", side_effect=lambda _n, p: captured.append(p)):
+        with patch.object(
+            client, "track_sync", side_effect=lambda _n, p, _c=captured: _c.append(p)
+        ):
             processor.on_end(mock_span)
             processor._executor.shutdown(wait=True)
 
-        from concurrent.futures import ThreadPoolExecutor
-
         processor._executor = ThreadPoolExecutor(max_workers=1)
 
-        # track_sync merges _global_props + filtered span props before sending
-        # We verify by calling track_sync directly with the props the processor built
-        # and checking that the merge in track_sync would include source.
-        # Since track_sync is patched, verify the global props contain source.
         assert client._global_props.get("source") == "analytics-agent", (
             "source must be in _global_props so it is merged into every event"
         )
 
 
 def test_source_not_strippable_by_allowlist():
-    """source comes from _global_props, not span attributes, so the allowlist
-    cannot accidentally remove it even if someone adds it to a span."""
+    """source comes from _global_props so the allowlist cannot remove it."""
     from analytics_agent.telemetry import _ATTRIBUTE_ALLOWLIST
 
     for span_name, allowed in _ATTRIBUTE_ALLOWLIST.items():
-        # source is NOT in the allowlist — it doesn't need to be because it's
-        # injected via _global_props after filtering, not via span attributes.
         assert "source" not in allowed, (
             f"'source' should not be in the span attribute allowlist for '{span_name}' "
             "— it is a global property added unconditionally by track_sync"
