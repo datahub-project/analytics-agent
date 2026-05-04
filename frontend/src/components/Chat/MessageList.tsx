@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef } from "react";
 import type { UIMessage } from "@/types";
 import { TextMessage } from "./messages/TextMessage";
 import { AgentWorkBlock } from "./messages/AgentWorkBlock";
+import { ChartMessage } from "./messages/ChartMessage";
 import { groupIntoTurns } from "@/lib/groupMessages";
 
 interface Props {
@@ -43,7 +44,7 @@ export function MessageList({ messages, isStreaming = false, showReasoning = tru
             </div>
           )}
 
-          {/* Agent work block — only shown when there are intermediate steps */}
+          {/* Agent work block — tool calls, SQL, thinking. Charts are excluded. */}
           {group.workMsgs.length > 0 && (
             <AgentWorkBlock
               workMessages={group.workMsgs}
@@ -53,6 +54,16 @@ export function MessageList({ messages, isStreaming = false, showReasoning = tru
               onChartError={onChartError}
             />
           )}
+
+          {/* Charts rendered OUTSIDE the work block so they stay visible when it collapses. */}
+          {group.chartMsgs.map((msg) => (
+            <div key={msg.id} className="w-full" data-print-role="chart">
+              <ChartMessage
+                payload={msg.payload as never}
+                onRenderError={onChartError}
+              />
+            </div>
+          ))}
 
           {/* Final visible response */}
           {group.finalMsg && (group.finalMsg.payload as { text?: string }).text?.trim() && (
