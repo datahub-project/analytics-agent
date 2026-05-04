@@ -153,6 +153,7 @@ class TelemetryClient:
             version = "unknown"
         self._global_props = {
             "source": "analytics-agent",
+            "deployment_id": self.client_id,
             "analytics_agent_version": version,
             "python_version": platform.python_version(),
             "os": platform.system(),

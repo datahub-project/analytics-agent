@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
     _tracer = _otrace.get_tracer("analytics_agent")
     with _tracer.start_as_current_span("agent.started") as _span:
         _span.set_attribute("llm.provider", settings.llm_provider)
-        _span.set_attribute("engines.types", _json.dumps(_engine_types))
+        _span.set_attribute("engines.types", _engine_types)
         _span.set_attribute("engines.count", len(_engine_types))
         _span.set_attribute("prompt_cache.enabled", settings.enable_prompt_cache)
 
