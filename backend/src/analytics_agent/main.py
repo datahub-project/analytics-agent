@@ -320,6 +320,12 @@ async def _load_llm_config_from_db() -> None:
             os.environ[env_var] = value
             setattr(settings, attr, value)
 
+    # OpenAI-compatible proxy base URL (plaintext).
+    base_url = cfg_data.get("base_url", "")
+    if base_url and not os.environ.get("OPENAI_COMPAT_BASE_URL"):
+        settings.openai_compat_base_url = base_url
+        os.environ["OPENAI_COMPAT_BASE_URL"] = base_url
+
     # Prompt caching toggle (bool stored as "true"/"false" string).
     if "enable_prompt_cache" in cfg_data and not os.environ.get("ENABLE_PROMPT_CACHE"):
         raw_flag = cfg_data["enable_prompt_cache"]

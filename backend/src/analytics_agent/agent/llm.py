@@ -50,12 +50,30 @@ def _make_bedrock(model: str, streaming: bool) -> BaseChatModel:
     return ChatBedrockConverse(**kwargs)
 
 
+def _make_openai_compat(model: str, streaming: bool) -> BaseChatModel:
+    from langchain_openai import ChatOpenAI
+
+    if not settings.openai_compat_base_url:
+        raise ValueError("OPENAI_COMPAT_BASE_URL is required for the openai-compatible provider")
+    kwargs: dict = {
+        "model": model,
+        "temperature": 0,
+        "streaming": streaming,
+        "base_url": settings.openai_compat_base_url,
+    }
+    # API key is optional — some proxies use network-level auth or no auth.
+    api_key = settings.openai_compat_api_key or "no-key"
+    kwargs["api_key"] = SecretStr(api_key)
+    return ChatOpenAI(**kwargs)
+
+
 # Registry — adding a provider means adding one entry here.
 _FACTORIES: dict[str, Callable[[str, bool], BaseChatModel]] = {
     "anthropic": _make_anthropic,
     "openai": _make_openai,
     "google": _make_google,
     "bedrock": _make_bedrock,
+    "openai-compatible": _make_openai_compat,
 }
 
 

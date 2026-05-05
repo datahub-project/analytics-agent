@@ -1826,6 +1826,8 @@ class LlmSettingsResponse(BaseModel):
     has_aws_keys: bool = False
     aws_region: str = ""
     enable_prompt_cache: bool = True
+    # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
+    base_url: str = ""
 
 
 class UpdateLlmSettingsRequest(BaseModel):
@@ -1839,6 +1841,8 @@ class UpdateLlmSettingsRequest(BaseModel):
     aws_session_token: str = ""
     # Prompt caching for system prompt + tool definitions (Anthropic + Bedrock).
     enable_prompt_cache: bool = True
+    # OpenAI-compatible proxy base URL (plaintext — not a secret).
+    base_url: str = ""
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1868,6 +1872,7 @@ async def get_llm_settings() -> LlmSettingsResponse:
         has_aws_keys=has_aws_keys,
         aws_region=cfg.aws_region,
         enable_prompt_cache=cfg.enable_prompt_cache,
+        base_url=cfg.openai_compat_base_url if provider == "openai-compatible" else "",
     )
 
 
@@ -1880,6 +1885,8 @@ class TestLlmKeyRequest(BaseModel):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
+    # OpenAI-compatible proxy base URL.
+    base_url: str = ""
 
 
 class TestLlmKeyResponse(BaseModel):
@@ -1938,6 +1945,18 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
                 if tok:
                     bk_kwargs["aws_session_token"] = SecretStr(tok)
             llm = ChatBedrockConverse(**bk_kwargs)
+        elif body.provider == "openai-compatible":
+            from langchain_openai import ChatOpenAI
+
+            if not body.base_url:
+                raise ValueError("Proxy base URL is required for openai-compatible provider")
+            llm = ChatOpenAI(  # type: ignore[assignment]
+                model=model or "default",
+                max_tokens=1,
+                temperature=0,
+                base_url=body.base_url,
+                api_key=SecretStr(body.api_key or "no-key"),  # type: ignore[call-arg]
+            )
         else:
             from langchain_openai import ChatOpenAI
 
@@ -2011,6 +2030,9 @@ async def update_llm_settings(
         new_cfg["aws_session_token"] = _fernet_encrypt(body.aws_session_token)
     # Bool — always persisted (no truthy gate; the user may want to set it false).
     new_cfg["enable_prompt_cache"] = "true" if body.enable_prompt_cache else "false"
+    # OpenAI-compatible proxy base URL — plaintext, not a secret.
+    if body.base_url:
+        new_cfg["base_url"] = body.base_url
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -2045,6 +2067,9 @@ async def update_llm_settings(
         cfg.aws_session_token = body.aws_session_token
     cfg.enable_prompt_cache = body.enable_prompt_cache
     os.environ["ENABLE_PROMPT_CACHE"] = "true" if body.enable_prompt_cache else "false"
+    if body.base_url:
+        os.environ["OPENAI_COMPAT_BASE_URL"] = body.base_url
+        cfg.openai_compat_base_url = body.base_url
 
     return {"success": True, "message": "LLM settings saved."}
 
