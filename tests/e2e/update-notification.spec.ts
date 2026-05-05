@@ -314,10 +314,10 @@ test("refresh button re-fetches version info", async ({ page }) => {
   await page.locator("button", { hasText: "About" }).click();
 
   const countBefore = callCount;
+  // Start listening before clicking so we don't miss the response
+  const responsePromise = page.waitForResponse("/api/version");
   await page.locator("button[title='Check for updates']").click();
-
-  // Wait for the re-fetch to complete
-  await page.waitForResponse("/api/version");
+  await responsePromise;
   expect(callCount).toBeGreaterThan(countBefore);
 });
 
