@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datahub-analytics-agent"
-version = "0.2.0"
+version = "0.2.1"
 description = "Open-source talk-to-data agent with DataHub context and pluggable query engines"
 readme = "README.md"
 license = { text = "Apache-2.0" }
