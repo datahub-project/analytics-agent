@@ -24,10 +24,13 @@ from analytics_agent.config import (
 
 # ─── PROVIDER_DEFAULTS structure ─────────────────────────────────────────────
 
-EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock"}
+EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock", "openai-compatible"}
 # Providers that authenticate with a single API key (bedrock uses AWS creds instead).
-EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google"}
+# openai-compatible has an optional key, so it's included here.
+EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google", "openai-compatible"}
 EXPECTED_TIERS = {"main", "chart", "quality", "delight"}
+# Providers whose default model IDs are intentionally empty (user must supply the model).
+PROVIDERS_WITH_EMPTY_DEFAULTS = {"openai-compatible"}
 
 
 def test_provider_defaults_has_all_providers():
@@ -42,6 +45,8 @@ def test_provider_defaults_all_tiers_present():
 
 def test_provider_defaults_no_empty_values():
     for provider, defaults in PROVIDER_DEFAULTS.items():
+        if provider in PROVIDERS_WITH_EMPTY_DEFAULTS:
+            continue  # these intentionally have empty defaults — user must supply the model
         for tier, model in defaults.items():
             assert model, f"{provider}[{tier}] is empty"
 

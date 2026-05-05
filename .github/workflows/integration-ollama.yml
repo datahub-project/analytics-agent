@@ -1,0 +1,64 @@
+name: Integration — OpenAI-compatible proxy (Ollama)
+
+# Only runs when files in the LLM provider flow change, keeping it out of the
+# critical path for unrelated PRs.  The same tests run against a mock server
+# in the standard unit-test job on every push; this job proves the full stack
+# against a real model.
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/src/analytics_agent/agent/llm.py
+      - backend/src/analytics_agent/config.py
+      - backend/src/analytics_agent/api/settings.py
+      - backend/src/analytics_agent/main.py
+      - tests/unit/test_openai_compat_proxy.py
+  pull_request:
+    branches: [main]
+    paths:
+      - backend/src/analytics_agent/agent/llm.py
+      - backend/src/analytics_agent/config.py
+      - backend/src/analytics_agent/api/settings.py
+      - backend/src/analytics_agent/main.py
+      - tests/unit/test_openai_compat_proxy.py
+
+jobs:
+  ollama-proxy:
+    name: OpenAI-compatible proxy via Ollama
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --extra dev
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      # Cache the model weights so subsequent runs skip the 1.3 GB download.
+      - name: Cache Ollama model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-llama3.2-1b-v1
+
+      - name: Start Ollama server
+        run: ollama serve &
+
+      - name: Pull llama3.2:1b
+        run: |
+          # Wait for the server to be ready, then pull (no-op if cached).
+          until curl -sf http://localhost:11434/api/tags > /dev/null; do sleep 1; done
+          ollama pull llama3.2:1b
+
+      - name: Run integration tests against Ollama
+        env:
+          OPENAI_COMPAT_TEST_URL: http://localhost:11434/v1
+          OPENAI_COMPAT_TEST_MODEL: llama3.2:1b
+        run: uv run pytest tests/unit/test_openai_compat_proxy.py -v

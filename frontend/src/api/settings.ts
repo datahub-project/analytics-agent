@@ -247,6 +247,7 @@ export interface LlmSettings {
   has_aws_keys?: boolean;
   aws_region?: string;
   enable_prompt_cache?: boolean;
+  base_url?: string;
 }
 
 /** Bedrock-only credential fields. All optional — leave blank to use the
@@ -268,6 +269,7 @@ export async function testLlmKey(s: {
   provider: string;
   api_key: string;
   model?: string;
+  base_url?: string;
 } & BedrockCredentials): Promise<{ ok: boolean; message: string }> {
   const res = await fetch("/api/settings/llm/test", {
     method: "POST",
@@ -276,6 +278,7 @@ export async function testLlmKey(s: {
       provider: s.provider,
       api_key: s.api_key,
       model: s.model ?? "",
+      base_url: s.base_url ?? "",
       aws_region: s.aws_region ?? "",
       aws_access_key_id: s.aws_access_key_id ?? "",
       aws_secret_access_key: s.aws_secret_access_key ?? "",
@@ -291,6 +294,7 @@ export async function saveLlmSettings(s: {
   api_key: string;
   model?: string;
   enable_prompt_cache?: boolean;
+  base_url?: string;
 } & BedrockCredentials): Promise<void> {
   const res = await fetch("/api/settings/llm", {
     method: "PUT",
@@ -299,6 +303,7 @@ export async function saveLlmSettings(s: {
       provider: s.provider,
       api_key: s.api_key,
       model: s.model ?? "",
+      base_url: s.base_url ?? "",
       aws_region: s.aws_region ?? "",
       aws_access_key_id: s.aws_access_key_id ?? "",
       aws_secret_access_key: s.aws_secret_access_key ?? "",
