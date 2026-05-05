@@ -33,7 +33,7 @@ TABLE_DESCRIPTIONS: dict[str, str] = {
 
 
 def _gql(gms_url: str, token: str, query: str, variables: dict | None = None) -> dict:
-    payload = {"query": query}
+    payload: dict[str, object] = {"query": query}
     if variables:
         payload["variables"] = variables
     req = urllib.request.Request(
