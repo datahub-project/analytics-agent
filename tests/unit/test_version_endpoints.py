@@ -349,7 +349,6 @@ def test_upgrade_rejects_uvx_with_version():
 def test_upgrade_pip_install_proceeds(monkeypatch):
     """Normal pip install: subprocess.run is called with the right arguments."""
 
-
     from analytics_agent.cli import cli
 
     calls: list[list[str]] = []

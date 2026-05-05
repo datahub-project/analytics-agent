@@ -54,8 +54,9 @@ async def get_version():
     import os
 
     try:
-        current = os.environ.get("ANALYTICS_AGENT_OVERRIDE_VERSION") or \
-                  importlib.metadata.version("datahub-analytics-agent")
+        current = os.environ.get("ANALYTICS_AGENT_OVERRIDE_VERSION") or importlib.metadata.version(
+            "datahub-analytics-agent"
+        )
     except Exception:
         current = "unknown"
 
