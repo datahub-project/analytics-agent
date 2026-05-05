@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ExternalLink, RefreshCw, Tag, ArrowUpCircle } from "lucide-react";
+import { ExternalLink, RefreshCw, Tag, ArrowUpCircle, ChevronDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { getVersionInfo, getReleases, type VersionInfo, type Release } from "@/api/settings";
@@ -85,19 +85,22 @@ export function AboutSection() {
             </div>
 
             {versionInfo?.update_available && (
-              <div className="flex items-center gap-2 pt-1">
-                <ArrowUpCircle className="w-4 h-4 text-amber-500 flex-shrink-0" />
-                <span className="text-xs text-amber-600 dark:text-amber-400">
-                  A newer version is available.{" "}
-                  <a
-                    href="https://github.com/datahub-project/analytics-agent?tab=readme-ov-file#installation"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline hover:no-underline"
-                  >
-                    How to update
-                  </a>
+              <div className="flex items-center justify-between pt-2 gap-3">
+                <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <ArrowUpCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                  A newer version is available
                 </span>
+                <a
+                  href="https://github.com/datahub-project/analytics-agent?tab=readme-ov-file#installation"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs border border-amber-500/40
+                             text-amber-600 dark:text-amber-400 rounded-md px-3 py-1.5
+                             hover:bg-amber-500/10 transition-colors flex-shrink-0"
+                >
+                  <ArrowUpCircle className="w-3 h-3" />
+                  How to update
+                </a>
               </div>
             )}
 
@@ -177,11 +180,12 @@ function ReleaseCard({
   isInstalled: boolean;
 }) {
   const [expanded, setExpanded] = useState(isInstalled);
+  const hasBody = Boolean(release.body);
 
   return (
     <div
-      className={`border rounded-lg overflow-hidden transition-colors ${
-        isInstalled ? "border-primary/40 bg-primary/5" : "border-border"
+      className={`border rounded-lg overflow-hidden ${
+        isInstalled ? "border-primary/60 bg-primary/10" : "border-border"
       }`}
     >
       <button
@@ -214,29 +218,38 @@ function ReleaseCard({
           >
             <ExternalLink className="w-3 h-3" />
           </a>
+          <ChevronDown
+            className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${
+              expanded ? "rotate-180" : ""
+            }`}
+          />
         </div>
       </button>
 
-      {expanded && release.body && (
-        <div className="px-4 pb-4 border-t border-border/60">
-          <div className="prose prose-sm dark:prose-invert max-w-none pt-3 text-xs leading-relaxed
-                          [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h4]:text-xs
-                          [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold
-                          [&_h1]:mt-3 [&_h2]:mt-3 [&_h3]:mt-2
-                          [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:my-0.5
-                          [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline
-                          [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
-                          [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:rounded [&_pre]:overflow-x-auto">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{release.body}</ReactMarkdown>
+      {/* CSS grid-rows transition — animates open/close without JS height measurement */}
+      <div
+        className="grid transition-[grid-template-rows] duration-200"
+        style={{ gridTemplateRows: expanded ? "1fr" : "0fr" }}
+      >
+        <div className="overflow-hidden">
+          <div className="border-t border-border/60 px-4 pb-4 pt-3">
+            {hasBody ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none text-xs leading-relaxed
+                              [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h4]:text-xs
+                              [&_h1]:font-semibold [&_h2]:font-semibold [&_h3]:font-semibold
+                              [&_h1]:mt-3 [&_h2]:mt-3 [&_h3]:mt-2
+                              [&_ul]:pl-4 [&_ol]:pl-4 [&_li]:my-0.5
+                              [&_a]:text-primary [&_a]:no-underline [&_a:hover]:underline
+                              [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_code]:text-xs [&_code]:font-mono
+                              [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:rounded [&_pre]:overflow-x-auto">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{release.body}</ReactMarkdown>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic">No release notes provided.</p>
+            )}
           </div>
         </div>
-      )}
-
-      {expanded && !release.body && (
-        <div className="px-4 pb-4 border-t border-border/60 pt-3">
-          <p className="text-xs text-muted-foreground italic">No release notes provided.</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
