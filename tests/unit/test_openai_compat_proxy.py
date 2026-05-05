@@ -99,6 +99,7 @@ def proxy_model(mock_proxy_url: str) -> str:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @contextmanager
 def _patch_settings(base_url: str, api_key: str = "test-key"):
     """Context manager that temporarily redirects the settings singleton to

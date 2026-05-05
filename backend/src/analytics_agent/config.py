@@ -178,7 +178,7 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
     openai_compat_base_url: str = ""  # OPENAI_COMPAT_BASE_URL
-    openai_compat_api_key: str = ""   # OPENAI_COMPAT_API_KEY
+    openai_compat_api_key: str = ""  # OPENAI_COMPAT_API_KEY
 
     # Bedrock — uses the standard AWS credential chain by default (env vars,
     # ~/.aws/credentials, IAM role). Set the explicit *_key_id/*_access_key
