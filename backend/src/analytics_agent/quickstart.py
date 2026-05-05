@@ -261,7 +261,7 @@ def wait_for_server(port: int = 8100, timeout: int = 30) -> bool:
 # ── Wizard ─────────────────────────────────────────────────────────────────────
 
 
-def run_wizard(port: int = 8100) -> None:
+def run_wizard(port: int = 8100, reconfigure: bool = False) -> None:
     """Interactive quickstart wizard — configures and launches the agent."""
     click.echo(
         textwrap.dedent("""
@@ -280,72 +280,18 @@ def run_wizard(port: int = 8100) -> None:
     # ── Idempotency: existing config? ──────────────────────────────────────
     env_path = config_dir / ".env"
     if env_path.exists():
-        click.echo(f"\n  Existing config found at {config_dir}/")
-        choice = click.prompt(
-            "  What would you like to do?",
-            type=click.Choice(["start", "reconfigure", "cancel"], case_sensitive=False),
-            default="start",
-        )
-        if choice == "cancel":
-            click.echo("  Cancelled.")
-            return
-        if choice == "start":
-            _bootstrap_and_launch(config_dir, port)
-            return
-        # reconfigure → fall through to wizard
+        _bootstrap_and_launch(config_dir, port, open_setup=reconfigure)
+        return
 
-    # ── Step 1: LLM provider ───────────────────────────────────────────────
-    click.echo("\nStep 1 — LLM provider")
-    provider = click.prompt(
-        "  Which provider?",
-        type=click.Choice(["anthropic", "openai", "google", "bedrock"], case_sensitive=False),
-        default="anthropic",
-    )
-
-    # ── Step 2: API key ────────────────────────────────────────────────────
-    click.echo("\nStep 2 — API key")
-    env_updates: dict[str, str] = {"LLM_PROVIDER": provider}
-    if provider == "anthropic":
-        key = getpass.getpass("  Anthropic API key (sk-ant-…): ").strip()
-        env_updates["ANTHROPIC_API_KEY"] = key
-    elif provider == "openai":
-        key = getpass.getpass("  OpenAI API key (sk-…): ").strip()
-        env_updates["OPENAI_API_KEY"] = key
-    elif provider == "google":
-        key = getpass.getpass("  Google API key: ").strip()
-        env_updates["GOOGLE_API_KEY"] = key
-    elif provider == "bedrock":
-        env_updates["AWS_REGION"] = _prompt("AWS region", default="us-west-2")
-        env_updates["AWS_ACCESS_KEY_ID"] = _prompt("AWS Access Key ID")
-        env_updates["AWS_SECRET_ACCESS_KEY"] = getpass.getpass("  AWS Secret Access Key: ").strip()
-
-    # ── Step 3: Data source (optional) ────────────────────────────────────
-    click.echo("\nStep 3 — Data source  (you can add more later in Settings)")
-    engine_choices = ["snowflake", "bigquery", "postgresql", "mysql", "skip"]
-    engine_type = click.prompt(
-        "  Connect a data source?",
-        type=click.Choice(engine_choices, case_sensitive=False),
-        default="skip",
-    )
-
-    engine_name: str | None = None
-    if engine_type != "skip":
-        engine_name = _prompt(f"  Name for this {engine_type} connection", default=engine_type)
-        click.echo(f"\n  Enter connection details for {engine_type}:")
-        for label, env_var, is_secret in _ENGINE_FIELDS[engine_type]:
-            env_updates[env_var] = _prompt(label, secret=is_secret)
-
-    # ── Step 4: Write config and launch ───────────────────────────────────
-    click.echo("\nStep 4 — Done")
+    # ── Fresh install: create config dir, bootstrap, and let the browser
+    #    wizard handle provider + API key + agent name setup.
+    click.echo("\n→ Setting up config directory…")
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "data").mkdir(parents=True, exist_ok=True)
-
-    _write_env(env_path, env_updates)
-    click.echo(f"  ✓ Config written to {config_dir}/")
-
-    if engine_type != "skip" and engine_name:
-        yaml_path = config_dir / "config.yaml"
-        _write_config_yaml(yaml_path, engine_type, engine_name)
+    # Touch .env so subsequent runs detect an existing config.
+    if not env_path.exists():
+        env_path.write_text("")
+    click.echo(f"  ✓ Config directory: {config_dir}/")
 
     _bootstrap_and_launch(config_dir, port)
 
@@ -363,7 +309,7 @@ def _check_prereqs(port: int) -> None:
     click.echo(f"  ✓ Port {port} available")
 
 
-def _bootstrap_and_launch(config_dir: Path, port: int) -> None:
+def _bootstrap_and_launch(config_dir: Path, port: int, *, open_setup: bool = False) -> None:
     """Run bootstrap (migrations + seeds) then start the server."""
     import subprocess as _sp
 
@@ -402,10 +348,11 @@ def _bootstrap_and_launch(config_dir: Path, port: int) -> None:
     if wait_for_server(port):
         click.echo(f"  ✓ Running at http://localhost:{port}  (PID {pid})")
         click.echo(f"  → Logs: {_log_file()}")
+        url = f"http://localhost:{port}/#setup" if open_setup else f"http://localhost:{port}"
         try:
             import webbrowser
 
-            webbrowser.open(f"http://localhost:{port}")
+            webbrowser.open(url)
         except Exception:
             pass
     else:

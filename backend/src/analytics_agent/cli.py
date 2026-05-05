@@ -85,8 +85,14 @@ def bootstrap_cmd() -> None:
     default=False,
     help="Full demo: start DataHub, load Olist sample data, and launch the agent.",
 )
-def quickstart(port: int, demo: bool) -> None:
-    """Interactive wizard: configure and launch the agent in one step."""
+@click.option(
+    "--reconfigure",
+    is_flag=True,
+    default=False,
+    help="Open the setup wizard in the browser to change model or API key.",
+)
+def quickstart(port: int, demo: bool, reconfigure: bool) -> None:
+    """Configure and launch the agent. Re-run any time to restart."""
     if demo:
         from analytics_agent.quickstart import run_demo
 
@@ -94,7 +100,7 @@ def quickstart(port: int, demo: bool) -> None:
     else:
         from analytics_agent.quickstart import run_wizard
 
-        run_wizard(port=port)
+        run_wizard(port=port, reconfigure=reconfigure)
 
 
 @cli.command("start")
