@@ -190,6 +190,30 @@ def config_cmd() -> None:
         click.echo(str(config_dir))
 
 
+def _install_kind() -> str:
+    """Return 'editable', 'uvx', or 'pip' to describe how the package is installed."""
+    import json
+
+    try:
+        import importlib.metadata
+
+        dist = importlib.metadata.distribution("datahub-analytics-agent")
+        raw = dist.read_text("direct_url.json")
+        if raw:
+            data = json.loads(raw)
+            if data.get("dir_info", {}).get("editable"):
+                return "editable"
+    except Exception:
+        pass
+
+    # uvx tools land in a path like …/uv/tools/datahub-analytics-agent/…
+    exe = sys.executable.replace("\\", "/")
+    if "/uv/tools/" in exe:
+        return "uvx"
+
+    return "pip"
+
+
 @cli.command("upgrade")
 @click.option(
     "--to",
@@ -209,6 +233,31 @@ def upgrade_cmd(version: str | None, yes: bool) -> None:
       analytics-agent upgrade --to 0.2.1  # → pin to 0.2.1
     """
     import importlib.metadata
+
+    kind = _install_kind()
+
+    if kind == "editable":
+        click.echo(
+            "✗ This installation is running directly from a source checkout.\n"
+            "  Use git to update instead:\n\n"
+            "    git pull\n"
+            "    uv sync\n"
+            "    analytics-agent bootstrap   # if migrations changed",
+            err=True,
+        )
+        sys.exit(1)
+
+    if kind == "uvx":
+        pkg = "datahub-analytics-agent"
+        if version:
+            pkg = f"datahub-analytics-agent=={version}"
+        click.echo(
+            "✗ This installation is managed by uvx.\n"
+            "  Use uv to upgrade instead:\n\n"
+            f"    uv tool upgrade {pkg}",
+            err=True,
+        )
+        sys.exit(1)
 
     try:
         current = importlib.metadata.version("datahub-analytics-agent")
