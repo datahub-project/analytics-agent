@@ -182,3 +182,7 @@ def config_cmd() -> None:
         subprocess.run([editor, str(config_dir)])
     else:
         click.echo(str(config_dir))
+
+
+if __name__ == "__main__":
+    cli()

@@ -379,7 +379,6 @@ def _bootstrap_and_launch(config_dir: Path, port: int) -> None:
                 k, _, v = line.partition("=")
                 env[k.strip()] = v.strip()
 
-    click.echo("  ✓ Database initialised")
     result = _sp.run(
         [sys.executable, "-m", "analytics_agent.cli", "bootstrap"],
         env=env,
@@ -389,6 +388,7 @@ def _bootstrap_and_launch(config_dir: Path, port: int) -> None:
     if result.returncode != 0:
         click.echo(result.stderr, err=True)
         sys.exit(result.returncode)
+    click.echo("  ✓ Database initialised")
 
     click.echo("  → Starting server…")
     # Re-export env vars into current process so start_server picks them up
