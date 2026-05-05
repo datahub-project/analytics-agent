@@ -92,8 +92,6 @@ def test_cli_module_invocable_via_dash_m(sqlite_db, monkeypatch, tmp_path):
 
     monkeypatch.chdir(tmp_path)  # no alembic.ini here — exercises pip-install path too
 
-    from analytics_agent import config as _config
-
     result = subprocess.run(
         [sys.executable, "-m", "analytics_agent.cli", "bootstrap"],
         env={
