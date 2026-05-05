@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useThemeStore } from "@/store/theme";
 import { Settings } from "lucide-react";
 import { listConversations, listEngines } from "@/api/conversations";
-import { getDisplaySettings, getLlmSettings } from "@/api/settings";
+import { getDisplaySettings, getLlmSettings, getVersionInfo } from "@/api/settings";
 import { useConversationsStore } from "@/store/conversations";
 import { useDisplayStore } from "@/store/display";
 import { Sidebar } from "@/components/Sidebar/Sidebar";
@@ -30,6 +30,7 @@ export default function App() {
   }, [appName]);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   // null = still checking; true = show; false = don't show
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(
     FORCE_SETUP ? true : null
@@ -60,6 +61,9 @@ export default function App() {
     getDisplaySettings()
       .then((d) => setDisplay(d.app_name, d.logo_url))
       .catch(() => {});
+    getVersionInfo()
+      .then((v) => setUpdateAvailable(v.update_available))
+      .catch(() => {});
 
     // Skip the has_key check when #setup forced the wizard open
     if (FORCE_SETUP) return;
@@ -81,18 +85,31 @@ export default function App() {
         <div className="flex items-center justify-end px-4 py-2 border-b border-border/40" data-print-hide>
           <button
             onClick={() => setShowSettings(true)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground
+            className="relative flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground
                        px-2.5 py-1.5 rounded-md hover:bg-muted/60 transition-colors"
-            title="Settings"
+            title={updateAvailable ? "Settings — update available" : "Settings"}
           >
-            <Settings className="w-3.5 h-3.5" />
+            <span className="relative">
+              <Settings className="w-3.5 h-3.5" />
+              {updateAvailable && (
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
+                </span>
+              )}
+            </span>
             Settings
           </button>
         </div>
         <ChatView />
       </main>
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          updateAvailable={updateAvailable}
+        />
+      )}
 
       {showOnboarding === true && (
         <OnboardingWizard

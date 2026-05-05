@@ -94,15 +94,16 @@ The script starts a local DataHub instance, loads the Olist e-commerce sample da
 
 > This section is for hacking on the agent itself. For everyday use, `analytics-agent quickstart` is simpler.
 
-> **Also requires:** `node`
+**Prerequisites:** [`uv`](https://docs.astral.sh/uv/getting-started/installation/), [`mise`](https://mise.jdx.dev/getting-started.html) (manages Node + pnpm), Python 3.11+
 
 ### 1. Clone and install
 
 ```bash
 git clone https://github.com/datahub-project/analytics-agent.git
 cd analytics-agent
-make install   # uv sync + pnpm install
-make start     # builds frontend, starts backend at :8100
+mise install       # installs Node 22 + pnpm (reads .mise.toml)
+make install       # uv sync + pnpm install
+make start         # builds frontend, starts backend at :8100
 ```
 
 Open **http://localhost:8100** — a setup wizard handles the LLM key and connections on first run.

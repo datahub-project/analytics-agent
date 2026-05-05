@@ -374,3 +374,40 @@ export async function testConnectorConfig(
   }
   return res.json();
 }
+
+// --- Version / update check ---
+
+export interface VersionInfo {
+  current_version: string;
+  latest_version: string | null;
+  update_available: boolean;
+}
+
+export async function getVersionInfo(): Promise<VersionInfo> {
+  try {
+    const res = await fetch("/api/version");
+    if (!res.ok) throw new Error("Failed");
+    return res.json();
+  } catch {
+    return { current_version: "unknown", latest_version: null, update_available: false };
+  }
+}
+
+export interface Release {
+  tag_name: string;
+  name: string;
+  published_at: string;
+  body: string;
+  html_url: string;
+  prerelease: boolean;
+}
+
+export async function getReleases(): Promise<Release[]> {
+  try {
+    const res = await fetch("/api/releases");
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}

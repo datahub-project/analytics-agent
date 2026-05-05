@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time
+from typing import Any
+
 from fastapi import APIRouter
 
 from analytics_agent.api import chat, connectors, conversations, oauth, settings
@@ -10,6 +13,90 @@ api_router.include_router(chat.router)
 api_router.include_router(settings.router)
 api_router.include_router(oauth.router)
 api_router.include_router(connectors.router)
+
+# Simple in-memory cache for GitHub release data (avoids hammering the API)
+_releases_cache: dict[str, Any] = {}
+_CACHE_TTL = 3600  # 1 hour
+
+_GITHUB_REPO = "datahub-project/analytics-agent"
+_GITHUB_RELEASES_URL = f"https://api.github.com/repos/{_GITHUB_REPO}/releases"
+
+
+async def _fetch_releases(limit: int = 10) -> list[dict]:
+    """Fetch recent releases from GitHub, with in-memory caching."""
+    now = time.monotonic()
+    cached = _releases_cache.get("releases")
+    if cached and now - cached["ts"] < _CACHE_TTL:
+        return cached["data"][:limit]
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get(
+                _GITHUB_RELEASES_URL,
+                params={"per_page": 20},
+                headers={"Accept": "application/vnd.github+json"},
+            )
+            if resp.status_code == 200:
+                releases = resp.json()
+                _releases_cache["releases"] = {"ts": now, "data": releases}
+                return releases[:limit]
+    except Exception:
+        pass
+    return []
+
+
+@api_router.get("/api/version", tags=["system"])
+async def get_version():
+    """Return the running version and whether a newer GitHub release is available."""
+    import importlib.metadata
+    import os
+
+    try:
+        current = os.environ.get("ANALYTICS_AGENT_OVERRIDE_VERSION") or importlib.metadata.version(
+            "datahub-analytics-agent"
+        )
+    except Exception:
+        current = "unknown"
+
+    releases = await _fetch_releases(limit=1)
+    latest_version: str | None = None
+    if releases:
+        latest_version = releases[0].get("tag_name", "").lstrip("v") or None
+
+    update_available = False
+    if latest_version and current != "unknown":
+        try:
+            from packaging.version import Version
+
+            update_available = Version(latest_version) > Version(current)
+        except Exception:
+            update_available = latest_version != current
+
+    return {
+        "current_version": current,
+        "latest_version": latest_version,
+        "update_available": update_available,
+    }
+
+
+@api_router.get("/api/releases", tags=["system"])
+async def get_releases():
+    """Return recent GitHub releases with their changelogs."""
+    releases = await _fetch_releases(limit=10)
+    return [
+        {
+            "tag_name": r.get("tag_name", ""),
+            "name": r.get("name", "") or r.get("tag_name", ""),
+            "published_at": r.get("published_at", ""),
+            "body": r.get("body", ""),
+            "html_url": r.get("html_url", ""),
+            "prerelease": r.get("prerelease", False),
+        }
+        for r in releases
+        if not r.get("draft", False)
+    ]
 
 
 @api_router.get("/api/engines", tags=["engines"])
