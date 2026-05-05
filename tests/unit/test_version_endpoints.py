@@ -14,10 +14,8 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from click.testing import CliRunner
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -53,9 +51,8 @@ def _mock_httpx_response(releases: list[dict], status: int = 200):
 
 async def test_fetch_releases_airgapped_returns_empty():
     """Network unreachable → graceful empty list, no exception."""
-    import httpx
-
     import analytics_agent.api as api_mod
+    import httpx
 
     # Clear any cached data from previous test runs
     api_mod._releases_cache.clear()
@@ -136,9 +133,11 @@ async def test_version_endpoint_airgapped():
 
     api_mod._releases_cache.clear()
 
-    with patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=[])):
-        with patch("importlib.metadata.version", return_value="0.2.2"):
-            result = await api_mod.get_version()
+    with (
+        patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=[])),
+        patch("importlib.metadata.version", return_value="0.2.2"),
+    ):
+        result = await api_mod.get_version()
 
     assert result["current_version"] == "0.2.2"
     assert result["latest_version"] is None
@@ -151,9 +150,11 @@ async def test_version_endpoint_up_to_date():
     api_mod._releases_cache.clear()
 
     releases = [_make_release("v0.2.2")]
-    with patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)):
-        with patch("importlib.metadata.version", return_value="0.2.2"):
-            result = await api_mod.get_version()
+    with (
+        patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)),
+        patch("importlib.metadata.version", return_value="0.2.2"),
+    ):
+        result = await api_mod.get_version()
 
     assert result["update_available"] is False
     assert result["latest_version"] == "0.2.2"
@@ -165,9 +166,11 @@ async def test_version_endpoint_update_available():
     api_mod._releases_cache.clear()
 
     releases = [_make_release("v0.3.0")]
-    with patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)):
-        with patch("importlib.metadata.version", return_value="0.2.2"):
-            result = await api_mod.get_version()
+    with (
+        patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)),
+        patch("importlib.metadata.version", return_value="0.2.2"),
+    ):
+        result = await api_mod.get_version()
 
     assert result["update_available"] is True
     assert result["current_version"] == "0.2.2"
@@ -181,9 +184,11 @@ async def test_version_endpoint_installed_is_newer():
     api_mod._releases_cache.clear()
 
     releases = [_make_release("v0.2.2")]
-    with patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)):
-        with patch("importlib.metadata.version", return_value="0.3.0.dev1"):
-            result = await api_mod.get_version()
+    with (
+        patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)),
+        patch("importlib.metadata.version", return_value="0.3.0.dev1"),
+    ):
+        result = await api_mod.get_version()
 
     assert result["update_available"] is False
 
@@ -195,9 +200,11 @@ async def test_version_endpoint_malformed_tag_no_crash():
     api_mod._releases_cache.clear()
 
     releases = [_make_release("not-a-semver-tag")]
-    with patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)):
-        with patch("importlib.metadata.version", return_value="0.2.2"):
-            result = await api_mod.get_version()
+    with (
+        patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=releases)),
+        patch("importlib.metadata.version", return_value="0.2.2"),
+    ):
+        result = await api_mod.get_version()
 
     # packaging.version will raise; fallback is string comparison
     assert "update_available" in result
@@ -209,9 +216,11 @@ async def test_version_endpoint_package_not_installed():
 
     api_mod._releases_cache.clear()
 
-    with patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=[])):
-        with patch("importlib.metadata.version", side_effect=Exception("not found")):
-            result = await api_mod.get_version()
+    with (
+        patch.object(api_mod, "_fetch_releases", new=AsyncMock(return_value=[])),
+        patch("importlib.metadata.version", side_effect=Exception("not found")),
+    ):
+        result = await api_mod.get_version()
 
     assert result["current_version"] == "unknown"
     assert result["update_available"] is False
@@ -269,9 +278,11 @@ def test_install_kind_non_editable_directory(tmp_path):
     mock_dist = MagicMock()
     mock_dist.read_text.return_value = direct_url
 
-    with patch("importlib.metadata.distribution", return_value=mock_dist):
-        with patch.object(sys, "executable", "/home/user/.venv/bin/python"):
-            assert _install_kind() == "pip"
+    with (
+        patch("importlib.metadata.distribution", return_value=mock_dist),
+        patch.object(sys, "executable", "/home/user/.venv/bin/python"),
+    ):
+        assert _install_kind() == "pip"
 
 
 def test_install_kind_uvx():
@@ -294,9 +305,11 @@ def test_install_kind_normal_pip():
     mock_dist = MagicMock()
     mock_dist.read_text.return_value = None
 
-    with patch("importlib.metadata.distribution", return_value=mock_dist):
-        with patch.object(sys, "executable", "/home/user/.venv/bin/python"):
-            assert _install_kind() == "pip"
+    with (
+        patch("importlib.metadata.distribution", return_value=mock_dist),
+        patch.object(sys, "executable", "/home/user/.venv/bin/python"),
+    ):
+        assert _install_kind() == "pip"
 
 
 # ── analytics-agent upgrade — install-kind guards ─────────────────────────────
@@ -335,9 +348,7 @@ def test_upgrade_rejects_uvx_with_version():
 
 def test_upgrade_pip_install_proceeds(monkeypatch):
     """Normal pip install: subprocess.run is called with the right arguments."""
-    import subprocess
 
-    import importlib.metadata
 
     from analytics_agent.cli import cli
 
@@ -347,11 +358,13 @@ def test_upgrade_pip_install_proceeds(monkeypatch):
         calls.append(cmd)
         return MagicMock(returncode=0)
 
-    with patch("analytics_agent.cli._install_kind", return_value="pip"):
-        with patch("analytics_agent.cli.subprocess.run", side_effect=fake_run):
-            with patch("importlib.metadata.version", return_value="0.2.2"):
-                with patch("analytics_agent.quickstart.read_pid", return_value=None):
-                    result = CliRunner().invoke(cli, ["upgrade", "--yes"])
+    with (
+        patch("analytics_agent.cli._install_kind", return_value="pip"),
+        patch("analytics_agent.cli.subprocess.run", side_effect=fake_run),
+        patch("importlib.metadata.version", return_value="0.2.2"),
+        patch("analytics_agent.quickstart.read_pid", return_value=None),
+    ):
+        result = CliRunner().invoke(cli, ["upgrade", "--yes"])
 
     assert result.exit_code == 0
     assert any("datahub-analytics-agent" in " ".join(cmd) for cmd in calls)
@@ -367,11 +380,13 @@ def test_upgrade_pip_install_specific_version(monkeypatch):
         calls.append(cmd)
         return MagicMock(returncode=0)
 
-    with patch("analytics_agent.cli._install_kind", return_value="pip"):
-        with patch("analytics_agent.cli.subprocess.run", side_effect=fake_run):
-            with patch("importlib.metadata.version", return_value="0.2.2"):
-                with patch("analytics_agent.quickstart.read_pid", return_value=None):
-                    result = CliRunner().invoke(cli, ["upgrade", "--to", "0.2.1", "--yes"])
+    with (
+        patch("analytics_agent.cli._install_kind", return_value="pip"),
+        patch("analytics_agent.cli.subprocess.run", side_effect=fake_run),
+        patch("importlib.metadata.version", return_value="0.2.2"),
+        patch("analytics_agent.quickstart.read_pid", return_value=None),
+    ):
+        result = CliRunner().invoke(cli, ["upgrade", "--to", "0.2.1", "--yes"])
 
     assert result.exit_code == 0
     assert any("datahub-analytics-agent==0.2.1" in " ".join(cmd) for cmd in calls)
