@@ -1339,7 +1339,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
 // --- Main modal ---
 
 export function SettingsModal({ onClose, updateAvailable }: Props) {
-  const [section, setSection] = useState<Section>("connections");
+  const [section, setSection] = useState<Section>(updateAvailable ? "about" : "connections");
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col">
@@ -1363,6 +1363,13 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
         <nav className="w-52 flex-shrink-0 border-r border-border flex flex-col">
           <div className="p-3 space-y-0.5 flex-1">
             <NavItem
+              label="About"
+              icon={<Info className="w-4 h-4" />}
+              active={section === "about"}
+              onClick={() => setSection("about")}
+              badge={updateAvailable}
+            />
+            <NavItem
               label="Connections"
               icon={<Link2 className="w-4 h-4" />}
               active={section === "connections"}
@@ -1385,13 +1392,6 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
               icon={<Monitor className="w-4 h-4" />}
               active={section === "display"}
               onClick={() => setSection("display")}
-            />
-            <NavItem
-              label="About"
-              icon={<Info className="w-4 h-4" />}
-              active={section === "about"}
-              onClick={() => setSection("about")}
-              badge={updateAvailable}
             />
           </div>
           <div className="px-3 py-3 border-t border-border flex items-center justify-between">
