@@ -79,3 +79,33 @@ def test_cli_bootstrap_fails_fast_on_migration_error(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(cli, ["bootstrap"], catch_exceptions=True)
     assert result.exit_code != 0
+
+
+def test_cli_module_invocable_via_dash_m(sqlite_db, monkeypatch, tmp_path):
+    """python -m analytics_agent.cli bootstrap must run migrations (not silently no-op).
+
+    This was broken: cli.py had no __main__ block so the subprocess in
+    _bootstrap_and_launch exited 0 without doing anything.
+    """
+    import subprocess
+    import sys
+
+    monkeypatch.chdir(tmp_path)  # no alembic.ini here — exercises pip-install path too
+
+    result = subprocess.run(
+        [sys.executable, "-m", "analytics_agent.cli", "bootstrap"],
+        env={
+            **__import__("os").environ,
+            "DATABASE_URL": f"sqlite+aiosqlite:///{sqlite_db}",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    from sqlalchemy import create_engine, inspect
+
+    engine = create_engine(f"sqlite:///{sqlite_db}")
+    tables = set(inspect(engine).get_table_names())
+    engine.dispose()
+    assert "context_platforms" in tables

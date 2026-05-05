@@ -12,23 +12,23 @@ Analytics Agent is a LangGraph-based chat agent that uses **DataHub** tools for 
 
 ## Running the stack
 
-A `justfile` at the repo root covers all common tasks. Install `just` once (`brew install just`), then:
+A `Makefile` at the repo root covers all common tasks (`make` is available everywhere — no install needed):
 
 ```bash
-just install          # uv sync + pnpm install
-just start            # build frontend if stale, start backend at :8100
-just port=8102 start  # same on a custom port
-just stop             # kill the backend
-just nuke             # wipe the DB (start from scratch / re-trigger wizard)
-just start-remote     # start + print DataHub connection status
-just logs             # tail /tmp/analytics_agent.log
-just test             # unit tests
-just build            # force frontend rebuild
+make install          # uv sync + pnpm install
+make start            # build frontend if stale, start backend at :8100
+make PORT=8102 start  # same on a custom port
+make stop             # kill the backend
+make nuke             # wipe the DB (start from scratch / re-trigger wizard)
+make start-remote     # start + print DataHub connection status
+make logs             # tail /tmp/analytics_agent.log
+make test             # unit tests
+make build            # force frontend rebuild
 ```
 
-`just start` automatically detects whether `frontend/src` is newer than `frontend/dist` and rebuilds only when needed.
+`make start` uses Make's native dependency tracking: it rebuilds the frontend only when `frontend/src` files are newer than `frontend/dist/index.html`.
 
-### Without just (manual)
+### Without make (manual)
 
 ```bash
 uv sync

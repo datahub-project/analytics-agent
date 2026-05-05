@@ -14,7 +14,7 @@ WORKDIR /app
 
 RUN pip install uv
 
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md hatch_build.py ./
 COPY backend/ backend/
 
 RUN uv sync --no-dev

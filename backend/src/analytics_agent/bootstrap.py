@@ -26,7 +26,18 @@ def run_migrations() -> None:
     elif "mysql" in settings.database_url:
         _ensure_mysql_schema()
 
-    alembic_cfg = Config("alembic.ini")
+    # Locate migration scripts via package path so this works when pip-installed
+    # (no alembic.ini on disk). Fall back to alembic.ini in CWD for the dev/Docker
+    # workflow where the repo is checked out and alembic CLI is also used.
+    _ini = Path("alembic.ini")
+    if _ini.exists():
+        alembic_cfg = Config(str(_ini))
+    else:
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option(
+            "script_location",
+            str(Path(__file__).parent / "db" / "alembic"),
+        )
     command.upgrade(alembic_cfg, "head")
 
 

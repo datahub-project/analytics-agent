@@ -86,6 +86,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["backend/src/analytics_agent"]
 
+[tool.hatch.build.targets.wheel.hooks.custom]
+# hatch_build.py copies frontend/dist/ → backend/src/analytics_agent/static/ at build time
+
 [tool.uv]
 package = true
 

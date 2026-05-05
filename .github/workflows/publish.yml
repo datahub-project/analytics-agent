@@ -17,6 +17,17 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Build frontend
+        run: cd frontend && pnpm install --frozen-lockfile && pnpm build
+
       - name: Build package
         run: uv build
 

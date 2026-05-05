@@ -6,6 +6,22 @@ import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
+
+def get_config_dir() -> Path:
+    """Return the active analytics-agent config directory.
+
+    Checks ANALYTICS_AGENT_CONFIG_DIR env var first; falls back to
+    ~/.datahub/analytics-agent/. Callers may resolve sub-paths from this.
+    """
+    return Path(
+        os.environ.get("ANALYTICS_AGENT_CONFIG_DIR", "~/.datahub/analytics-agent")
+    ).expanduser()
+
+
+# Computed once at import time. ANALYTICS_AGENT_CONFIG_DIR must be set in the
+# shell environment before import — not in .env — to affect these defaults.
+_CONFIG_DIR = get_config_dir()
+
 import yaml
 from pydantic import BaseModel, Field, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -188,11 +204,11 @@ class Settings(BaseSettings):
         attr = PROVIDER_KEY_ATTR.get(self.llm_provider, "")
         return getattr(self, attr, "") if attr else ""
 
-    # Database
-    database_url: str = "sqlite+aiosqlite:///./data/dev.db"
+    # Database — defaults to the user config dir; override via DATABASE_URL env var
+    database_url: str = f"sqlite+aiosqlite:///{_CONFIG_DIR}/data/agent.db"
 
-    # Engine config
-    engines_config: str = "./config.yaml"
+    # Engine config — defaults to the user config dir; override via ENGINES_CONFIG env var
+    engines_config: str = str(_CONFIG_DIR / "config.yaml")
     sql_row_limit: int = 500
 
     # App
