@@ -190,5 +190,75 @@ def config_cmd() -> None:
         click.echo(str(config_dir))
 
 
+@cli.command("upgrade")
+@click.option(
+    "--to",
+    "version",
+    default=None,
+    metavar="VERSION",
+    help="Specific version to install, e.g. 0.2.1 (default: latest).",
+)
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation prompt.")
+def upgrade_cmd(version: str | None, yes: bool) -> None:
+    """Upgrade analytics-agent to the latest (or a specific) version.
+
+    Examples:
+
+    \b
+      analytics-agent upgrade             # → latest
+      analytics-agent upgrade --to 0.2.1  # → pin to 0.2.1
+    """
+    import importlib.metadata
+
+    try:
+        current = importlib.metadata.version("datahub-analytics-agent")
+    except Exception:
+        current = "unknown"
+
+    pkg = f"datahub-analytics-agent=={version}" if version else "datahub-analytics-agent"
+    label = f"v{version}" if version else "latest"
+
+    click.echo(f"→ Installing {label}  (installed: {current})")
+
+    if not yes:
+        click.confirm("  Continue?", default=True, abort=True)
+
+    from analytics_agent.quickstart import read_pid
+
+    running_pid = read_pid()
+    if running_pid:
+        click.echo(
+            f"  ⚠  Server is running (PID {running_pid}) — "
+            "you will need to restart it after the upgrade."
+        )
+
+    click.echo("  → Running pip install…")
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", pkg],
+    )
+
+    if result.returncode != 0:
+        click.echo("✗ Installation failed.", err=True)
+        sys.exit(result.returncode)
+
+    # importlib.metadata caches metadata paths — invalidate so we can read the new version
+    import importlib
+
+    importlib.invalidate_caches()
+    try:
+        new_version = importlib.metadata.version("datahub-analytics-agent")
+    except Exception:
+        new_version = "unknown"
+
+    if new_version != current:
+        click.echo(f"✓ Upgraded  {current}  →  {new_version}")
+    else:
+        click.echo(f"✓ Already at {new_version} — nothing to do.")
+
+    if running_pid:
+        click.echo("\n  Restart to apply:")
+        click.echo("    analytics-agent stop && analytics-agent start")
+
+
 if __name__ == "__main__":
     cli()

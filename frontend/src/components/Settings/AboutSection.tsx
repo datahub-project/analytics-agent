@@ -85,22 +85,27 @@ export function AboutSection() {
             </div>
 
             {versionInfo?.update_available && (
-              <div className="flex items-center justify-between pt-2 gap-3">
-                <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                  <ArrowUpCircle className="w-3.5 h-3.5 flex-shrink-0" />
-                  A newer version is available
-                </span>
-                <a
-                  href="https://github.com/datahub-project/analytics-agent?tab=readme-ov-file#installation"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs border border-amber-500/40
-                             text-amber-600 dark:text-amber-400 rounded-md px-3 py-1.5
-                             hover:bg-amber-500/10 transition-colors flex-shrink-0"
-                >
-                  <ArrowUpCircle className="w-3 h-3" />
-                  How to update
-                </a>
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <ArrowUpCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                    A newer version is available
+                  </span>
+                  <a
+                    href={GITHUB_RELEASES_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs border border-amber-500/40
+                               text-amber-600 dark:text-amber-400 rounded-md px-3 py-1.5
+                               hover:bg-amber-500/10 transition-colors flex-shrink-0"
+                  >
+                    <ArrowUpCircle className="w-3 h-3" />
+                    Release notes
+                  </a>
+                </div>
+                <div className="bg-muted rounded px-3 py-2 font-mono text-xs text-muted-foreground select-all">
+                  analytics-agent upgrade
+                </div>
               </div>
             )}
 
