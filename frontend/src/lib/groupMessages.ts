@@ -1,6 +1,6 @@
 import type { UIMessage, TurnUsage } from "@/types";
 
-const WORK_TYPES = new Set(["TOOL_CALL", "TOOL_RESULT", "SQL", "CHART", "MCP_APP", "ERROR", "THINKING"]);
+const WORK_TYPES = new Set(["TOOL_CALL", "TOOL_RESULT", "SQL", "CHART", "ERROR", "THINKING"]);
 
 export interface TurnGroup {
   key: string;
@@ -13,7 +13,7 @@ export interface TurnGroup {
   isActivelyStreaming: boolean;
 }
 
-const INTERACTIVE_TYPES = new Set(["PROPOSALS", "PROPOSAL_RESULTS"]);
+const INTERACTIVE_TYPES = new Set(["PROPOSALS", "PROPOSAL_RESULTS", "MCP_APP"]);
 
 export function groupIntoTurns(messages: UIMessage[], globalStreaming: boolean): TurnGroup[] {
   const groups: TurnGroup[] = [];

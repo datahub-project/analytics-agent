@@ -7,8 +7,6 @@ import { ToolCallMessage, ToolResultMessage } from "./ToolCallMessage";
 import { SqlMessage } from "./SqlMessage";
 import { ChartMessage } from "./ChartMessage";
 import { ErrorMessage } from "./ErrorMessage";
-import { MCPAppMessage } from "./MCPAppMessage";
-import type { MCPAppPayload } from "@/types";
 
 function fmt(n: number): string {
   if (n < 1000) return String(n);
@@ -21,7 +19,6 @@ interface Props {
   turnUsage?: TurnUsage;
   isStreaming?: boolean;
   showReasoning?: boolean;
-  conversationId?: string;
   onChartError?: (error: string) => void;
 }
 
@@ -30,7 +27,6 @@ export function AgentWorkBlock({
   turnUsage,
   isStreaming = false,
   showReasoning = true,
-  conversationId,
   onChartError,
 }: Props) {
   const [expanded, setExpanded] = useState(isStreaming);
@@ -200,13 +196,6 @@ export function AgentWorkBlock({
                 )}
                 {msg.event_type === "CHART" && (
                   <ChartMessage payload={msg.payload as never} onRenderError={onChartError} />
-                )}
-                {msg.event_type === "MCP_APP" && conversationId && (
-                  <MCPAppMessage
-                    messageId={msg.id}
-                    conversationId={conversationId}
-                    payload={msg.payload as unknown as MCPAppPayload}
-                  />
                 )}
                 {msg.event_type === "ERROR" && (
                   <ErrorMessage payload={msg.payload as never} />

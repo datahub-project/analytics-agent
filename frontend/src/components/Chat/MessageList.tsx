@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef } from "react";
 import type {
   UIMessage,
+  MCPAppPayload,
   ProposalsPayload,
   ProposalResultsPayload,
   SSEEvent,
@@ -8,6 +9,7 @@ import type {
 import { TextMessage } from "./messages/TextMessage";
 import { AgentWorkBlock } from "./messages/AgentWorkBlock";
 import { SelectionChip, type SelectionChipPayload } from "./messages/SelectionChip";
+import { MCPAppMessage } from "./messages/MCPAppMessage";
 import { ProposalsMessage } from "./messages/ProposalsMessage";
 import { ProposalResultsMessage } from "./messages/ProposalResultsMessage";
 import { groupIntoTurns } from "@/lib/groupMessages";
@@ -87,13 +89,23 @@ export function MessageList({
                 turnUsage={group.finalMsg?.turnUsage}
                 isStreaming={group.isActivelyStreaming}
                 showReasoning={showReasoning}
-                conversationId={conversationId}
                 onChartError={onChartError}
               />
             )}
 
-            {/* Interactive cards (proposals / results) — sibling to work block */}
+            {/* Interactive cards (MCP apps / proposals / results) — sibling to work block, never collapses */}
             {group.interactiveMsgs.map((msg) => {
+              if (msg.event_type === "MCP_APP" && conversationId) {
+                return (
+                  <div key={msg.id} className="flex flex-col items-start">
+                    <MCPAppMessage
+                      messageId={msg.id}
+                      conversationId={conversationId}
+                      payload={msg.payload as unknown as MCPAppPayload}
+                    />
+                  </div>
+                );
+              }
               if (msg.event_type === "PROPOSALS" && conversationId) {
                 const submitted = messages.some(
                   (m) =>
