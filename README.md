@@ -19,11 +19,19 @@
   <img src="https://img.shields.io/badge/DataHub-context%20layer-0052cc" alt="DataHub">
 </p>
 
+<p align="center">
+  <img src="docs/screenshot-chat.png" alt="Analytics Agent chat with chart and context quality bar" width="900">
+</p>
+
+Analytics Agent connects to your data warehouse and answers questions in plain English — writing SQL, running it, and rendering charts automatically. Connect it to [DataHub](https://datahub.com) and it gains real knowledge of your tables, columns, and business definitions, so it writes better SQL and can explain what it found in terms your team already uses. DataHub is optional — the agent works without it, just with less context.
+
 ---
 
 ## ⚡ Quickstart
 
 ### Option A — pip / uvx (recommended, no Docker needed)
+
+> Requires Python 3.11+
 
 ```bash
 # Install and launch — no git clone, no repo, no Docker
@@ -34,9 +42,9 @@ analytics-agent quickstart
 uvx datahub-analytics-agent quickstart
 ```
 
-The wizard asks for your LLM provider + API key, optionally connects a data source, then starts the agent at **http://localhost:8100**. Config and the database are stored in `~/.datahub/analytics-agent/`.
+This starts the server at **http://localhost:8100** and opens the browser, where a setup wizard walks you through choosing a model and entering your API key. Config and the database are stored in `~/.datahub/analytics-agent/`.
 
-Re-running `analytics-agent quickstart` detects the existing config and offers to start, reconfigure, or cancel — so it doubles as the "just start the agent" command for repeat users.
+Re-running `analytics-agent quickstart` restarts the server without any prompts. To re-open the setup wizard, use `analytics-agent quickstart --reconfigure`.
 
 **Other server commands:**
 
@@ -64,29 +72,17 @@ The script starts a local DataHub instance, loads the Olist e-commerce sample da
 
 ---
 
-## What it looks like
-
-<p align="center">
-  <img src="docs/screenshot-chat.png" alt="Analytics Agent chat with chart and context quality bar" width="900">
-</p>
-
-<p align="center">
-  <img src="docs/screenshot-welcome.png" alt="Analytics Agent welcome screen with conversation history" width="900">
-</p>
-
----
-
 ## What it does
 
 | | |
 |---|---|
-| **Plain-English → SQL → Chart** | Ask "top 5 categories by revenue" — the agent searches DataHub docs first, writes SQL, runs it, and auto-renders a Vega-Lite chart. |
-| **Context Quality** | A live status bar shows how well your DataHub catalog supported the agent (1–5). Hover for the LLM's reasoning. Improves as you document your data. |
+| **Context Quality** | A live status bar scores how well your DataHub catalog supported the agent (1–5). Hover for the LLM's reasoning. The score improves as you document your data. |
 | **`/improve-context`** | Type `/improve-context` after any conversation to get a numbered list of documentation improvements the agent wishes it had — then approve and publish them to DataHub in one click. |
+| **Plain-English → SQL → Chart** | Ask "top 5 categories by revenue" — the agent writes SQL, runs it, and auto-renders a Vega-Lite chart, all in one turn. |
 | **Multi-turn memory** | Follow-ups like "make it a pie chart" or "filter to Q3" work across turns. |
 | **Collapsible reasoning** | Tool calls and agent thinking are shown but collapsed — visible when you want them, out of the way when you don't. |
-| **4 themes** | DataHub (light/purple), Warm (light/orange), Ocean (dark/blue), Carbon (dark/gray). Switcher in the bottom-left. |
-| **Multiple connections** | Add and manage multiple Snowflake, BigQuery, DuckDB, or SQLAlchemy connections from Settings. Each has its own encrypted credentials. |
+| **Multiple connections** | Add and manage Snowflake, BigQuery, PostgreSQL, MySQL, and other SQLAlchemy-compatible databases from Settings. Each has its own encrypted credentials. |
+| **Light and dark themes** | Four built-in themes with a switcher in the bottom-left corner. |
 
 ---
 
@@ -351,7 +347,7 @@ analytics-agent/
 │   ├── context/        # DataHub tool loader (datahub_agent_context)
 │   ├── db/             # SQLAlchemy models + Alembic migrations
 │   │   └── models.py   # Conversation, Message, Integration, Setting
-│   ├── engines/        # Pluggable query engines (Snowflake, BigQuery, DuckDB, SQLAlchemy)
+│   ├── engines/        # Pluggable query engines (Snowflake, BigQuery, SQLAlchemy-based)
 │   ├── prompts/        # System prompt (system_prompt.md) + chart prompt
 │   └── skills/         # Write-back skills: publish-analysis, save-correction,
 │                       #   improve-context (/improve-context slash command)
