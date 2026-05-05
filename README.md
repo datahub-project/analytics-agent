@@ -19,11 +19,23 @@
   <img src="https://img.shields.io/badge/DataHub-context%20layer-0052cc" alt="DataHub">
 </p>
 
+<p align="center">
+  <img src="docs/screenshot-chat.png" alt="Analytics Agent chat with chart and context quality bar" width="900">
+</p>
+
+<p align="center">
+  <img src="docs/screenshot-welcome.png" alt="Analytics Agent welcome screen with conversation history" width="900">
+</p>
+
+Analytics Agent connects to your data warehouse and answers questions in plain English — writing SQL, running it, and rendering charts automatically. Connect it to [DataHub](https://datahub.com) and it gains real knowledge of your tables, columns, and business definitions, so it writes better SQL and can explain what it found in terms your team already uses. DataHub is optional — the agent works without it, just with less context.
+
 ---
 
 ## ⚡ Quickstart
 
 ### Option A — pip / uvx (recommended, no Docker needed)
+
+> Requires Python 3.11+
 
 ```bash
 # Install and launch — no git clone, no repo, no Docker
@@ -34,9 +46,9 @@ analytics-agent quickstart
 uvx datahub-analytics-agent quickstart
 ```
 
-The wizard asks for your LLM provider + API key, optionally connects a data source, then starts the agent at **http://localhost:8100**. Config and the database are stored in `~/.datahub/analytics-agent/`.
+This starts the server at **http://localhost:8100** and opens the browser, where a setup wizard walks you through choosing a model and entering your API key. Config and the database are stored in `~/.datahub/analytics-agent/`.
 
-Re-running `analytics-agent quickstart` detects the existing config and offers to start, reconfigure, or cancel — so it doubles as the "just start the agent" command for repeat users.
+Re-running `analytics-agent quickstart` restarts the server without any prompts. To re-open the setup wizard, use `analytics-agent quickstart --reconfigure`.
 
 **Other server commands:**
 
@@ -64,29 +76,17 @@ The script starts a local DataHub instance, loads the Olist e-commerce sample da
 
 ---
 
-## What it looks like
-
-<p align="center">
-  <img src="docs/screenshot-chat.png" alt="Analytics Agent chat with chart and context quality bar" width="900">
-</p>
-
-<p align="center">
-  <img src="docs/screenshot-welcome.png" alt="Analytics Agent welcome screen with conversation history" width="900">
-</p>
-
----
-
 ## What it does
 
 | | |
 |---|---|
-| **Plain-English → SQL → Chart** | Ask "top 5 categories by revenue" — the agent searches DataHub docs first, writes SQL, runs it, and auto-renders a Vega-Lite chart. |
-| **Context Quality** | A live status bar shows how well your DataHub catalog supported the agent (1–5). Hover for the LLM's reasoning. Improves as you document your data. |
+| **Context Quality** | A live status bar scores how well your DataHub catalog supported the agent (1–5). Hover for the LLM's reasoning. The score improves as you document your data. |
 | **`/improve-context`** | Type `/improve-context` after any conversation to get a numbered list of documentation improvements the agent wishes it had — then approve and publish them to DataHub in one click. |
+| **Plain-English → SQL → Chart** | Ask "top 5 categories by revenue" — the agent writes SQL, runs it, and auto-renders a Vega-Lite chart, all in one turn. |
 | **Multi-turn memory** | Follow-ups like "make it a pie chart" or "filter to Q3" work across turns. |
 | **Collapsible reasoning** | Tool calls and agent thinking are shown but collapsed — visible when you want them, out of the way when you don't. |
-| **4 themes** | DataHub (light/purple), Warm (light/orange), Ocean (dark/blue), Carbon (dark/gray). Switcher in the bottom-left. |
-| **Multiple connections** | Add and manage multiple Snowflake, BigQuery, DuckDB, or SQLAlchemy connections from Settings. Each has its own encrypted credentials. |
+| **Multiple connections** | Add and manage Snowflake, BigQuery, PostgreSQL, MySQL, and other SQLAlchemy-compatible databases from Settings. Each has its own encrypted credentials. |
+| **Light and dark themes** | Four built-in themes with a switcher in the bottom-left corner. |
 
 ---
 
@@ -275,32 +275,94 @@ The service account needs at minimum:
 
 ---
 
-## LLM model routing
+## LLM providers
 
-Four independently configurable model tiers:
+Set `LLM_PROVIDER` to one of the values below, or use the **Settings → Model** wizard in the UI.
 
-| Task | Env var | Default (Anthropic) |
+| Provider | `LLM_PROVIDER` value | Auth |
 |---|---|---|
-| Main analysis agent | `LLM_MODEL` | `claude-sonnet-4-6` |
-| Chart generation | `CHART_LLM_MODEL` | `claude-haiku-4-5-20251001` |
-| Context quality scoring | `QUALITY_LLM_MODEL` | `claude-haiku-4-5-20251001` |
-| Titles & greeting | `DELIGHT_LLM_MODEL` | `claude-haiku-4-5-20251001` |
+| Anthropic (default) | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Google Gemini | `google` | `GOOGLE_API_KEY` |
+| AWS Bedrock | `bedrock` | AWS credential chain |
+| OpenAI-compatible proxy | `openai-compatible` | `OPENAI_COMPAT_BASE_URL` + optional `OPENAI_COMPAT_API_KEY` |
+
+<details>
+<summary><strong>Anthropic</strong></summary>
 
 ```bash
 LLM_PROVIDER=anthropic
-LLM_MODEL=claude-opus-4-7          # upgrade just the agent
-QUALITY_LLM_MODEL=claude-sonnet-4-6 # or use a stronger model for quality scoring
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-### AWS Bedrock
+Default models: `claude-sonnet-4-6` (main), `claude-haiku-4-5-20251001` (chart/quality/delight).
+</details>
 
-Anthropic models can also be run via AWS Bedrock. Set `LLM_PROVIDER=bedrock` and use the Bedrock inference-profile model IDs (e.g. `us.anthropic.claude-sonnet-4-5-20250929-v1:0`). Auth falls back to the standard AWS credential chain (env vars, `~/.aws/credentials`, IAM role); to override, set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (and optionally `AWS_SESSION_TOKEN` for STS). `AWS_REGION` defaults to `us-west-2`.
+<details>
+<summary><strong>OpenAI</strong></summary>
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
+Default models: `gpt-4o` (main), `gpt-4o-mini` (chart/quality/delight).
+</details>
+
+<details>
+<summary><strong>Google Gemini</strong></summary>
+
+```bash
+LLM_PROVIDER=google
+GOOGLE_API_KEY=AIza...
+```
+
+Default models: `gemini-2.0-flash` (main), `gemini-1.5-flash` (chart/quality/delight).
+</details>
+
+<details>
+<summary><strong>AWS Bedrock</strong></summary>
+
+Runs Anthropic models via Bedrock. Auth falls back to the standard AWS credential chain (env vars, `~/.aws/credentials`, IAM role). Set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (and optionally `AWS_SESSION_TOKEN`) to override. `AWS_REGION` defaults to `us-west-2`.
 
 ```bash
 LLM_PROVIDER=bedrock
 AWS_REGION=us-west-2
 LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
 ```
+</details>
+
+<details>
+<summary><strong>OpenAI-compatible proxy</strong> (LiteLLM, vLLM, Ollama, …)</summary>
+
+Any proxy that speaks the OpenAI chat completions API (`/v1/chat/completions`) works — LiteLLM, vLLM, Ollama, Azure OpenAI custom endpoints, etc. No extra dependencies required.
+
+```bash
+LLM_PROVIDER=openai-compatible
+OPENAI_COMPAT_BASE_URL=https://litellm.myorg.com/v1   # required
+OPENAI_COMPAT_API_KEY=sk-...                           # optional — omit if proxy uses network-level auth
+LLM_MODEL=llama3.2                                     # model name as the proxy expects it
+```
+
+You can also configure the proxy URL and model through **Settings → Model** in the UI.
+</details>
+
+<details>
+<summary><strong>Model tiers</strong> — override individual tiers independently</summary>
+
+| Task | Env var | Purpose |
+|---|---|---|
+| Main analysis agent | `LLM_MODEL` | SQL generation, reasoning |
+| Chart generation | `CHART_LLM_MODEL` | Vega-Lite chart spec |
+| Context quality scoring | `QUALITY_LLM_MODEL` | 1–5 catalog quality score |
+| Titles & greeting | `DELIGHT_LLM_MODEL` | Short text generation |
+
+```bash
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-opus-4-7           # upgrade just the agent
+QUALITY_LLM_MODEL=claude-sonnet-4-6 # or use a stronger model for quality scoring
+```
+</details>
 
 
 ---
@@ -351,7 +413,7 @@ analytics-agent/
 │   ├── context/        # DataHub tool loader (datahub_agent_context)
 │   ├── db/             # SQLAlchemy models + Alembic migrations
 │   │   └── models.py   # Conversation, Message, Integration, Setting
-│   ├── engines/        # Pluggable query engines (Snowflake, BigQuery, DuckDB, SQLAlchemy)
+│   ├── engines/        # Pluggable query engines (Snowflake, BigQuery, SQLAlchemy-based)
 │   ├── prompts/        # System prompt (system_prompt.md) + chart prompt
 │   └── skills/         # Write-back skills: publish-analysis, save-correction,
 │                       #   improve-context (/improve-context slash command)
