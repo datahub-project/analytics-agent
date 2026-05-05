@@ -23,6 +23,10 @@
   <img src="docs/screenshot-chat.png" alt="Analytics Agent chat with chart and context quality bar" width="900">
 </p>
 
+<p align="center">
+  <img src="docs/screenshot-welcome.png" alt="Analytics Agent welcome screen with conversation history" width="900">
+</p>
+
 Analytics Agent connects to your data warehouse and answers questions in plain English — writing SQL, running it, and rendering charts automatically. Connect it to [DataHub](https://datahub.com) and it gains real knowledge of your tables, columns, and business definitions, so it writes better SQL and can explain what it found in terms your team already uses. DataHub is optional — the agent works without it, just with less context.
 
 ---
