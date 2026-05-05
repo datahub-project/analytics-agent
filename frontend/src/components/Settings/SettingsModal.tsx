@@ -29,6 +29,7 @@ import {
   Layers,
   BookOpen,
   Pencil,
+  Info,
 } from "lucide-react";
 import {
   listConnections,
@@ -72,11 +73,14 @@ import { listEngines } from "@/api/conversations";
 import { AddConnectionFlow } from "./connections/AddConnectionFlow";
 import type { NewConnectionPayload, ConnectionPlugin } from "./connections/types";
 import { ModelSection } from "./ModelSection";
+import { AboutSection } from "./AboutSection";
 
-type Section = "connections" | "model" | "prompt" | "display";
+type Section = "connections" | "model" | "prompt" | "display" | "about";
 
 interface Props {
   onClose: () => void;
+  /** When true the About nav item shows an update-available badge. */
+  updateAvailable?: boolean;
 }
 
 // --- Status badge ---
@@ -1283,11 +1287,13 @@ function NavItem({
   icon,
   active,
   onClick,
+  badge,
 }: {
   label: string;
   icon: React.ReactNode;
   active: boolean;
   onClick: () => void;
+  badge?: boolean;
 }) {
   return (
     <button
@@ -1298,7 +1304,12 @@ function NavItem({
           : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
       }`}
     >
-      <span className="flex-shrink-0">{icon}</span>
+      <span className="flex-shrink-0 relative">
+        {icon}
+        {badge && (
+          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500" />
+        )}
+      </span>
       {label}
     </button>
   );
@@ -1311,6 +1322,7 @@ const SECTION_LABELS: Record<Section, string> = {
   model: "Model",
   prompt: "Prompt",
   display: "Display Settings",
+  about: "About",
 };
 
 const SECTION_DESCRIPTIONS: Record<Section, string> = {
@@ -1318,11 +1330,12 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   model: "Choose your AI provider, model, and API key.",
   prompt: "View and customize the system prompt used by the AI assistant.",
   display: "Customize the app name and logo.",
+  about: "Current version, release notes, and update status.",
 };
 
 // --- Main modal ---
 
-export function SettingsModal({ onClose }: Props) {
+export function SettingsModal({ onClose, updateAvailable }: Props) {
   const [section, setSection] = useState<Section>("connections");
 
   return (
@@ -1370,6 +1383,13 @@ export function SettingsModal({ onClose }: Props) {
               active={section === "display"}
               onClick={() => setSection("display")}
             />
+            <NavItem
+              label="About"
+              icon={<Info className="w-4 h-4" />}
+              active={section === "about"}
+              onClick={() => setSection("about")}
+              badge={updateAvailable}
+            />
           </div>
           <div className="px-3 py-3 border-t border-border flex items-center justify-between">
             <DataHubBadge />
@@ -1390,6 +1410,7 @@ export function SettingsModal({ onClose }: Props) {
           <div className={section !== "model"       ? "hidden" : ""}><ModelSection /></div>
           <div className={section !== "prompt"      ? "hidden" : ""}><PromptSection /></div>
           <div className={section !== "display"     ? "hidden" : ""}><DisplaySection /></div>
+          {section === "about" && <AboutSection />}
         </div>
       </div>
     </div>
