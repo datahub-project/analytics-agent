@@ -51,9 +51,11 @@ async def _fetch_releases(limit: int = 10) -> list[dict]:
 async def get_version():
     """Return the running version and whether a newer GitHub release is available."""
     import importlib.metadata
+    import os
 
     try:
-        current = importlib.metadata.version("datahub-analytics-agent")
+        current = os.environ.get("ANALYTICS_AGENT_OVERRIDE_VERSION") or \
+                  importlib.metadata.version("datahub-analytics-agent")
     except Exception:
         current = "unknown"
 
