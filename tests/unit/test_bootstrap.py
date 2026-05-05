@@ -43,6 +43,24 @@ def test_run_migrations_creates_tables(sqlite_db, monkeypatch):
     assert "settings" in tables
 
 
+def test_run_migrations_works_without_alembic_ini_in_cwd(sqlite_db, monkeypatch, tmp_path):
+    # Simulate a pip-installed environment: CWD has no alembic.ini.
+    monkeypatch.chdir(tmp_path)
+    assert not (tmp_path / "alembic.ini").exists()
+
+    bootstrap.run_migrations()
+
+    sync_url = f"sqlite:///{sqlite_db}"
+    engine = create_engine(sync_url)
+    tables = set(inspect(engine).get_table_names())
+    engine.dispose()
+
+    assert "alembic_version" in tables
+    assert "integrations" in tables
+    assert "context_platforms" in tables
+    assert "settings" in tables
+
+
 @pytest.mark.asyncio
 async def test_seed_integrations_idempotent(sqlite_db, monkeypatch):
     repo_root = Path(__file__).resolve().parents[2]
