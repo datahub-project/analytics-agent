@@ -275,31 +275,83 @@ The service account needs at minimum:
 
 ---
 
-## LLM model routing
+## LLM providers
 
-Four independently configurable model tiers:
+Set `LLM_PROVIDER` to one of the values below, or use the **Settings → Model** wizard in the UI.
 
-| Task | Env var | Default (Anthropic) |
+| Provider | `LLM_PROVIDER` value | Auth |
 |---|---|---|
-| Main analysis agent | `LLM_MODEL` | `claude-sonnet-4-6` |
-| Chart generation | `CHART_LLM_MODEL` | `claude-haiku-4-5-20251001` |
-| Context quality scoring | `QUALITY_LLM_MODEL` | `claude-haiku-4-5-20251001` |
-| Titles & greeting | `DELIGHT_LLM_MODEL` | `claude-haiku-4-5-20251001` |
+| Anthropic (default) | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| Google Gemini | `google` | `GOOGLE_API_KEY` |
+| AWS Bedrock | `bedrock` | AWS credential chain |
+| OpenAI-compatible proxy | `openai-compatible` | `OPENAI_COMPAT_BASE_URL` + optional `OPENAI_COMPAT_API_KEY` |
+
+### Anthropic
 
 ```bash
 LLM_PROVIDER=anthropic
-LLM_MODEL=claude-opus-4-7          # upgrade just the agent
-QUALITY_LLM_MODEL=claude-sonnet-4-6 # or use a stronger model for quality scoring
+ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+Default models: `claude-sonnet-4-6` (main), `claude-haiku-4-5-20251001` (chart/quality/delight).
+
+### OpenAI
+
+```bash
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
+Default models: `gpt-4o` (main), `gpt-4o-mini` (chart/quality/delight).
+
+### Google Gemini
+
+```bash
+LLM_PROVIDER=google
+GOOGLE_API_KEY=AIza...
+```
+
+Default models: `gemini-2.0-flash` (main), `gemini-1.5-flash` (chart/quality/delight).
 
 ### AWS Bedrock
 
-Anthropic models can also be run via AWS Bedrock. Set `LLM_PROVIDER=bedrock` and use the Bedrock inference-profile model IDs (e.g. `us.anthropic.claude-sonnet-4-5-20250929-v1:0`). Auth falls back to the standard AWS credential chain (env vars, `~/.aws/credentials`, IAM role); to override, set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (and optionally `AWS_SESSION_TOKEN` for STS). `AWS_REGION` defaults to `us-west-2`.
+Runs Anthropic models via Bedrock. Auth falls back to the standard AWS credential chain (env vars, `~/.aws/credentials`, IAM role). Set `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (and optionally `AWS_SESSION_TOKEN`) to override. `AWS_REGION` defaults to `us-west-2`.
 
 ```bash
 LLM_PROVIDER=bedrock
 AWS_REGION=us-west-2
 LLM_MODEL=us.anthropic.claude-sonnet-4-5-20250929-v1:0
+```
+
+### OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, …)
+
+Any proxy that speaks the OpenAI chat completions API (`/v1/chat/completions`) works — LiteLLM, vLLM, Ollama, Azure OpenAI custom endpoints, etc. No extra dependencies required.
+
+```bash
+LLM_PROVIDER=openai-compatible
+OPENAI_COMPAT_BASE_URL=https://litellm.myorg.com/v1   # required
+OPENAI_COMPAT_API_KEY=sk-...                           # optional — omit if proxy uses network-level auth
+LLM_MODEL=llama3.2                                     # model name as the proxy expects it
+```
+
+You can also configure the proxy URL and model through **Settings → Model** in the UI.
+
+### Model tiers
+
+All providers support four independently overridable model tiers:
+
+| Task | Env var | Purpose |
+|---|---|---|
+| Main analysis agent | `LLM_MODEL` | SQL generation, reasoning |
+| Chart generation | `CHART_LLM_MODEL` | Vega-Lite chart spec |
+| Context quality scoring | `QUALITY_LLM_MODEL` | 1–5 catalog quality score |
+| Titles & greeting | `DELIGHT_LLM_MODEL` | Short text generation |
+
+```bash
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-opus-4-7           # upgrade just the agent
+QUALITY_LLM_MODEL=claude-sonnet-4-6 # or use a stronger model for quality scoring
 ```
 
 
