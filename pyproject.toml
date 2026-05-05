@@ -71,6 +71,7 @@ Repository = "https://github.com/datahub-project/analytics-agent"
 
 [project.scripts]
 analytics-agent = "analytics_agent.cli:cli"
+datahub-analytics-agent = "analytics_agent.cli:cli"
 
 [project.optional-dependencies]
 dev = [
