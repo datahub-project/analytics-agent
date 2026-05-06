@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.0.0",
-    "pyhive[hive]>=0.6.5",
+    "pyhive[hive_pure_sasl]>=0.7.0",
     "pure-sasl>=0.6.2",
     "thrift-sasl>=0.4.3",
     "orjson>=3.10.0",

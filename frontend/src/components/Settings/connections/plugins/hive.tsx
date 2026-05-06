@@ -11,7 +11,8 @@ export const hivePlugin = createSimplePlugin({
     { key: "port",     label: "Port",     type: "mono", placeholder: "10000" },
     { key: "database", label: "Database", type: "mono", placeholder: "default" },
     { key: "auth",     label: "Auth",     type: "mono", placeholder: "NONE  (or NOSASL, LDAP, KERBEROS)" },
-    { key: "user",     label: "Username", type: "mono", placeholder: "analytics_user" },
-    { key: "password", label: "Password", type: "password", placeholder: "LDAP/PLAIN only" },
+    { key: "user",                label: "Username",             type: "mono",     placeholder: "analytics_user" },
+    { key: "password",            label: "Password",             type: "password", placeholder: "LDAP/PLAIN only" },
+    { key: "kerberos_service_name", label: "Kerberos Service Name", type: "mono",   placeholder: "hive" },
   ],
 });
