@@ -67,6 +67,53 @@ def _make_openai_compat(model: str, streaming: bool) -> BaseChatModel:
     return ChatOpenAI(**kwargs)
 
 
+def _make_custom(model: str, streaming: bool) -> BaseChatModel:
+    import json
+
+    from langchain_openai import ChatOpenAI
+
+    url = settings.custom_llm_url
+    if not url:
+        raise ValueError("Custom LLM URL not configured (custom_llm_url is empty)")
+    if not model:
+        raise ValueError("Custom LLM model not specified")
+
+    # Parse custom headers from JSON
+    headers = {}
+    if settings.custom_llm_headers:
+        try:
+            headers = json.loads(settings.custom_llm_headers)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"Invalid custom headers JSON: {e}")
+
+    # Extract API key from Authorization header for ChatOpenAI
+    api_key = ""
+    if "Authorization" in headers:
+        auth_value = headers.get("Authorization", "")
+        if auth_value.startswith("Bearer "):
+            api_key = auth_value[7:]
+        else:
+            api_key = auth_value
+
+    # Remove base_url trailing slash to avoid double slashes
+    base_url = url.rstrip("/")
+
+    # Never send Authorization: Bearer dummy — gateways that use only X-Requester-Token
+    # (no Authorization in JSON) must not get a bogus bearer.
+    kwargs: dict = {
+        "model": model,
+        "base_url": base_url,
+        "api_key": SecretStr(api_key or ""),
+        "streaming": streaming,
+        "temperature": 0,
+    }
+
+    if headers:
+        kwargs["default_headers"] = {str(k): str(v) for k, v in headers.items()}
+
+    return ChatOpenAI(**kwargs)
+
+
 # Registry — adding a provider means adding one entry here.
 _FACTORIES: dict[str, Callable[[str, bool], BaseChatModel]] = {
     "anthropic": _make_anthropic,
@@ -74,6 +121,7 @@ _FACTORIES: dict[str, Callable[[str, bool], BaseChatModel]] = {
     "google": _make_google,
     "bedrock": _make_bedrock,
     "openai-compatible": _make_openai_compat,
+    "custom": _make_custom,
 }
 
 

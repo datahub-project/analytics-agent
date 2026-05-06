@@ -10,8 +10,11 @@ Usage in chat.py:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+from urllib.parse import urlparse
 from typing import TYPE_CHECKING, Any
 
 from analytics_agent.engines.base import QueryEngine
@@ -20,6 +23,32 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.contextmanager
+def _bypass_proxy_for_host(url: str) -> Any:
+    host = (urlparse(url).hostname or "").strip()
+    if not host:
+        yield
+        return
+
+    changed: list[tuple[str, str | None]] = []
+    for key in ("NO_PROXY", "no_proxy"):
+        old = os.environ.get(key)
+        items = [x.strip() for x in (old or "").split(",") if x.strip()]
+        if host in items:
+            continue
+        items.append(host)
+        changed.append((key, old))
+        os.environ[key] = ",".join(items)
+    try:
+        yield
+    finally:
+        for key, old in changed:
+            if old is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = old
 
 
 class MCPQueryEngine(QueryEngine):
@@ -40,7 +69,7 @@ class MCPQueryEngine(QueryEngine):
 
         if transport in ("http", "streamable_http"):
             return {
-                "transport": "http",
+                "transport": "streamable_http",
                 "url": self._mcp_cfg.get("url", ""),
                 "headers": self._mcp_cfg.get("headers") or None,
                 "timeout": 15,
@@ -74,7 +103,8 @@ class MCPQueryEngine(QueryEngine):
 
         conn = self._build_conn()
         client = MultiServerMCPClient({"engine": conn})  # type: ignore[dict-item]
-        tools = await client.get_tools()
+        with _bypass_proxy_for_host(str(conn.get("url", ""))):
+            tools = await client.get_tools()
         logger.info("MCP engine connected — %d tools available", len(tools))
 
         # Keep a reference to prevent GC, which would close the subprocess on stdio transport.

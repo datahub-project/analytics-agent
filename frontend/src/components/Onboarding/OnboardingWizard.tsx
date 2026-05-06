@@ -3,7 +3,8 @@ import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { saveDisplaySettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 import { useDisplayStore } from "@/store/display";
 
-type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible";
+type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible" | "custom";
+type HeaderPair = { key: string; value: string };
 
 interface WizardProps {
   onComplete: () => void;
@@ -14,7 +15,7 @@ interface WizardProps {
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
-const MODELS: Record<Provider, { value: string; label: string; note: string }[]> = {
+const MODELS = {
   anthropic: [
     { value: "claude-opus-4-7",           label: "Claude Opus 4.7",    note: "Most capable" },
     { value: "claude-sonnet-4-6",         label: "Claude Sonnet 4.6",  note: "Recommended"  },
@@ -38,9 +39,10 @@ const MODELS: Record<Provider, { value: string; label: string; note: string }[]>
   "openai-compatible": [
     { value: CUSTOM_MODEL_VALUE, label: "Model name", note: "Set by your proxy" },
   ],
-};
+} as Record<Exclude<Provider, "custom">, { value: string; label: string; note: string }[]>;
 
 function defaultModelFor(p: Provider): string {
+  if (p === "custom") return "";
   return p === "bedrock" || p === "openai-compatible" ? MODELS[p][0].value : MODELS[p][1].value;
 }
 
@@ -49,7 +51,8 @@ const providerLabel = (p: Provider) =>
     : p === "openai" ? "OpenAI"
     : p === "google" ? "Google"
     : p === "openai-compatible" ? "OpenAI-compatible"
-    : "AWS Bedrock";
+    : p === "bedrock" ? "AWS Bedrock"
+    : "Custom";
 
 // ─── Step 1 — warm inline sentence ────────────────────────────────────────────
 
@@ -157,6 +160,8 @@ interface Step2Props {
   provider: Provider;   onProvider: (p: Provider) => void;
   model: string;        onModel: (m: string) => void;
   customModel: string;  onCustomModel: (m: string) => void;
+  customUrl?: string;   onCustomUrl?: (u: string) => void;
+  customHeaders?: HeaderPair[]; onCustomHeaders?: (h: HeaderPair[]) => void;
   apiKey: string;       onApiKey: (k: string) => void;
   baseUrl: string;      onBaseUrl: (v: string) => void;
   awsRegion: string;    onAwsRegion: (v: string) => void;
@@ -169,7 +174,7 @@ interface Step2Props {
 function Step2Model(p: Step2Props) {
   const [showKey, setShowKey] = useState(false);
   const [showAwsSecret, setShowAwsSecret] = useState(false);
-  const models = MODELS[p.provider];
+  const models = p.provider !== "custom" ? MODELS[p.provider as Exclude<Provider, "custom">] : [];
   const isCustom = p.model === CUSTOM_MODEL_VALUE;
 
   const handleProvider = (next: Provider) => {
@@ -185,7 +190,7 @@ function Step2Model(p: Step2Props) {
       </div>
 
       <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 mb-7 w-fit">
-        {(["anthropic", "openai", "google", "bedrock", "openai-compatible"] as Provider[]).map((name) => (
+        {(["anthropic", "openai", "google", "bedrock", "openai-compatible", "custom"] as Provider[]).map((name) => (
           <button
             key={name}
             type="button"
@@ -201,39 +206,136 @@ function Step2Model(p: Step2Props) {
         ))}
       </div>
 
-      <div className="space-y-1 mb-4">
-        {models.map((m) => {
-          const active = p.model === m.value;
-          return (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => p.onModel(m.value)}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
-                transition-all duration-150 border
-                ${active
-                  ? "border-primary/30 bg-primary/[0.05]"
-                  : "border-transparent hover:border-border hover:bg-muted/40"
-                }`}
-            >
-              <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
-                transition-all duration-150
-                ${active ? "border-primary bg-primary" : "border-border"}`}>
-                {active && <div className="w-2 h-2 rounded-full bg-white" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
-                  {m.label}
+      {p.provider !== "custom" && (
+        <div className="space-y-1 mb-4">
+          {models.map((m: any) => {
+            const active = p.model === m.value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => p.onModel(m.value)}
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
+                  transition-all duration-150 border
+                  ${active
+                    ? "border-primary/30 bg-primary/[0.05]"
+                    : "border-transparent hover:border-border hover:bg-muted/40"
+                  }`}
+              >
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
+                  transition-all duration-150
+                  ${active ? "border-primary bg-primary" : "border-border"}`}>
+                  {active && <div className="w-2 h-2 rounded-full bg-white" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
+                    {m.label}
+                  </span>
+                </div>
+                <span className={`text-xs flex-shrink-0 ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
+                  {m.note}
                 </span>
-              </div>
-              <span className={`text-xs flex-shrink-0 ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
-                {m.note}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {isCustom && (
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {p.provider === "custom" && (
+        <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4 mb-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              LLM Backend URL <span className="text-primary">*</span>
+            </label>
+            <input
+              type="text"
+              value={p.customUrl ?? ""}
+              onChange={(e) => p.onCustomUrl?.(e.target.value)}
+              placeholder="http://localhost:8000/v1"
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+            <p className="text-xs text-muted-foreground/60 mt-1">OpenAI-compatible endpoint</p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              Model Name <span className="text-primary">*</span>
+            </label>
+            <input
+              type="text"
+              value={p.customModel}
+              onChange={(e) => p.onCustomModel(e.target.value)}
+              placeholder="custom-model"
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Custom Headers (optional)</label>
+            <p className="text-xs text-muted-foreground/60 mt-0.5 mb-2">Key-value pairs for authentication and other headers</p>
+            <div className="space-y-1">
+              {p.customHeaders && p.customHeaders.map((header, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={header.key}
+                    placeholder="Authorization"
+                    onChange={(e) => {
+                      const updated = [...(p.customHeaders || [])];
+                      updated[idx] = { ...updated[idx], key: e.target.value };
+                      p.onCustomHeaders?.(updated);
+                    }}
+                    className="w-32 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                  <span className="text-muted-foreground/40 text-xs">=</span>
+                  <input
+                    type="text"
+                    value={header.value}
+                    placeholder="Bearer …"
+                    onChange={(e) => {
+                      const updated = [...(p.customHeaders || [])];
+                      updated[idx] = { ...updated[idx], value: e.target.value };
+                      p.onCustomHeaders?.(updated);
+                    }}
+                    className="flex-1 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (p.customHeaders || []).filter((_, i) => i !== idx);
+                      p.onCustomHeaders?.(updated);
+                    }}
+                    className="text-muted-foreground/40 hover:text-red-500 transition-colors p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = [...(p.customHeaders || []), { key: "", value: "" }];
+                  p.onCustomHeaders?.(updated);
+                }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                + Add header
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={p.onVerify}
+            disabled={p.keyStatus.state === "testing" || !p.customUrl?.trim() || !p.customModel?.trim()}
+            className="text-sm px-4 py-2 rounded-lg border border-border
+                       hover:bg-muted/50 transition-colors disabled:opacity-40"
+          >
+            {p.keyStatus.state === "testing" ? "Verifying…" : "Verify configuration"}
+          </button>
+        </div>
+      )}
+      {isCustom && p.provider !== "custom" && (
         <input
           type="text"
           value={p.customModel}
@@ -246,7 +348,7 @@ function Step2Model(p: Step2Props) {
                      focus:border-primary/50 placeholder:text-muted-foreground/30"
         />
       )}
-      {!isCustom && <div className="mb-6" />}
+      {!isCustom && p.provider !== "custom" && <div className="mb-6" />}
 
       {/* Credentials — proxy URL + optional key, single API key, or Bedrock AWS fields. */}
       {p.provider === "openai-compatible" ? (
@@ -352,7 +454,7 @@ function Step2Model(p: Step2Props) {
             {p.keyStatus.state === "testing" ? "Verifying…" : "Verify credentials"}
           </button>
         </div>
-      ) : (
+      ) : p.provider !== "custom" ? (
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">
             API key <span className="text-primary">*</span>
@@ -381,7 +483,7 @@ function Step2Model(p: Step2Props) {
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="mt-2 min-h-[1.25rem]">
         {p.keyStatus.state === "testing" && (
@@ -399,7 +501,7 @@ function Step2Model(p: Step2Props) {
             <X className="w-3 h-3" strokeWidth={3} /> {p.keyStatus.msg}
           </p>
         )}
-        {p.keyStatus.state === "idle" && p.provider !== "bedrock" && p.provider !== "openai-compatible" && (
+        {p.keyStatus.state === "idle" && p.provider !== "bedrock" && p.provider !== "openai-compatible" && p.provider !== "custom" && (
           <p className="text-xs text-muted-foreground/50">
             {p.provider === "anthropic"
               ? "console.anthropic.com/settings/api-keys"
@@ -453,6 +555,8 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [provider, setProvider] = useState<Provider>("anthropic");
   const [model, setModel] = useState(defaultModelFor("anthropic"));
   const [customModel, setCustomModel] = useState("");
+  const [customUrl, setCustomUrl] = useState("");
+  const [customHeaders, setCustomHeaders] = useState<HeaderPair[]>([]);
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [awsRegion, setAwsRegion] = useState("us-west-2");
@@ -462,7 +566,7 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ state: "idle" });
 
   // Reset verification whenever any credential field changes.
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel]);
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel, customUrl]);
 
   const [step, setStep] = useState(0);
   const [animKey, setAnimKey] = useState(0);
@@ -471,13 +575,17 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
 
   const displayName = agentName.trim() || "Analytics Agent";
   const isCustomModel = model === CUSTOM_MODEL_VALUE;
-  const effectiveModel = isCustomModel ? customModel.trim() : model;
+  const effectiveModel =
+    provider === "custom" ? customModel.trim() : isCustomModel ? customModel.trim() : model;
 
   // Step 2 advance rules:
+  //  - Custom: require URL, model, and verification passed.
   //  - Bedrock: allow as long as we have a model and verification didn't fail.
   //  - openai-compatible: require a base URL (API key is optional).
   //  - Others: require an API key that isn't known-bad.
-  const canAdvanceStep2 = provider === "bedrock"
+  const canAdvanceStep2 = provider === "custom"
+    ? customUrl.trim().length > 0 && customModel.trim().length > 0 && keyStatus.state !== "fail"
+    : provider === "bedrock"
     ? !!effectiveModel && keyStatus.state !== "fail"
     : provider === "openai-compatible"
     ? baseUrl.trim().length > 0 && !!effectiveModel && keyStatus.state !== "fail"
@@ -490,9 +598,20 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
     setAnimKey(k => k + 1);
   };
 
+  const serializeHeaders = (headers: HeaderPair[]): string => {
+    const filtered = headers
+      .filter(h => h.key.trim() && h.value.trim())
+      .reduce((acc, h) => {
+        acc[h.key.trim()] = h.value.trim();
+        return acc;
+      }, {} as Record<string, string>);
+    return Object.keys(filtered).length > 0 ? JSON.stringify(filtered) : "";
+  };
+
   const runKeyTest = async (): Promise<boolean> => {
     if (provider === "openai-compatible" && !baseUrl.trim()) return false;
-    if (provider !== "bedrock" && provider !== "openai-compatible" && !apiKey.trim()) return false;
+    if (provider === "custom" && (!customUrl.trim() || !customModel.trim())) return false;
+    if (provider !== "bedrock" && provider !== "openai-compatible" && provider !== "custom" && !apiKey.trim()) return false;
     setKeyStatus({ state: "testing" });
     try {
       const result = await testLlmKey({
@@ -504,6 +623,9 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
         aws_access_key_id: awsAccessKey.trim(),
         aws_secret_access_key: awsSecret.trim(),
         aws_session_token: awsSessionToken.trim(),
+        custom_url: customUrl.trim(),
+        custom_model: customModel.trim(),
+        custom_headers: serializeHeaders(customHeaders),
       });
       const next: KeyStatus = result.ok
         ? { state: "ok", msg: result.message }
@@ -529,6 +651,16 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
           setError("Enter a model ID or pick one from the list.");
           return;
         }
+        if (provider === "custom") {
+          if (!customUrl.trim()) {
+            setError("Enter the LLM backend URL.");
+            return;
+          }
+          if (!customModel.trim()) {
+            setError("Enter the model name.");
+            return;
+          }
+        }
         if (keyStatus.state !== "ok") {
           const ok = await runKeyTest();
           if (!ok) return;
@@ -542,6 +674,9 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
           aws_access_key_id: awsAccessKey.trim(),
           aws_secret_access_key: awsSecret.trim(),
           aws_session_token: awsSessionToken.trim(),
+          custom_url: customUrl.trim(),
+          custom_model: customModel.trim(),
+          custom_headers: serializeHeaders(customHeaders),
         });
         onComplete();
       }
@@ -621,6 +756,8 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
               provider={provider} onProvider={setProvider}
               model={model}       onModel={setModel}
               customModel={customModel} onCustomModel={setCustomModel}
+              customUrl={customUrl} onCustomUrl={setCustomUrl}
+              customHeaders={customHeaders} onCustomHeaders={setCustomHeaders}
               apiKey={apiKey}     onApiKey={setApiKey}
               baseUrl={baseUrl}   onBaseUrl={setBaseUrl}
               awsRegion={awsRegion} onAwsRegion={setAwsRegion}

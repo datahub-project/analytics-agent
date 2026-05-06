@@ -248,6 +248,10 @@ export interface LlmSettings {
   aws_region?: string;
   enable_prompt_cache?: boolean;
   base_url?: string;
+  custom_url?: string;
+  custom_model?: string;
+  has_custom_headers?: boolean;
+  custom_header_keys?: string[];
 }
 
 /** Bedrock-only credential fields. All optional — leave blank to use the
@@ -265,28 +269,69 @@ export async function getLlmSettings(): Promise<LlmSettings> {
   return res.json();
 }
 
+const LLM_VERIFY_TIMEOUT_MS = 30_000;
+
+/** Shown when verify is aborted after LLM_VERIFY_TIMEOUT_MS (wizard + Model settings). */
+export const LLM_VERIFY_TIMEOUT_MESSAGE =
+  "Verification timed out after 30 seconds. The LLM endpoint may be slow, unreachable, or blocked by a firewall or proxy. Check the URL, credentials, and network, then try again.";
+
+function isVerifyAbortError(e: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" && e instanceof DOMException && e.name === "AbortError") ||
+    (e instanceof Error && e.name === "AbortError")
+  );
+}
+
 export async function testLlmKey(s: {
   provider: string;
   api_key: string;
   model?: string;
   base_url?: string;
+  custom_url?: string;
+  custom_model?: string;
+  custom_headers?: string;
 } & BedrockCredentials): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch("/api/settings/llm/test", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      provider: s.provider,
-      api_key: s.api_key,
-      model: s.model ?? "",
-      base_url: s.base_url ?? "",
-      aws_region: s.aws_region ?? "",
-      aws_access_key_id: s.aws_access_key_id ?? "",
-      aws_secret_access_key: s.aws_secret_access_key ?? "",
-      aws_session_token: s.aws_session_token ?? "",
-    }),
-  });
-  if (!res.ok) throw new Error("Test request failed");
-  return res.json();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), LLM_VERIFY_TIMEOUT_MS);
+  try {
+    const res = await fetch("/api/settings/llm/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        provider: s.provider,
+        api_key: s.api_key,
+        model: s.model ?? "",
+        base_url: s.base_url ?? "",
+        aws_region: s.aws_region ?? "",
+        aws_access_key_id: s.aws_access_key_id ?? "",
+        aws_secret_access_key: s.aws_secret_access_key ?? "",
+        aws_session_token: s.aws_session_token ?? "",
+        custom_url: s.custom_url ?? "",
+        custom_model: s.custom_model ?? "",
+        custom_headers: s.custom_headers ?? "",
+      }),
+    });
+    if (!res.ok) {
+      let detail = "Test request failed";
+      try {
+        const err = await res.json();
+        const d = err?.detail;
+        detail = typeof d === "string" ? d : d != null ? JSON.stringify(d) : detail;
+      } catch {
+        /* ignore */
+      }
+      return { ok: false, message: detail };
+    }
+    return res.json() as Promise<{ ok: boolean; message: string }>;
+  } catch (e) {
+    if (isVerifyAbortError(e)) {
+      return { ok: false, message: LLM_VERIFY_TIMEOUT_MESSAGE };
+    }
+    throw e;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export async function saveLlmSettings(s: {
@@ -295,6 +340,9 @@ export async function saveLlmSettings(s: {
   model?: string;
   enable_prompt_cache?: boolean;
   base_url?: string;
+  custom_url?: string;
+  custom_model?: string;
+  custom_headers?: string;
 } & BedrockCredentials): Promise<void> {
   const res = await fetch("/api/settings/llm", {
     method: "PUT",
@@ -309,6 +357,9 @@ export async function saveLlmSettings(s: {
       aws_secret_access_key: s.aws_secret_access_key ?? "",
       aws_session_token: s.aws_session_token ?? "",
       enable_prompt_cache: s.enable_prompt_cache ?? true,
+      custom_url: s.custom_url ?? "",
+      custom_model: s.custom_model ?? "",
+      custom_headers: s.custom_headers ?? "",
     }),
   });
   if (!res.ok) throw new Error("Failed to save LLM settings");

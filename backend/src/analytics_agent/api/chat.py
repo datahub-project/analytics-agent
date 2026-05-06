@@ -49,6 +49,12 @@ _quality_last_count: dict[str, int] = {}
 _context_call_counts: dict[str, int] = {}
 
 
+def _format_error(exc: BaseException) -> str:
+    if isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        return _format_error(exc.exceptions[0])
+    return f"{exc.__class__.__name__}: {exc}"
+
+
 def _maybe_schedule_quality(conv_id: str, factory) -> None:
     now = time.monotonic()
     current = _context_call_counts.get(conv_id, 0)
@@ -280,7 +286,7 @@ async def _run_and_broadcast(
                             "event": "ERROR",
                             "conversation_id": conversation_id,
                             "message_id": str(uuid.uuid4()),
-                            "payload": {"error": str(exc)},
+                            "payload": {"error": _format_error(exc)},
                         },
                         {
                             "event": "COMPLETE",

@@ -145,6 +145,13 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "quality": "",
         "delight": "",
     },
+    # Custom provider — full OpenAI-compatible backend with headers + encryption.
+    "custom": {
+        "main": "",
+        "chart": "",
+        "quality": "",
+        "delight": "",
+    },
 }
 
 # Env var name that holds the API key for each provider.
@@ -190,6 +197,10 @@ class Settings(BaseSettings):
     # Anthropic + Bedrock prompt caching (system prompt + tool definitions).
     # Disable if you hit a Bedrock region/model where caching isn't supported.
     enable_prompt_cache: bool = True
+    # Custom provider — OpenAI-compatible backend with custom headers
+    custom_llm_url: str = ""
+    custom_llm_model: str = ""
+    custom_llm_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
     # Model IDs — override any tier independently via env vars.
     # Unset tiers fall back to PROVIDER_DEFAULTS[llm_provider][tier].
     llm_model: str = ""  # LLM_MODEL         — main analysis agent
@@ -202,16 +213,28 @@ class Settings(BaseSettings):
         return provider_defaults[tier]
 
     def get_llm_model(self) -> str:
-        return self.llm_model or self._default_model("main")
+        main = self.llm_model or self._default_model("main")
+        if self.llm_provider == "custom" and not main:
+            main = self.custom_llm_model
+        return main
 
     def get_chart_llm_model(self) -> str:
-        return self.chart_llm_model or self._default_model("chart")
+        chart = self.chart_llm_model or self._default_model("chart")
+        if self.llm_provider == "custom" and not chart:
+            chart = self.llm_model or self.custom_llm_model
+        return chart
 
     def get_quality_llm_model(self) -> str:
-        return self.quality_llm_model or self._default_model("quality")
+        qual = self.quality_llm_model or self._default_model("quality")
+        if self.llm_provider == "custom" and not qual:
+            qual = self.llm_model or self.custom_llm_model
+        return qual
 
     def get_delight_llm_model(self) -> str:
-        return self.delight_llm_model or self._default_model("delight")
+        delight = self.delight_llm_model or self._default_model("delight")
+        if self.llm_provider == "custom" and not delight:
+            delight = self.llm_model or self.custom_llm_model
+        return delight
 
     def get_api_key(self) -> str:
         """Return the configured API key for the active provider."""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import ipaddress
+import json
 import os
 import pathlib
 import urllib.parse
@@ -229,6 +230,8 @@ _KNOWN_TOOLS: dict[str, list[dict]] = {
         {"name": "create_chart", "label": "Create visualizations"},
     ],
 }
+
+_MCP_ENGINE_TYPES = {"mcp", "mcp-stdio", "mcp-sse"}
 
 
 def _build_tool_toggles(
@@ -731,6 +734,21 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     ]
                     if f is not None
                 ]
+        elif intg.type in _MCP_ENGINE_TYPES:
+            mcp_cfg = conn_cfg.get("_mcp", {})
+            if isinstance(mcp_cfg, str):
+                with contextlib.suppress(Exception):
+                    mcp_cfg = orjson.loads(mcp_cfg)
+            if not isinstance(mcp_cfg, dict):
+                mcp_cfg = {}
+
+            transport = str(mcp_cfg.get("transport", "")).strip().lower()
+            if transport == "stdio":
+                has_cfg = bool(str(mcp_cfg.get("command", "")).strip())
+            else:
+                has_cfg = bool(str(mcp_cfg.get("url", "")).strip())
+            status_str = "connected" if has_cfg else "unconfigured"
+            fields = []
         else:
             status_str = "unconfigured"
             fields = []
@@ -802,8 +820,8 @@ async def create_connection(
     }
     label = body.label or f"{_type_labels.get(body.type, body.type.capitalize())} ({name})"
 
-    # Build config — merge flat fields + serialized MCP config if present
     conn_cfg = dict(body.config)
+    engine_type = body.type
     if body.mcp_config:
         from analytics_agent.config import DataHubMCPConfig
 
@@ -812,7 +830,6 @@ async def create_connection(
         if transport in ("http", "sse", "streamable_http"):
             _validate_mcp_url(url)
         headers = dict(body.mcp_config.headers or {})
-        # token from conn_cfg["token"] → Authorization header
         if conn_cfg.get("token"):
             headers["Authorization"] = f"Bearer {conn_cfg.pop('token')}"
         mcp_cfg = DataHubMCPConfig(
@@ -824,7 +841,23 @@ async def create_connection(
             args=list(body.mcp_config.args or []),
             env=dict(body.mcp_config.env or {}),
         )
-        conn_cfg = mcp_cfg.model_dump()
+        if body.type in _CONTEXT_PLATFORM_TYPES or body.category == "context_platform":
+            conn_cfg = mcp_cfg.model_dump()
+        else:
+            conn_cfg["_mcp"] = {
+                "transport": transport,
+                "url": url,
+                "headers": headers,
+                "command": body.mcp_config.command or "",
+                "args": list(body.mcp_config.args or []),
+                "env": dict(body.mcp_config.env or {}),
+            }
+            if transport == "stdio":
+                engine_type = "mcp-stdio"
+            elif transport == "sse":
+                engine_type = "mcp-sse"
+            else:
+                engine_type = "mcp"
 
     # Context platforms go to context_platforms table
     if body.type in _CONTEXT_PLATFORM_TYPES or body.category == "context_platform":
@@ -925,7 +958,7 @@ async def create_connection(
     await repo.upsert(
         id=integration_id,
         name=name,
-        type=body.type,
+        type=engine_type,
         label=label,
         config=orjson.dumps(conn_cfg).decode(),
         source="ui",
@@ -933,14 +966,14 @@ async def create_connection(
 
     # If the caller supplied secrets, translate and persist them to .env now.
     if body.secrets:
-        secret_env_vars = _resolve_secrets(body.type, body.secrets)
+        secret_env_vars = _resolve_secrets(engine_type, body.secrets)
         if secret_env_vars:
             env_path = _find_env_file()
             _upsert_env_vars(env_path, secret_env_vars)
             for k, v in secret_env_vars.items():
                 os.environ[k] = v
 
-    register_engine(name, body.type, conn_cfg)
+    register_engine(name, engine_type, conn_cfg)
     return {"success": True, "name": name, "message": f"Connection '{name}' created."}
 
 
@@ -1817,6 +1850,44 @@ def _fernet_decrypt(value: str) -> str:
     return Fernet(key.encode()).decrypt(value.encode()).decode()
 
 
+def _parse_custom_llm_headers_json(raw: str | None) -> dict[str, str]:
+    if not raw or not str(raw).strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        ks = str(k).strip()
+        if not ks:
+            continue
+        out[ks] = "" if v is None else str(v)
+    return out
+
+
+def _merge_custom_llm_headers_request(request_json: str | None, stored_json: str | None) -> dict[str, str]:
+    """Build headers for a custom LLM request using the UI payload plus stored secrets.
+
+    The Model settings UI lists saved header keys but leaves values blank so secrets
+    are not echoed; empty strings in the request must keep the previously stored value.
+    """
+    stored = _parse_custom_llm_headers_json(stored_json)
+    req = _parse_custom_llm_headers_json(request_json)
+    if not req:
+        return dict(stored)
+    out: dict[str, str] = {}
+    for k, v in req.items():
+        stripped = v.strip()
+        if stripped:
+            out[k] = stripped
+        elif k in stored:
+            out[k] = stored[k]
+    return out
+
+
 class LlmSettingsResponse(BaseModel):
     provider: str = "anthropic"
     model: str = ""
@@ -1828,6 +1899,11 @@ class LlmSettingsResponse(BaseModel):
     enable_prompt_cache: bool = True
     # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
     base_url: str = ""
+    # Custom provider — OpenAI-compatible backend with headers
+    custom_url: str = ""
+    custom_model: str = ""
+    has_custom_headers: bool = False
+    custom_header_keys: list[str] = []  # List of header keys (values omitted for security)
 
 
 class UpdateLlmSettingsRequest(BaseModel):
@@ -1843,6 +1919,10 @@ class UpdateLlmSettingsRequest(BaseModel):
     enable_prompt_cache: bool = True
     # OpenAI-compatible proxy base URL (plaintext — not a secret).
     base_url: str = ""
+    # Custom provider — OpenAI-compatible backend with headers
+    custom_url: str = ""
+    custom_model: str = ""
+    custom_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1852,17 +1932,30 @@ async def get_llm_settings() -> LlmSettingsResponse:
     The startup hook (_load_llm_config_from_db in main.py) copies any DB-stored
     key into the settings singleton, so reading the singleton is authoritative.
     """
+    import json
+
     from analytics_agent.config import PROVIDER_KEY_ATTR
     from analytics_agent.config import settings as cfg
 
     provider = cfg.llm_provider
     key_attr = PROVIDER_KEY_ATTR.get(provider, "")
     has_aws_keys = bool(cfg.aws_access_key_id and cfg.aws_secret_access_key)
+    has_custom_headers = bool(cfg.custom_llm_headers)
+    custom_header_keys = []
+    if has_custom_headers:
+        try:
+            headers = json.loads(cfg.custom_llm_headers)
+            custom_header_keys = list(headers.keys()) if isinstance(headers, dict) else []
+        except (json.JSONDecodeError, TypeError):
+            pass
     if provider == "bedrock":
         # Bedrock has no single "API key". It's considered configured if the
         # provider is explicitly selected — auth falls back to the AWS credential
         # chain (env vars, ~/.aws/credentials, IAM role) at call time.
         has_key = True
+    elif provider == "custom":
+        # Custom provider is configured if URL and model are set
+        has_key = bool(cfg.custom_llm_url and cfg.custom_llm_model)
     else:
         has_key = bool(getattr(cfg, key_attr, "")) if key_attr else False
     return LlmSettingsResponse(
@@ -1873,6 +1966,10 @@ async def get_llm_settings() -> LlmSettingsResponse:
         aws_region=cfg.aws_region,
         enable_prompt_cache=cfg.enable_prompt_cache,
         base_url=cfg.openai_compat_base_url if provider == "openai-compatible" else "",
+        custom_url=cfg.custom_llm_url,
+        custom_model=cfg.custom_llm_model,
+        has_custom_headers=has_custom_headers,
+        custom_header_keys=custom_header_keys,
     )
 
 
@@ -1887,6 +1984,10 @@ class TestLlmKeyRequest(BaseModel):
     aws_session_token: str = ""
     # OpenAI-compatible proxy base URL.
     base_url: str = ""
+    # Custom provider — OpenAI-compatible backend with headers
+    custom_url: str = ""
+    custom_model: str = ""
+    custom_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
 
 
 class TestLlmKeyResponse(BaseModel):
@@ -1901,12 +2002,20 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
     Does NOT save anything — purely a connectivity check.
     """
     import asyncio
+    import logging
 
     from pydantic import SecretStr
 
+    logger = logging.getLogger(__name__)
+    logger.info(f"Testing LLM provider: {body.provider}")
+
     def _run() -> None:
+        import json
+        import logging
+
         from analytics_agent.config import PROVIDER_DEFAULTS
 
+        logger = logging.getLogger(__name__)
         defaults = PROVIDER_DEFAULTS.get(body.provider, PROVIDER_DEFAULTS["openai"])
         model = body.model or defaults["chart"]  # use cheap/fast tier for the test
 
@@ -1957,6 +2066,48 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
                 base_url=body.base_url,
                 api_key=SecretStr(body.api_key or "no-key"),  # type: ignore[call-arg]
             )
+        elif body.provider == "custom":
+            from langchain_openai import ChatOpenAI
+
+            from analytics_agent.config import settings as _cfg
+
+            url = body.custom_url
+            if not url:
+                raise ValueError("Custom LLM URL not configured")
+            if not body.custom_model:
+                raise ValueError("Custom LLM model not specified")
+
+            logger.info(f"Testing custom LLM provider: url={url}, model={body.custom_model}")
+
+            headers = _merge_custom_llm_headers_request(body.custom_headers, _cfg.custom_llm_headers)
+            header_names = list(headers.keys())
+            if header_names:
+                logger.info(f"Custom headers used (names only): {header_names}")
+
+            # Extract API key from Authorization header for ChatOpenAI
+            api_key = ""
+            if "Authorization" in headers:
+                auth_value = headers.get("Authorization", "")
+                if auth_value.startswith("Bearer "):
+                    api_key = auth_value[7:]
+                else:
+                    api_key = auth_value
+
+            # Remove base_url trailing slash to avoid double slashes
+            base_url = url.rstrip("/")
+
+            llm_kwargs = {
+                "model": body.custom_model,
+                "base_url": base_url,
+                "api_key": SecretStr(api_key or ""),
+                "max_tokens": 1,
+                "temperature": 0,
+            }
+
+            if headers:
+                llm_kwargs["default_headers"] = {str(k): str(v) for k, v in headers.items()}
+
+            llm = ChatOpenAI(**llm_kwargs)
         else:
             from langchain_openai import ChatOpenAI
 
@@ -1968,11 +2119,23 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
             )
         llm.invoke("hi")
 
+    _VERIFY_TIMEOUT_S = 30.0
+    _VERIFY_TIMEOUT_MSG = (
+        "Verification timed out after 30 seconds. The LLM endpoint may be slow, unreachable, "
+        "or blocked by a firewall or proxy. Check the URL, credentials, and network, then try again."
+    )
     try:
-        await asyncio.to_thread(_run)
+        await asyncio.wait_for(asyncio.to_thread(_run), timeout=_VERIFY_TIMEOUT_S)
         return TestLlmKeyResponse(ok=True, message="Key verified")
+    except TimeoutError:
+        return TestLlmKeyResponse(ok=False, message=_VERIFY_TIMEOUT_MSG)
     except Exception as exc:
+        import logging
+        logger = logging.getLogger(__name__)
         raw = str(exc)
+        logger.error(f"LLM test failed for provider={body.provider}: {raw}")
+        if body.provider == "custom":
+            logger.error(f"Custom provider error details: {exc.__class__.__name__}: {raw}")
         if (
             "401" in raw
             or "authentication" in raw.lower()
@@ -2015,8 +2178,12 @@ async def update_llm_settings(
             pass
 
     new_cfg: dict[str, str] = {**existing, "provider": body.provider}
-    if body.model:
-        new_cfg["model"] = body.model
+    custom_headers_merged_plain: str | None = None
+    model_to_store = body.model
+    if body.provider == "custom" and not model_to_store.strip() and body.custom_model:
+        model_to_store = body.custom_model
+    if model_to_store.strip():
+        new_cfg["model"] = model_to_store.strip()
     if body.api_key:
         new_cfg["api_key"] = _fernet_encrypt(body.api_key)
     # Bedrock AWS fields. Region stored plaintext (non-secret); keys encrypted.
@@ -2033,6 +2200,21 @@ async def update_llm_settings(
     # OpenAI-compatible proxy base URL — plaintext, not a secret.
     if body.base_url:
         new_cfg["base_url"] = body.base_url
+    # Custom provider fields. URL stored plaintext; headers encrypted.
+    if body.custom_url:
+        new_cfg["custom_url"] = body.custom_url
+    if body.custom_model:
+        new_cfg["custom_model"] = body.custom_model
+    if body.provider == "custom" and body.custom_headers.strip():
+        existing_enc = existing.get("custom_headers", "") or ""
+        existing_plain = _fernet_decrypt(existing_enc) if existing_enc else ""
+        merged = _merge_custom_llm_headers_request(body.custom_headers, existing_plain)
+        if merged:
+            custom_headers_merged_plain = json.dumps(merged)
+            new_cfg["custom_headers"] = _fernet_encrypt(custom_headers_merged_plain)
+        else:
+            new_cfg.pop("custom_headers", None)
+            custom_headers_merged_plain = ""
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -2042,9 +2224,9 @@ async def update_llm_settings(
 
     os.environ["LLM_PROVIDER"] = body.provider
     cfg.llm_provider = body.provider
-    if body.model:
-        os.environ["LLM_MODEL"] = body.model
-        cfg.llm_model = body.model
+    if model_to_store.strip():
+        os.environ["LLM_MODEL"] = model_to_store.strip()
+        cfg.llm_model = model_to_store.strip()
     if body.api_key:
         env_var = PROVIDER_KEY_ENV.get(body.provider)
         attr = PROVIDER_KEY_ATTR.get(body.provider)
@@ -2070,6 +2252,20 @@ async def update_llm_settings(
     if body.base_url:
         os.environ["OPENAI_COMPAT_BASE_URL"] = body.base_url
         cfg.openai_compat_base_url = body.base_url
+    # Custom provider fields flow into both env and singleton.
+    if body.custom_url:
+        os.environ["CUSTOM_LLM_URL"] = body.custom_url
+        cfg.custom_llm_url = body.custom_url
+    if body.custom_model:
+        os.environ["CUSTOM_LLM_MODEL"] = body.custom_model
+        cfg.custom_llm_model = body.custom_model
+    if custom_headers_merged_plain is not None:
+        if custom_headers_merged_plain:
+            os.environ["CUSTOM_LLM_HEADERS"] = custom_headers_merged_plain
+            cfg.custom_llm_headers = custom_headers_merged_plain
+        else:
+            os.environ.pop("CUSTOM_LLM_HEADERS", None)
+            cfg.custom_llm_headers = ""
 
     return {"success": True, "message": "LLM settings saved."}
 

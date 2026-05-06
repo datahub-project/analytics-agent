@@ -2,13 +2,14 @@ import { useState, useEffect } from "react";
 import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { getLlmSettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 
-type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible";
+type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible" | "custom";
+type HeaderPair = { key: string; value: string };
 
 // Sentinel value for the "Custom…" radio option on providers (Bedrock) where
 // users commonly need to pin a specific model ID / inference profile.
 const CUSTOM_MODEL_VALUE = "__custom__";
 
-const MODELS: Record<Provider, { value: string; label: string; note: string }[]> = {
+const MODELS = {
   anthropic: [
     { value: "claude-opus-4-7",           label: "Claude Opus 4.7",    note: "Most capable" },
     { value: "claude-sonnet-4-6",         label: "Claude Sonnet 4.6",  note: "Recommended"  },
@@ -32,11 +33,12 @@ const MODELS: Record<Provider, { value: string; label: string; note: string }[]>
   "openai-compatible": [
     { value: CUSTOM_MODEL_VALUE, label: "Model name", note: "Set by your proxy" },
   ],
-};
+} as Record<Exclude<Provider, "custom">, { value: string; label: string; note: string }[]>;
 
 // Pick a sensible default model when switching providers. For Bedrock and
 // openai-compatible we pick index 0; others use index 1 ("Recommended" row).
 function defaultModelFor(p: Provider): string {
+  if (p === "custom") return "";
   return p === "bedrock" || p === "openai-compatible" ? MODELS[p][0].value : MODELS[p][1].value;
 }
 
@@ -61,10 +63,14 @@ export function ModelSection() {
   const [awsSessionToken, setAwsSessionToken] = useState("");
   const [showSessionToken, setShowSessionToken] = useState(false);
   const [enablePromptCache, setEnablePromptCache] = useState(true);
+  // Custom provider fields.
+  const [customUrl, setCustomUrl] = useState("");
+  const [customHeaders, setCustomHeaders] = useState<HeaderPair[]>([]);
   // Track which provider the saved key belongs to so switching away and back
   // correctly shows/hides the "Key saved" placeholder.
   const [savedProvider, setSavedProvider] = useState<Provider | null>(null);
   const [hasSavedAwsKeys, setHasSavedAwsKeys] = useState(false);
+  const [savedHeaderKeys, setSavedHeaderKeys] = useState<string[]>([]);
   const [showKey, setShowKey] = useState(false);
   const [showAwsSecret, setShowAwsSecret] = useState(false);
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ state: "idle" });
@@ -73,7 +79,8 @@ export function ModelSection() {
   const [loading, setLoading] = useState(true);
 
   const isCustomModel = model === CUSTOM_MODEL_VALUE;
-  const effectiveModel = isCustomModel ? customModel.trim() : model;
+  const effectiveModel =
+    provider === "custom" ? customModel.trim() : isCustomModel ? customModel.trim() : model;
   const hasExistingKey = savedProvider === provider && !apiKey;
   // Bedrock has a separate "configured" concept — either stored keys OR the
   // user opted into the system credential chain by saving with blank fields.
@@ -83,19 +90,32 @@ export function ModelSection() {
     getLlmSettings()
       .then((s) => {
         const p = (s.provider ?? "anthropic") as Provider;
-        const knownProvider = p in MODELS ? p : "anthropic";
-        setProvider(knownProvider);
-        const knownModels = MODELS[knownProvider].map((m) => m.value);
-        if (s.model && knownModels.includes(s.model)) {
-          setModel(s.model);
-        } else if (s.model) {
-          // Saved model isn't in the curated list — treat as custom.
-          setModel(CUSTOM_MODEL_VALUE);
-          setCustomModel(s.model);
+        const knownProvider = (p in MODELS ? p : "anthropic") as Exclude<Provider, "custom">;
+        setProvider(p);
+        if (p === "custom") {
+          // Custom provider: load URL, model, and headers from settings
+          setCustomUrl(s.custom_url ?? "");
+          setCustomModel(s.custom_model ?? "");
+          if (s.has_custom_headers) {
+            setSavedProvider(p);
+            const keys = s.custom_header_keys ?? [];
+            setSavedHeaderKeys(keys);
+            // Pre-populate headers with keys but no values so user can update
+            setCustomHeaders(keys.map(k => ({ key: k, value: "" })));
+          }
         } else {
-          setModel(defaultModelFor(knownProvider));
+          const knownModels = MODELS[knownProvider].map((m) => m.value);
+          if (s.model && knownModels.includes(s.model)) {
+            setModel(s.model);
+          } else if (s.model) {
+            // Saved model isn't in the curated list — treat as custom.
+            setModel(CUSTOM_MODEL_VALUE);
+            setCustomModel(s.model);
+          } else {
+            setModel(defaultModelFor(knownProvider));
+          }
+          if (s.has_key) setSavedProvider(knownProvider);
         }
-        if (s.has_key) setSavedProvider(knownProvider);
         if (s.aws_region) setAwsRegion(s.aws_region);
         if (s.has_aws_keys) setHasSavedAwsKeys(true);
         if (s.enable_prompt_cache !== undefined) setEnablePromptCache(s.enable_prompt_cache);
@@ -105,14 +125,16 @@ export function ModelSection() {
   }, []);
 
   // Reset key status whenever any credential field changes.
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken]);
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customUrl, customHeaders]);
   // Reset save status on any change.
-  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, baseUrl, awsAccessKey, awsSecret, awsRegion, awsSessionToken, enablePromptCache]);
+  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, baseUrl, awsAccessKey, awsSecret, awsRegion, awsSessionToken, enablePromptCache, customUrl, customHeaders]);
 
   const handleProvider = (p: Provider) => {
     setProvider(p);
     setModel(defaultModelFor(p));
     setCustomModel("");
+    setCustomUrl("");
+    setCustomHeaders([]);
     setApiKey("");
     setBaseUrl("");
     setAwsAccessKey("");
@@ -130,13 +152,15 @@ export function ModelSection() {
     aws_access_key_id: awsAccessKey.trim(),
     aws_secret_access_key: awsSecret.trim(),
     aws_session_token: awsSessionToken.trim(),
+    custom_url: customUrl.trim(),
+    custom_model: customModel.trim(),
+    custom_headers: customHeaders.length > 0 ? JSON.stringify(Object.fromEntries(customHeaders.map((h) => [h.key.trim(), h.value.trim()]))) : "",
   });
 
   const runKeyTest = async (): Promise<boolean> => {
-    // For non-Bedrock: nothing new to test if field is empty; existing key is fine.
-    if (provider !== "bedrock" && !apiKey.trim()) return hasExistingKey;
-    // For Bedrock: always testable — it'll use either the typed creds, the
-    // stored creds, or the default AWS chain.
+    // For non-Bedrock/custom: nothing new to test if field is empty; existing key is fine.
+    if (provider !== "bedrock" && provider !== "custom" && !apiKey.trim()) return hasExistingKey;
+    // For Bedrock and custom: always testable — use either the typed creds or existing stored creds.
     setKeyStatus({ state: "testing" });
     try {
       const result = await testLlmKey(buildTestPayload());
@@ -157,6 +181,18 @@ export function ModelSection() {
       setError("Enter a model ID or pick one from the list.");
       setSaveStatus("error");
       return;
+    }
+    if (provider === "custom") {
+      if (!customUrl.trim()) {
+        setError("Enter the LLM backend URL.");
+        setSaveStatus("error");
+        return;
+      }
+      if (!customModel.trim()) {
+        setError("Enter the model name.");
+        setSaveStatus("error");
+        return;
+      }
     }
     setSaveStatus("saving");
     try {
@@ -183,6 +219,12 @@ export function ModelSection() {
           const ok = await runKeyTest();
           if (!ok) { setSaveStatus("error"); return; }
         }
+      } else if (provider === "custom") {
+        // Custom: always require a test before saving
+        if (keyStatus.state !== "ok") {
+          const ok = await runKeyTest();
+          if (!ok) { setSaveStatus("error"); return; }
+        }
       } else if (apiKey.trim()) {
         if (keyStatus.state !== "ok") {
           const ok = await runKeyTest();
@@ -204,11 +246,17 @@ export function ModelSection() {
         aws_secret_access_key: awsSecret.trim(),
         aws_session_token: awsSessionToken.trim(),
         enable_prompt_cache: enablePromptCache,
+        custom_url: customUrl.trim(),
+        custom_model: customModel.trim(),
+        custom_headers: customHeaders.length > 0 ? JSON.stringify(Object.fromEntries(customHeaders.map((h) => [h.key.trim(), h.value.trim()]))) : "",
       });
 
       if (apiKey.trim()) {
         setSavedProvider(provider);
         setApiKey("");
+      }
+      if (customUrl.trim() && customModel.trim()) {
+        setSavedProvider(provider);
       }
       if (awsAccessKey.trim() && awsSecret.trim()) {
         setHasSavedAwsKeys(true);
@@ -245,7 +293,8 @@ export function ModelSection() {
     : p === "openai" ? "OpenAI"
     : p === "google" ? "Google"
     : p === "openai-compatible" ? "OpenAI-compatible"
-    : "AWS Bedrock";
+    : p === "bedrock" ? "AWS Bedrock"
+    : "Custom";
 
   return (
     <div className="max-w-lg space-y-8">
@@ -253,7 +302,7 @@ export function ModelSection() {
       <div className="space-y-3">
         <label className="text-sm font-medium text-foreground">Provider</label>
         <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 w-fit">
-          {(["anthropic", "openai", "google", "bedrock", "openai-compatible"] as Provider[]).map((p) => (
+          {(["anthropic", "openai", "google", "bedrock", "openai-compatible", "custom"] as Provider[]).map((p) => (
             <button
               key={p}
               type="button"
@@ -270,58 +319,61 @@ export function ModelSection() {
         </div>
       </div>
 
-      {/* Model */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">Model</label>
-        <div className="space-y-1">
-          {MODELS[provider].map((m) => {
-            const active = model === m.value;
-            return (
-              <button
-                key={m.value}
-                type="button"
-                onClick={() => setModel(m.value)}
-                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
-                  transition-all duration-150 border
-                  ${active
-                    ? "border-primary/30 bg-primary/[0.05]"
-                    : "border-transparent hover:border-border hover:bg-muted/40"
-                  }`}
-              >
-                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
-                  transition-all duration-150
-                  ${active ? "border-primary bg-primary" : "border-border"}`}>
-                  {active && <div className="w-2 h-2 rounded-full bg-white" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
-                    {m.label}
+      {/* Model — for known providers */}
+      {provider !== "custom" && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Model</label>
+          <div className="space-y-1">
+            {MODELS[provider as Exclude<Provider, "custom">].map((m) => {
+              const active = model === m.value;
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setModel(m.value)}
+                  className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
+                    transition-all duration-150 border
+                    ${active
+                      ? "border-primary/30 bg-primary/[0.05]"
+                      : "border-transparent hover:border-border hover:bg-muted/40"
+                    }`}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
+                    transition-all duration-150
+                    ${active ? "border-primary bg-primary" : "border-border"}`}>
+                    {active && <div className="w-2 h-2 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
+                      {m.label}
+                    </span>
+                  </div>
+                  <span className={`text-xs flex-shrink-0
+                    ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
+                    {m.note}
                   </span>
-                </div>
-                <span className={`text-xs flex-shrink-0
-                  ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
-                  {m.note}
-                </span>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
+          {isCustomModel && (
+            <input
+              type="text"
+              value={customModel}
+              onChange={(e) => setCustomModel(e.target.value)}
+              placeholder={provider === "bedrock"
+                ? "us.anthropic.claude-opus-4-5-20251001-v1:0"
+                : "model-id"}
+              className="w-full mt-2 bg-background border border-border rounded-xl px-4 py-3
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+          )}
         </div>
-        {isCustomModel && (
-          <input
-            type="text"
-            value={customModel}
-            onChange={(e) => setCustomModel(e.target.value)}
-            placeholder={provider === "bedrock"
-              ? "us.anthropic.claude-opus-4-5-20251001-v1:0"
-              : "model-id"}
-            className="w-full mt-2 bg-background border border-border rounded-xl px-4 py-3
-                       text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                       focus:border-primary/50 placeholder:text-muted-foreground/30"
-          />
-        )}
-      </div>
+      )}
 
-      {/* Credentials — proxy base URL + optional key, single key, or Bedrock AWS fields. */}
+      {/* Credentials — proxy base URL + optional key (openai-compatible),
+          custom config (custom), single key, or Bedrock AWS fields. */}
       {provider === "openai-compatible" ? (
         <div className="space-y-4">
           <div>
@@ -364,6 +416,86 @@ export function ModelSection() {
             <p className="text-xs text-muted-foreground/50 mt-1">
               Leave blank if the proxy requires no authentication.
             </p>
+          </div>
+        </div>
+      ) : provider === "custom" ? (
+        <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              LLM Backend URL <span className="text-primary">*</span>
+            </label>
+            <input
+              type="text"
+              value={customUrl}
+              onChange={(e) => setCustomUrl(e.target.value)}
+              placeholder="http://localhost:8000/v1"
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+            <p className="text-xs text-muted-foreground/60 mt-1">OpenAI-compatible endpoint</p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              Model Name <span className="text-primary">*</span>
+            </label>
+            <input
+              type="text"
+              value={customModel}
+              onChange={(e) => setCustomModel(e.target.value)}
+              placeholder="custom-model"
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Custom Headers (optional)</label>
+            <p className="text-xs text-muted-foreground/60 mt-0.5 mb-2">Key-value pairs for authentication and other headers</p>
+            <div className="space-y-1">
+              {customHeaders.map((header, idx) => {
+                const isSavedKey = savedHeaderKeys.includes(header.key);
+                return (
+                  <div key={idx} className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={header.key}
+                      placeholder="Authorization"
+                      onChange={(e) => {
+                        const next = customHeaders.map((h, i) => (i === idx ? { ...h, key: e.target.value } : h));
+                        setCustomHeaders(next);
+                      }}
+                      className="w-32 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                    <span className="text-muted-foreground/40 text-xs">=</span>
+                    <input
+                      type="text"
+                      value={header.value}
+                      placeholder={isSavedKey && !header.value ? "Header unchanged — enter new value to update" : "Bearer …"}
+                      onChange={(e) => {
+                        const next = customHeaders.map((h, i) => (i === idx ? { ...h, value: e.target.value } : h));
+                        setCustomHeaders(next);
+                      }}
+                      className="flex-1 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCustomHeaders(customHeaders.filter((_, i) => i !== idx))}
+                      className="text-muted-foreground/40 hover:text-red-500 transition-colors p-0.5"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setCustomHeaders([...customHeaders, { key: "", value: "" }])}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                + Add header
+              </button>
+            </div>
           </div>
         </div>
       ) : provider === "bedrock" ? (
@@ -498,14 +630,14 @@ export function ModelSection() {
         </div>
       )}
 
-      {/* Shared verification status + Verify button (Bedrock + openai-compatible
+      {/* Shared verification status + Verify button (Bedrock, openai-compatible, and custom
           get an explicit button since there's no single field to blur off of). */}
       <div className="space-y-2">
-        {(provider === "bedrock" || provider === "openai-compatible") && (
+        {(provider === "bedrock" || provider === "openai-compatible" || provider === "custom") && (
           <button
             type="button"
             onClick={runKeyTest}
-            disabled={keyStatus.state === "testing"}
+            disabled={keyStatus.state === "testing" || (provider === "custom" && (!customUrl.trim() || !customModel.trim()))}
             className="text-sm px-4 py-2 rounded-lg border border-border
                        hover:bg-muted/50 transition-colors disabled:opacity-40"
           >

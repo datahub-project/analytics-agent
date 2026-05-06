@@ -326,6 +326,30 @@ async def _load_llm_config_from_db() -> None:
         settings.openai_compat_base_url = base_url
         os.environ["OPENAI_COMPAT_BASE_URL"] = base_url
 
+    # Custom provider fields. URL and model are plaintext; headers are encrypted.
+    custom_url = cfg_data.get("custom_url", "")
+    if custom_url and not os.environ.get("CUSTOM_LLM_URL"):
+        settings.custom_llm_url = custom_url
+        os.environ["CUSTOM_LLM_URL"] = custom_url
+
+    custom_model = cfg_data.get("custom_model", "")
+    if custom_model and not os.environ.get("CUSTOM_LLM_MODEL"):
+        settings.custom_llm_model = custom_model
+        os.environ["CUSTOM_LLM_MODEL"] = custom_model
+
+    encrypted_headers = cfg_data.get("custom_headers", "")
+    if encrypted_headers and not os.environ.get("CUSTOM_LLM_HEADERS"):
+        try:
+            from analytics_agent.api.settings import _fernet_decrypt
+
+            headers = _fernet_decrypt(encrypted_headers)
+        except Exception as exc:
+            logging.getLogger(__name__).error("Failed to decrypt custom_headers from DB: %s", exc)
+            headers = ""
+        if headers:
+            os.environ["CUSTOM_LLM_HEADERS"] = headers
+            settings.custom_llm_headers = headers
+
     # Prompt caching toggle (bool stored as "true"/"false" string).
     if "enable_prompt_cache" in cfg_data and not os.environ.get("ENABLE_PROMPT_CACHE"):
         raw_flag = cfg_data["enable_prompt_cache"]
