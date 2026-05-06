@@ -373,6 +373,16 @@ export function ChatView() {
           });
           await consumeStream(stream, activeId);
         }}
+        onProposalRefineStream={async (stream, userText) => {
+          if (!activeId || isStreaming) return;
+          appendMessage({
+            id: crypto.randomUUID(),
+            event_type: "TEXT",
+            role: "user",
+            payload: { text: userText },
+          });
+          await consumeStream(stream, activeId);
+        }}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;
           chartErrorRetried.current = true;

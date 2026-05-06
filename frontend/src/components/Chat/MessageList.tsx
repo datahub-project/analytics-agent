@@ -29,6 +29,11 @@ interface Props {
       selected_ids: string[];
     }
   ) => void;
+  /** Refinement chat from inside a proposals card; renders as a normal user bubble. */
+  onProposalRefineStream?: (
+    stream: AsyncIterator<SSEEvent>,
+    userText: string
+  ) => void;
 }
 
 export function MessageList({
@@ -38,6 +43,7 @@ export function MessageList({
   showReasoning = true,
   onChartError,
   onProposalStream,
+  onProposalRefineStream,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -122,6 +128,11 @@ export function MessageList({
                       submitted={submitted}
                       onStream={(stream, userPayload) =>
                         onProposalStream?.(stream, userPayload)
+                      }
+                      onRefineStream={
+                        onProposalRefineStream
+                          ? (stream, userText) => onProposalRefineStream(stream, userText)
+                          : undefined
                       }
                     />
                   </div>

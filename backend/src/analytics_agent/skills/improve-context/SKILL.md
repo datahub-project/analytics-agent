@@ -54,6 +54,12 @@ Each proposal must include:
 - `title`: short label (e.g. `"Revenue Metrics Guide"`)
 - `detail`: 1–2 sentence description of what to add or change
 - `target` (optional): `{"urn": "...", "field_path": "..."}` for fix_description proposals that target a known entity
+- `write_mode`: `"needs_approval"` for changes to shared DataHub metadata
+  (column descriptions, glossary terms, team/global docs — anything other
+  users will see), or `"direct"` for user-scoped changes (private docs,
+  personal notes, agent memory). The UI renders this as a badge so the user
+  sees the blast radius before submitting. Default to `"needs_approval"`
+  unless you can clearly establish the change is scoped to the user only.
 
 Example call:
 ```
@@ -72,6 +78,19 @@ present_proposals(
 ```
 
 Do **not** call any write-back tools until the user explicitly selects proposals and submits.
+
+#### Refining proposals via the in-card chat
+
+The proposals card includes a chat input so the user can ask follow-ups
+("explain #2 more", "add one about X", "drop #3"). Those messages arrive
+with `source: "proposal_chat"` and an `origin_message_id` pointing back to
+the original proposals card. When you receive one:
+
+- If the user wants clarification only, answer briefly in plain text — do
+  not re-emit the card.
+- If the user wants to add, drop, or restructure proposals, call
+  `present_proposals` again with the revised list. A new card will appear;
+  the prior card remains in the transcript for context.
 
 ### Step 5 — Execute approved changes directly
 

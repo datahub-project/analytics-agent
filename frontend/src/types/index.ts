@@ -79,6 +79,10 @@ export interface ProposalItem {
   title: string;
   detail: string;
   target?: { urn?: string; field_path?: string } | null;
+  /** "direct" — user-scoped, applies immediately on submit.
+   *  "needs_approval" — touches shared DataHub metadata, will be queued for review.
+   *  Defaults to "needs_approval" if the agent omits it. */
+  write_mode?: "direct" | "needs_approval";
 }
 
 export interface ProposalsPayload {

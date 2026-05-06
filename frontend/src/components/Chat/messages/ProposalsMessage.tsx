@@ -5,12 +5,22 @@
  * transitions to a disabled read-only state.
  */
 
-import { useState, useEffect } from "react";
-import { FileText, FilePlus, Tag, CheckSquare, Square, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  FileText,
+  FilePlus,
+  Tag,
+  CheckSquare,
+  Square,
+  Loader2,
+  Send,
+  ShieldCheck,
+  ShieldAlert,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ProposalItem, ProposalsPayload } from "@/types";
-import { sendProposalSelection } from "@/api/conversations";
+import { sendProposalSelection, sendProposalRefinement } from "@/api/conversations";
 
 interface Props {
   messageId: string;
@@ -26,7 +36,36 @@ interface Props {
       selected_ids: string[];
     }
   ) => void;
+  /**
+   * Send a free-text refinement turn tied to this card. Optional — if not
+   * provided, the chat input is hidden. Same shape as ChatView's primary
+   * stream handler so the message renders as a normal user bubble.
+   */
+  onRefineStream?: (
+    stream: AsyncIterator<import("@/types").SSEEvent>,
+    userText: string
+  ) => void;
 }
+
+const WRITE_MODE_META: Record<
+  NonNullable<ProposalItem["write_mode"]>,
+  { label: string; className: string; icon: React.ReactNode; tooltip: string }
+> = {
+  direct: {
+    label: "Writes directly",
+    className:
+      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800",
+    icon: <ShieldCheck className="w-3 h-3" />,
+    tooltip: "Scoped to your account — applies immediately on submit.",
+  },
+  needs_approval: {
+    label: "Needs approval",
+    className:
+      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
+    icon: <ShieldAlert className="w-3 h-3" />,
+    tooltip: "Touches shared DataHub metadata — will be queued for review.",
+  },
+};
 
 const KIND_META: Record<
   ProposalItem["kind"],
@@ -49,15 +88,41 @@ const KIND_META: Record<
   },
 };
 
-export function ProposalsMessage({ messageId, conversationId, payload, submitted, onStream }: Props) {
+export function ProposalsMessage({
+  messageId,
+  conversationId,
+  payload,
+  submitted,
+  onStream,
+  onRefineStream,
+}: Props) {
   const { proposals } = payload;
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [refineText, setRefineText] = useState("");
+  const [isRefining, setIsRefining] = useState(false);
+  const refineRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Clear the spinner once the parent confirms submission (selection chip appended)
   useEffect(() => {
     if (submitted) setIsSubmitting(false);
   }, [submitted]);
+
+  const handleRefine = async () => {
+    const text = refineText.trim();
+    if (!text || isRefining || submitted || isSubmitting || !onRefineStream) return;
+    setIsRefining(true);
+    try {
+      const stream = sendProposalRefinement(conversationId, messageId, text);
+      onRefineStream(stream, text);
+      setRefineText("");
+    } catch {
+      // Surface failure by leaving the text in place; the parent stream
+      // handler will render any backend error event normally.
+    } finally {
+      setIsRefining(false);
+    }
+  };
 
   const toggle = (id: string) => {
     if (submitted || isSubmitting) return;
@@ -157,6 +222,19 @@ export function ProposalsMessage({ messageId, conversationId, payload, submitted
                     {meta.icon}
                     {meta.label}
                   </span>
+                  {/* Write-mode badge */}
+                  {(() => {
+                    const wm = WRITE_MODE_META[proposal.write_mode ?? "needs_approval"];
+                    return (
+                      <span
+                        title={wm.tooltip}
+                        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium ${wm.className}`}
+                      >
+                        {wm.icon}
+                        {wm.label}
+                      </span>
+                    );
+                  })()}
                   <span className="text-sm font-medium text-foreground truncate">
                     {proposal.title}
                   </span>
@@ -176,6 +254,42 @@ export function ProposalsMessage({ messageId, conversationId, payload, submitted
           );
         })}
       </ul>
+
+      {/* Chat refinement — ask follow-ups or request edits before submitting */}
+      {onRefineStream && !submitted && (
+        <div className="px-4 py-2 border-t border-border bg-muted/10">
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={refineRef}
+              value={refineText}
+              onChange={(e) => setRefineText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleRefine();
+                }
+              }}
+              placeholder="Ask a follow-up or request a change (e.g. &ldquo;drop #3, add one about churn&rdquo;)…"
+              rows={1}
+              disabled={isSubmitting || isRefining}
+              className="flex-1 resize-none rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-60"
+            />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); void handleRefine(); }}
+              disabled={!refineText.trim() || isSubmitting || isRefining}
+              aria-label="Send refinement"
+              className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors"
+            >
+              {isRefining ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-border bg-muted/20">

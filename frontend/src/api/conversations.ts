@@ -88,3 +88,19 @@ export function sendProposalSelection(
     selected_ids: selectedIds,
   });
 }
+
+/**
+ * Send a free-text refinement message tied to a specific proposals card.
+ * Renders as a normal user bubble, but tags `source: "proposal_chat"` so
+ * the agent (and downstream UI) can correlate the turn with its origin card.
+ */
+export function sendProposalRefinement(
+  conversationId: string,
+  originMessageId: string,
+  text: string
+) {
+  return streamMessage(conversationId, text, undefined, {
+    source: "proposal_chat",
+    origin_message_id: originMessageId,
+  });
+}

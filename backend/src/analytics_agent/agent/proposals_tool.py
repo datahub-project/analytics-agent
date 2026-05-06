@@ -20,6 +20,13 @@ class ProposalItem(BaseModel):
     title: str
     detail: str
     target: dict | None = None  # e.g. {"urn": "...", "field_path": "..."}
+    # "direct"          → applying this writes only to user-scoped state
+    #                     (private docs, agent memory, personal prefs)
+    # "needs_approval"  → applying this mutates shared metadata in DataHub
+    #                     (column descriptions, glossary, team/global docs)
+    # The frontend renders a badge per proposal so the user sees the
+    # blast radius before submitting.
+    write_mode: Literal["direct", "needs_approval"] = "needs_approval"
 
 
 @tool
@@ -42,16 +49,25 @@ async def present_proposals(
             - title: short title for the proposal
             - detail: 1-2 sentence description of what to add/change
             - target: optional dict with "urn" and/or "field_path" for existing entities
+            - write_mode: "direct" (user-scoped, writes immediately) or
+              "needs_approval" (touches shared DataHub metadata). Defaults to
+              "needs_approval". Use "direct" only when the change is scoped
+              to the user — private docs, personal preferences, agent memory.
 
     Example:
         present_proposals(
             prompt="Based on our conversation, here are 3 documentation improvements:",
             proposals=[
                 {"id": "1", "kind": "new_doc", "title": "Revenue Metrics Guide",
-                 "detail": "Define net ARR vs gross ARR and specify the revenue table."},
+                 "detail": "Define net ARR vs gross ARR and specify the revenue table.",
+                 "write_mode": "needs_approval"},
                 {"id": "2", "kind": "fix_description", "title": "orders.status column",
                  "detail": "Current description is empty. Values: pending, confirmed, shipped.",
-                 "target": {"urn": "urn:li:dataset:...", "field_path": "status"}},
+                 "target": {"urn": "urn:li:dataset:...", "field_path": "status"},
+                 "write_mode": "needs_approval"},
+                {"id": "3", "kind": "new_doc", "title": "My ARR analysis notes",
+                 "detail": "Save this thread's findings to a private folder.",
+                 "write_mode": "direct"},
             ]
         )
     """
