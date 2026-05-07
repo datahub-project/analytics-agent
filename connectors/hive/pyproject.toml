@@ -1,6 +1,6 @@
 [project]
 name = "analytics-agent-connector-hive"
-version = "0.1.0"
+version = "0.3.0"
 description = "Hive / Kyuubi / Spark Thrift Server MCP connector for Analytics Agent"
 readme = "README.md"
 requires-python = ">=3.10"

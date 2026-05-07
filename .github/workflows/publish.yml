@@ -69,8 +69,19 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Publish to PyPI
+      - name: Publish main package (OIDC)
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true
+          packages: |
+            datahub_analytics_agent-*.whl
+
+      - name: Publish connector packages (API token)
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          uv publish dist/analytics_agent_connector_*.whl --check-url https://pypi.org/simple/
 
   github-release:
     name: Create GitHub Release
