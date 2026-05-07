@@ -342,6 +342,17 @@ async def _run_and_broadcast(
                         with _tracer.start_as_current_span("query.completed") as _span:
                             _span.set_attribute("engine.type", _engine_type)
                             _span.set_attribute("row.count", len(_payload.get("rows", [])))
+                            _span.set_attribute("query.success", True)
+                    elif (
+                        _evt_type == "TOOL_RESULT"
+                        and evt.get("payload", {}).get("tool_name") == "execute_sql"
+                        and evt.get("payload", {}).get("is_error")
+                    ):
+                        _intg = await IntegrationRepo(session).get(engine_name)
+                        _engine_type = _intg.type if _intg else engine_name
+                        with _tracer.start_as_current_span("query.completed") as _span:
+                            _span.set_attribute("engine.type", _engine_type)
+                            _span.set_attribute("query.success", False)
                     elif _evt_type == "CHART":
                         _payload = evt.get("payload", {})
                         _chart_type = _payload.get("chart_type") or ""

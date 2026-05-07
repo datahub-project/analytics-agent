@@ -126,7 +126,7 @@ _ATTRIBUTE_ALLOWLIST: dict[str, frozenset[str]] = {
             "prompt_cache.enabled",
         }
     ),
-    "query.completed": frozenset({"engine.type", "row.count"}),
+    "query.completed": frozenset({"engine.type", "row.count", "query.success"}),
     "connection.tested": frozenset({"engine.type", "connection.success"}),
     "chart.generated": frozenset({"chart.type"}),
 }
