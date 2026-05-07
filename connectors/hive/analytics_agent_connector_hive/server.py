@@ -119,8 +119,9 @@ def execute_sql(sql: str) -> str:
 
 
 @mcp.tool()
-def list_tables(schema: str = "") -> str:
+def list_tables(schema: str | None = None) -> str:
     """List tables in the Hive database. Optionally filter by schema (database) name."""
+    schema = schema or ""
     try:
         conn = _get_connection()
         cursor = conn.cursor()

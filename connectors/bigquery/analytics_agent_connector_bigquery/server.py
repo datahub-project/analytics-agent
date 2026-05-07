@@ -129,7 +129,7 @@ def execute_sql(sql: str) -> str:
 
 
 @mcp.tool()
-def list_tables(schema: str = "") -> str:
+def list_tables(schema: str | None = None) -> str:
     """List tables in BigQuery. Pass a dataset name to filter, or leave blank for the default dataset."""
     try:
         from sqlalchemy import inspect
