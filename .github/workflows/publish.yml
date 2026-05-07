@@ -41,6 +41,12 @@ jobs:
       - name: Build package
         run: uv build --wheel
 
+      - name: Build connector packages
+        run: |
+          for connector in connectors/*/; do
+            (cd "$connector" && uv build --wheel --out-dir ../../dist/)
+          done
+
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
         with:
