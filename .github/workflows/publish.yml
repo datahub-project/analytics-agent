@@ -57,11 +57,6 @@ jobs:
     name: Publish to PyPI
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/datahub-analytics-agent
-    permissions:
-      id-token: write
     steps:
       - name: Download dist artifacts
         uses: actions/download-artifact@v4
@@ -69,19 +64,13 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Publish main package (OIDC)
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: dist/
-          skip-existing: true
-          packages: |
-            datahub_analytics_agent-*.whl
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
-      - name: Publish connector packages (API token)
+      - name: Publish to PyPI
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          uv publish dist/analytics_agent_connector_*.whl --check-url https://pypi.org/simple/
+        run: uv publish dist/*.whl --check-url https://pypi.org/simple/
 
   github-release:
     name: Create GitHub Release
