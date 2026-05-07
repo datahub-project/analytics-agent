@@ -97,6 +97,23 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
         required_keys=["account", "user"],
         credential_keys=["password", "private_key", "pat_token"],
     ),
+    "hive": ConnectorSpec(
+        package="analytics-agent-connector-hive",
+        env_map={
+            "host": "HIVE_HOST",
+            "port": "HIVE_PORT",
+            "database": "HIVE_DATABASE",
+            "auth": "HIVE_AUTH",
+            "user": "HIVE_USER",
+            "password": "HIVE_PASSWORD",
+            "kerberos_service_name": "HIVE_KERBEROS_SERVICE_NAME",
+        },
+        secret_env_vars={
+            "password": "HIVE_PASSWORD",
+        },
+        required_keys=["host"],
+        credential_keys=["user", "password"],
+    ),
     "bigquery": ConnectorSpec(
         package="analytics-agent-connector-bigquery",
         env_map={

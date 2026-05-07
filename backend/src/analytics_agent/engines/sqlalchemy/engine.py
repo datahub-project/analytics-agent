@@ -60,7 +60,8 @@ class SQLAlchemyQueryEngine(QueryEngine):
             from sqlalchemy import create_engine
 
             url = self._build_url()
-            self._engine = create_engine(url)
+            connect_args = self._cfg.get("connect_args", {})
+            self._engine = create_engine(url, connect_args=connect_args)
             logger.info("[SQLAlchemy] engine created for url=%s", repr(url))
         return self._engine
 

@@ -4,6 +4,7 @@ export { AddConnectionFlow } from "./AddConnectionFlow";
 import { snowflakePlugin } from "./plugins/snowflake";
 import { snowflakeMcpPlugin } from "./plugins/snowflake-mcp";
 import { bigqueryPlugin } from "./plugins/bigquery";
+import { hivePlugin } from "./plugins/hive";
 import { mysqlPlugin } from "./plugins/mysql";
 import { postgresqlPlugin } from "./plugins/postgresql";
 import { sqlitePlugin } from "./plugins/sqlite";
@@ -19,6 +20,7 @@ export const CONNECTION_PLUGINS: ConnectionPlugin[] = [
   snowflakePlugin,
   snowflakeMcpPlugin,
   bigqueryPlugin,
+  hivePlugin,
   mysqlPlugin,
   postgresqlPlugin,
   sqlitePlugin,
