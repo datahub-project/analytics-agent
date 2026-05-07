@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { v4 as uuidv4 } from "uuid";
 import type { ConversationSummary, Engine, UIMessage, UsagePayload, TurnUsage } from "@/types";
 
 export interface UsageTotals {
@@ -86,7 +87,7 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
         return { messages: msgs };
       }
       // Create a new TEXT message for this turn (isStreaming=true until marked as thinking or turn ends)
-      const newId = crypto.randomUUID();
+      const newId = uuidv4();
       return {
         streamingTextId: newId,
         messages: [

@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { groupIntoTurns, shouldShowSeparator, getSepUsage } from "../groupMessages";
+import {v4 as uuidv4} from "uuid";
 import type { UIMessage } from "@/types";
 
 function msg(overrides: Partial<UIMessage> & Pick<UIMessage, "event_type" | "role">): UIMessage {
   return {
-    id: overrides.id ?? crypto.randomUUID(),
+    id: overrides.id ?? uuidv4(),
     payload: overrides.payload ?? {},
     ...overrides,
   };

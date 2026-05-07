@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildUiMessages } from "../buildUiMessages";
+import {v4 as uuidv4} from "uuid";
 import type { MessageRecord } from "@/types";
 
 // Minimal factory so tests only specify what they care about
@@ -7,7 +8,7 @@ function rec(
   overrides: Partial<MessageRecord> & Pick<MessageRecord, "event_type" | "role">
 ): MessageRecord {
   return {
-    id: overrides.id ?? crypto.randomUUID(),
+    id: overrides.id ?? uuidv4(),
     sequence: overrides.sequence ?? 0,
     created_at: overrides.created_at ?? "2024-01-01T00:00:00Z",
     payload: overrides.payload ?? {},

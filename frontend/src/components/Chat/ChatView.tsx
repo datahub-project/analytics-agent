@@ -12,6 +12,7 @@ import { WelcomeView } from "./WelcomeView";
 import { ContextStatusBar } from "./ContextStatusBar";
 import type { UIMessage } from "@/types";
 import { buildUiMessages } from "@/lib/buildUiMessages";
+import { v4 as uuidv4 } from "uuid";
 
 export function ChatView() {
   const {
@@ -149,7 +150,7 @@ export function ChatView() {
           return;
         }
         appendMessage({
-          id: crypto.randomUUID(),
+          id: uuidv4(),
           event_type: "ERROR",
           role: "assistant",
           payload: { error: String(err) },
@@ -208,7 +209,7 @@ export function ChatView() {
 
     // Append user message immediately
     appendMessage({
-      id: crypto.randomUUID(),
+      id: uuidv4(),
       event_type: "TEXT",
       role: "user",
       payload: { text },
@@ -275,7 +276,7 @@ export function ChatView() {
         return;
       }
       appendMessage({
-        id: crypto.randomUUID(),
+        id: uuidv4(),
         event_type: "ERROR",
         role: "assistant",
         payload: { error: String(err) },
