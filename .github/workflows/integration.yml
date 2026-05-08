@@ -71,23 +71,16 @@ jobs:
           docker ps
           exit 1
 
-      - name: Provision DataHub credentials
-        # datahub init mints a JWT and writes ~/.datahubenv; we also export the
-        # token as DATAHUB_GMS_TOKEN so the env-var path in tests works too.
+      - name: Write DataHub credentials file
+        # The local quickstart runs with METADATA_SERVICE_AUTH_ENABLED=false —
+        # no token is needed or available. Write ~/.datahubenv directly so that
+        # DataHubClient.from_env() and the test skip-guards detect the instance.
         run: |
-          uv run datahub init \
-            --username datahub \
-            --password datahub \
-            --force \
-            --host http://localhost:8080
-
-          TOKEN=$(uv run python3 - <<'EOF'
-          import yaml, pathlib
-          cfg = yaml.safe_load(pathlib.Path("~/.datahubenv").expanduser().read_text()) or {}
-          print((cfg.get("gms") or {}).get("token", ""))
+          cat > ~/.datahubenv <<'EOF'
+          gms:
+            server: "http://localhost:8080"
+            token: ""
           EOF
-          )
-          echo "DATAHUB_GMS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
       - name: Run integration tests
         run: uv run pytest tests/integration/ -v --tb=short
