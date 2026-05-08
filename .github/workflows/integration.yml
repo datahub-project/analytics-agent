@@ -1,0 +1,97 @@
+name: Integration Tests
+
+# Runs on every push to main. PRs are intentionally excluded — forked PRs
+# don't have access to repo secrets, and the tests self-skip when a required
+# secret is absent, so a failed run would be misleading rather than useful.
+#
+# DataHub is started locally — no external DataHub credentials needed.
+# Modern quickstart stack: KRaft Kafka (no ZooKeeper), MAE/MCE/PE consumers
+# embedded in GMS. Steady-state: 5 containers, ~3-4 GB RAM on ubuntu-latest.
+#
+# Auto-selection logic lives in the tests themselves (pytestmark / skip
+# decorators) — no branching needed here. Adding a secret to the repo
+# automatically unlocks the tests that depend on it on the next main push.
+#
+# What runs with what:
+#   Always              → test_duckdb_e2e.py (engine-only tests)
+#   DataHub (local)     → test_datahub_tools.py
+#   DataHub + LLM key   → test_duckdb_e2e.py (full agent tests)
+#   LLM key only        → test_prompt_cache.py
+#
+# Required repo secrets (Settings → Secrets → Actions):
+#   ANTHROPIC_API_KEY   — enables prompt-cache + full DuckDB agent tests
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+
+    env:
+      # DataHub is local — URL is fixed; token is injected after provisioning.
+      DATAHUB_GMS_URL: http://localhost:8080
+      # Tells datahub-agent-context to avoid Acryl Cloud-only API fields.
+      DISABLE_NEWER_GMS_FIELD_DETECTION: "true"
+      # LLM keys — tests self-skip when absent.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY:    ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Start DataHub
+        # KRaft Kafka + embedded consumers in GMS — no ZooKeeper needed.
+        # Cold image pull: ~5 min. Subsequent runs reuse the runner's Docker cache.
+        run: uv run datahub docker quickstart
+
+      - name: Wait for DataHub GMS
+        run: |
+          echo "Waiting for DataHub GMS at http://localhost:8080 (up to 5 min)..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "GMS is healthy after $((i * 5))s"
+              exit 0
+            fi
+            echo "  attempt $i/60 — retrying in 5s"
+            sleep 5
+          done
+          echo "GMS did not become healthy in 5 minutes" >&2
+          docker ps
+          exit 1
+
+      - name: Provision DataHub credentials
+        # datahub init mints a JWT and writes ~/.datahubenv; we also export the
+        # token as DATAHUB_GMS_TOKEN so the env-var path in tests works too.
+        run: |
+          uv run datahub init \
+            --username datahub \
+            --password datahub \
+            --force \
+            --host http://localhost:8080
+
+          TOKEN=$(uv run python3 - <<'EOF'
+          import yaml, pathlib
+          cfg = yaml.safe_load(pathlib.Path("~/.datahubenv").expanduser().read_text()) or {}
+          print((cfg.get("gms") or {}).get("token", ""))
+          EOF
+          )
+          echo "DATAHUB_GMS_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration/ -v --tb=short
+
+      - name: Dump DataHub logs on failure
+        if: failure()
+        run: docker compose -p datahub logs --no-color --tail 100
