@@ -3,7 +3,7 @@ import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { saveDisplaySettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 import { useDisplayStore } from "@/store/display";
 
-type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible" | "custom";
+type Provider = "anthropic" | "openai" | "google" | "bedrock" | "custom";
 type HeaderPair = { key: string; value: string };
 
 interface WizardProps {
@@ -36,21 +36,17 @@ const MODELS = {
     { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0",  label: "Claude Haiku 4.5 (Bedrock)",  note: "Fastest"     },
     { value: CUSTOM_MODEL_VALUE,                              label: "Custom model ID",            note: "Enter your own" },
   ],
-  "openai-compatible": [
-    { value: CUSTOM_MODEL_VALUE, label: "Model name", note: "Set by your proxy" },
-  ],
 } as Record<Exclude<Provider, "custom">, { value: string; label: string; note: string }[]>;
 
 function defaultModelFor(p: Provider): string {
   if (p === "custom") return "";
-  return p === "bedrock" || p === "openai-compatible" ? MODELS[p][0].value : MODELS[p][1].value;
+  return p === "bedrock" ? MODELS[p][0].value : MODELS[p][1].value;
 }
 
 const providerLabel = (p: Provider) =>
   p === "anthropic" ? "Anthropic"
     : p === "openai" ? "OpenAI"
     : p === "google" ? "Google"
-    : p === "openai-compatible" ? "OpenAI-compatible"
     : p === "bedrock" ? "AWS Bedrock"
     : "Custom";
 
@@ -163,7 +159,6 @@ interface Step2Props {
   customUrl?: string;   onCustomUrl?: (u: string) => void;
   customHeaders?: HeaderPair[]; onCustomHeaders?: (h: HeaderPair[]) => void;
   apiKey: string;       onApiKey: (k: string) => void;
-  baseUrl: string;      onBaseUrl: (v: string) => void;
   awsRegion: string;    onAwsRegion: (v: string) => void;
   awsAccessKey: string; onAwsAccessKey: (v: string) => void;
   awsSecret: string;    onAwsSecret: (v: string) => void;
@@ -190,7 +185,7 @@ function Step2Model(p: Step2Props) {
       </div>
 
       <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 mb-7 w-fit">
-        {(["anthropic", "openai", "google", "bedrock", "openai-compatible", "custom"] as Provider[]).map((name) => (
+        {(["anthropic", "openai", "google", "bedrock", "custom"] as Provider[]).map((name) => (
           <button
             key={name}
             type="button"
@@ -350,47 +345,8 @@ function Step2Model(p: Step2Props) {
       )}
       {!isCustom && p.provider !== "custom" && <div className="mb-6" />}
 
-      {/* Credentials — proxy URL + optional key, single API key, or Bedrock AWS fields. */}
-      {p.provider === "openai-compatible" ? (
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium text-foreground">Proxy base URL</label>
-            <input
-              type="url"
-              value={p.baseUrl}
-              onChange={(e) => p.onBaseUrl(e.target.value)}
-              onBlur={() => { if (p.baseUrl.trim()) p.onVerify(); }}
-              placeholder="https://litellm.myorg.com"
-              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
-                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                         focus:border-primary/50 placeholder:text-muted-foreground/30"
-            />
-            <p className="text-xs text-muted-foreground/50 mt-1">
-              Any OpenAI-compatible endpoint — LiteLLM, vLLM, Ollama, etc.
-            </p>
-          </div>
-          <div className="relative">
-            <input
-              type="password"
-              value={p.apiKey}
-              onChange={(e) => p.onApiKey(e.target.value)}
-              placeholder="API key (optional)"
-              className="w-full bg-background border border-border rounded-xl px-4 py-2.5
-                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                         focus:border-primary/50 placeholder:text-muted-foreground/30"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={p.onVerify}
-            disabled={p.keyStatus.state === "testing" || !p.baseUrl.trim()}
-            className="text-sm px-4 py-2 rounded-lg border border-border
-                       hover:bg-muted/50 transition-colors disabled:opacity-40"
-          >
-            {p.keyStatus.state === "testing" ? "Verifying…" : "Verify connection"}
-          </button>
-        </div>
-      ) : p.provider === "bedrock" ? (
+      {/* Credentials — single API key, Bedrock AWS fields, or nothing for custom (configured above). */}
+      {p.provider === "bedrock" ? (
         <div className="space-y-3">
           <div>
             <label className="text-sm font-medium text-foreground">AWS credentials</label>
@@ -501,7 +457,7 @@ function Step2Model(p: Step2Props) {
             <X className="w-3 h-3" strokeWidth={3} /> {p.keyStatus.msg}
           </p>
         )}
-        {p.keyStatus.state === "idle" && p.provider !== "bedrock" && p.provider !== "openai-compatible" && p.provider !== "custom" && (
+        {p.keyStatus.state === "idle" && p.provider !== "bedrock" && p.provider !== "custom" && (
           <p className="text-xs text-muted-foreground/50">
             {p.provider === "anthropic"
               ? "console.anthropic.com/settings/api-keys"
@@ -558,7 +514,6 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [customUrl, setCustomUrl] = useState("");
   const [customHeaders, setCustomHeaders] = useState<HeaderPair[]>([]);
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
   const [awsRegion, setAwsRegion] = useState("us-west-2");
   const [awsAccessKey, setAwsAccessKey] = useState("");
   const [awsSecret, setAwsSecret] = useState("");
@@ -566,7 +521,7 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ state: "idle" });
 
   // Reset verification whenever any credential field changes.
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel, customUrl]);
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel, customUrl]);
 
   const [step, setStep] = useState(0);
   const [animKey, setAnimKey] = useState(0);
@@ -581,14 +536,11 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   // Step 2 advance rules:
   //  - Custom: require URL, model, and verification passed.
   //  - Bedrock: allow as long as we have a model and verification didn't fail.
-  //  - openai-compatible: require a base URL (API key is optional).
   //  - Others: require an API key that isn't known-bad.
   const canAdvanceStep2 = provider === "custom"
     ? customUrl.trim().length > 0 && customModel.trim().length > 0 && keyStatus.state !== "fail"
     : provider === "bedrock"
     ? !!effectiveModel && keyStatus.state !== "fail"
-    : provider === "openai-compatible"
-    ? baseUrl.trim().length > 0 && !!effectiveModel && keyStatus.state !== "fail"
     : apiKey.trim().length > 0 && keyStatus.state !== "fail";
   const canContinue = step === 0 ? agentName.trim().length > 0 : canAdvanceStep2;
 
@@ -609,16 +561,14 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   };
 
   const runKeyTest = async (): Promise<boolean> => {
-    if (provider === "openai-compatible" && !baseUrl.trim()) return false;
     if (provider === "custom" && (!customUrl.trim() || !customModel.trim())) return false;
-    if (provider !== "bedrock" && provider !== "openai-compatible" && provider !== "custom" && !apiKey.trim()) return false;
+    if (provider !== "bedrock" && provider !== "custom" && !apiKey.trim()) return false;
     setKeyStatus({ state: "testing" });
     try {
       const result = await testLlmKey({
         provider,
         api_key: apiKey.trim(),
         model: effectiveModel,
-        base_url: baseUrl.trim(),
         aws_region: awsRegion.trim(),
         aws_access_key_id: awsAccessKey.trim(),
         aws_secret_access_key: awsSecret.trim(),
@@ -669,7 +619,6 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
           provider,
           api_key: apiKey.trim(),
           model: effectiveModel,
-          base_url: baseUrl.trim(),
           aws_region: awsRegion.trim(),
           aws_access_key_id: awsAccessKey.trim(),
           aws_secret_access_key: awsSecret.trim(),
@@ -759,7 +708,6 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
               customUrl={customUrl} onCustomUrl={setCustomUrl}
               customHeaders={customHeaders} onCustomHeaders={setCustomHeaders}
               apiKey={apiKey}     onApiKey={setApiKey}
-              baseUrl={baseUrl}   onBaseUrl={setBaseUrl}
               awsRegion={awsRegion} onAwsRegion={setAwsRegion}
               awsAccessKey={awsAccessKey} onAwsAccessKey={setAwsAccessKey}
               awsSecret={awsSecret} onAwsSecret={setAwsSecret}

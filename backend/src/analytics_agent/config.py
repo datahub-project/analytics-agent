@@ -137,15 +137,8 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "quality": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "delight": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     },
-    # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.).
-    # No curated model list — available models depend on the proxy configuration.
-    "openai-compatible": {
-        "main": "",
-        "chart": "",
-        "quality": "",
-        "delight": "",
-    },
-    # Custom provider — full OpenAI-compatible backend with headers + encryption.
+    # Custom provider — OpenAI-compatible backend (LiteLLM, vLLM, Ollama, etc.)
+    # with optional custom headers and encrypted secrets.
     "custom": {
         "main": "",
         "chart": "",
@@ -159,7 +152,6 @@ PROVIDER_KEY_ENV: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "google": "GOOGLE_API_KEY",
-    "openai-compatible": "OPENAI_COMPAT_API_KEY",
 }
 
 # Settings attribute name for each provider's API key.
@@ -167,7 +159,6 @@ PROVIDER_KEY_ATTR: dict[str, str] = {
     "anthropic": "anthropic_api_key",
     "openai": "openai_api_key",
     "google": "google_api_key",
-    "openai-compatible": "openai_compat_api_key",
 }
 
 
@@ -183,10 +174,6 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_api_key: str = ""
-    # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
-    openai_compat_base_url: str = ""  # OPENAI_COMPAT_BASE_URL
-    openai_compat_api_key: str = ""  # OPENAI_COMPAT_API_KEY
-
     # Bedrock — uses the standard AWS credential chain by default (env vars,
     # ~/.aws/credentials, IAM role). Set the explicit *_key_id/*_access_key
     # settings to override.

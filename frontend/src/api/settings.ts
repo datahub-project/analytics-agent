@@ -247,7 +247,6 @@ export interface LlmSettings {
   has_aws_keys?: boolean;
   aws_region?: string;
   enable_prompt_cache?: boolean;
-  base_url?: string;
   custom_url?: string;
   custom_model?: string;
   has_custom_headers?: boolean;
@@ -286,7 +285,6 @@ export async function testLlmKey(s: {
   provider: string;
   api_key: string;
   model?: string;
-  base_url?: string;
   custom_url?: string;
   custom_model?: string;
   custom_headers?: string;
@@ -302,7 +300,6 @@ export async function testLlmKey(s: {
         provider: s.provider,
         api_key: s.api_key,
         model: s.model ?? "",
-        base_url: s.base_url ?? "",
         aws_region: s.aws_region ?? "",
         aws_access_key_id: s.aws_access_key_id ?? "",
         aws_secret_access_key: s.aws_secret_access_key ?? "",
@@ -339,7 +336,6 @@ export async function saveLlmSettings(s: {
   api_key: string;
   model?: string;
   enable_prompt_cache?: boolean;
-  base_url?: string;
   custom_url?: string;
   custom_model?: string;
   custom_headers?: string;
@@ -351,7 +347,6 @@ export async function saveLlmSettings(s: {
       provider: s.provider,
       api_key: s.api_key,
       model: s.model ?? "",
-      base_url: s.base_url ?? "",
       aws_region: s.aws_region ?? "",
       aws_access_key_id: s.aws_access_key_id ?? "",
       aws_secret_access_key: s.aws_secret_access_key ?? "",

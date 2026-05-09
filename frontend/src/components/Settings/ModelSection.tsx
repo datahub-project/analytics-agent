@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { getLlmSettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 
-type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible" | "custom";
+type Provider = "anthropic" | "openai" | "google" | "bedrock" | "custom";
 type HeaderPair = { key: string; value: string };
 
 // Sentinel value for the "Custom…" radio option on providers (Bedrock) where
@@ -30,16 +30,11 @@ const MODELS = {
     { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0",  label: "Claude Haiku 4.5 (Bedrock)",  note: "Fastest"     },
     { value: CUSTOM_MODEL_VALUE,                              label: "Custom model ID",            note: "Enter your own" },
   ],
-  "openai-compatible": [
-    { value: CUSTOM_MODEL_VALUE, label: "Model name", note: "Set by your proxy" },
-  ],
 } as Record<Exclude<Provider, "custom">, { value: string; label: string; note: string }[]>;
 
-// Pick a sensible default model when switching providers. For Bedrock and
-// openai-compatible we pick index 0; others use index 1 ("Recommended" row).
 function defaultModelFor(p: Provider): string {
   if (p === "custom") return "";
-  return p === "bedrock" || p === "openai-compatible" ? MODELS[p][0].value : MODELS[p][1].value;
+  return p === "bedrock" ? MODELS[p][0].value : MODELS[p][1].value;
 }
 
 type KeyStatus =
@@ -55,7 +50,6 @@ export function ModelSection() {
   const [model, setModel] = useState(defaultModelFor("anthropic"));
   const [customModel, setCustomModel] = useState("");
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
   // Bedrock-only credential fields.
   const [awsRegion, setAwsRegion] = useState("us-west-2");
   const [awsAccessKey, setAwsAccessKey] = useState("");
@@ -119,15 +113,14 @@ export function ModelSection() {
         if (s.aws_region) setAwsRegion(s.aws_region);
         if (s.has_aws_keys) setHasSavedAwsKeys(true);
         if (s.enable_prompt_cache !== undefined) setEnablePromptCache(s.enable_prompt_cache);
-        if (s.base_url) setBaseUrl(s.base_url);
       })
       .finally(() => setLoading(false));
   }, []);
 
   // Reset key status whenever any credential field changes.
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customUrl, customHeaders]);
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customUrl, customHeaders]);
   // Reset save status on any change.
-  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, baseUrl, awsAccessKey, awsSecret, awsRegion, awsSessionToken, enablePromptCache, customUrl, customHeaders]);
+  useEffect(() => { setSaveStatus("idle"); setError(null); }, [provider, model, customModel, apiKey, awsAccessKey, awsSecret, awsRegion, awsSessionToken, enablePromptCache, customUrl, customHeaders]);
 
   const handleProvider = (p: Provider) => {
     setProvider(p);
@@ -136,7 +129,6 @@ export function ModelSection() {
     setCustomUrl("");
     setCustomHeaders([]);
     setApiKey("");
-    setBaseUrl("");
     setAwsAccessKey("");
     setAwsSecret("");
     setAwsSessionToken("");
@@ -147,7 +139,6 @@ export function ModelSection() {
     provider,
     api_key: apiKey.trim(),
     model: effectiveModel,
-    base_url: baseUrl.trim(),
     aws_region: awsRegion.trim(),
     aws_access_key_id: awsAccessKey.trim(),
     aws_secret_access_key: awsSecret.trim(),
@@ -196,23 +187,7 @@ export function ModelSection() {
     }
     setSaveStatus("saving");
     try {
-      if (provider === "openai-compatible") {
-        if (!baseUrl.trim()) {
-          setError("Enter the proxy base URL.");
-          setSaveStatus("error");
-          return;
-        }
-        if (isCustomModel && !customModel.trim()) {
-          setError("Enter a model name.");
-          setSaveStatus("error");
-          return;
-        }
-        // Run a connectivity test if not already verified.
-        if (keyStatus.state !== "ok") {
-          const ok = await runKeyTest();
-          if (!ok) { setSaveStatus("error"); return; }
-        }
-      } else if (provider === "bedrock") {
+      if (provider === "bedrock") {
         // Bedrock: no mandatory field — any save implies "use the default AWS
         // chain if keys are blank". Still run a test if the user hasn't yet.
         if (keyStatus.state !== "ok") {
@@ -240,7 +215,6 @@ export function ModelSection() {
         provider,
         api_key: apiKey.trim(),
         model: effectiveModel,
-        base_url: baseUrl.trim(),
         aws_region: awsRegion.trim(),
         aws_access_key_id: awsAccessKey.trim(),
         aws_secret_access_key: awsSecret.trim(),
@@ -285,14 +259,12 @@ export function ModelSection() {
     ? "Key saved — enter a new one to change"
     : provider === "anthropic" ? "sk-ant-api03-…"
     : provider === "google" ? "AIza…"
-    : provider === "openai-compatible" ? "optional"
     : "sk-proj-…";
 
   const providerLabel = (p: Provider) =>
     p === "anthropic" ? "Anthropic"
     : p === "openai" ? "OpenAI"
     : p === "google" ? "Google"
-    : p === "openai-compatible" ? "OpenAI-compatible"
     : p === "bedrock" ? "AWS Bedrock"
     : "Custom";
 
@@ -302,7 +274,7 @@ export function ModelSection() {
       <div className="space-y-3">
         <label className="text-sm font-medium text-foreground">Provider</label>
         <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 w-fit">
-          {(["anthropic", "openai", "google", "bedrock", "openai-compatible", "custom"] as Provider[]).map((p) => (
+          {(["anthropic", "openai", "google", "bedrock", "custom"] as Provider[]).map((p) => (
             <button
               key={p}
               type="button"
@@ -372,53 +344,8 @@ export function ModelSection() {
         </div>
       )}
 
-      {/* Credentials — proxy base URL + optional key (openai-compatible),
-          custom config (custom), single key, or Bedrock AWS fields. */}
-      {provider === "openai-compatible" ? (
-        <div className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-foreground">Proxy base URL</label>
-            <input
-              type="url"
-              value={baseUrl}
-              onChange={(e) => setBaseUrl(e.target.value)}
-              onBlur={() => { if (baseUrl.trim() && effectiveModel) runKeyTest(); }}
-              placeholder="https://litellm.myorg.com"
-              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
-                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                         focus:border-primary/50 placeholder:text-muted-foreground/30"
-            />
-            <p className="text-xs text-muted-foreground/50 mt-1">
-              Any OpenAI-compatible endpoint — LiteLLM, vLLM, Ollama, etc.
-            </p>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-foreground">API key</label>
-            <div className="relative">
-              <input
-                type={showKey ? "text" : "password"}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasExistingKey ? "Key saved — enter a new one to change" : "optional"}
-                className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
-                           text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                           focus:border-primary/50 placeholder:text-muted-foreground/30 pr-11"
-              />
-              <button
-                type="button"
-                onClick={() => setShowKey((v) => !v)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/40
-                           hover:text-muted-foreground transition-colors"
-              >
-                {showKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground/50 mt-1">
-              Leave blank if the proxy requires no authentication.
-            </p>
-          </div>
-        </div>
-      ) : provider === "custom" ? (
+      {/* Credentials — custom config, single key, or Bedrock AWS fields. */}
+      {provider === "custom" ? (
         <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground">
@@ -630,10 +557,10 @@ export function ModelSection() {
         </div>
       )}
 
-      {/* Shared verification status + Verify button (Bedrock, openai-compatible, and custom
+      {/* Shared verification status + Verify button (Bedrock and custom
           get an explicit button since there's no single field to blur off of). */}
       <div className="space-y-2">
-        {(provider === "bedrock" || provider === "openai-compatible" || provider === "custom") && (
+        {(provider === "bedrock" || provider === "custom") && (
           <button
             type="button"
             onClick={runKeyTest}

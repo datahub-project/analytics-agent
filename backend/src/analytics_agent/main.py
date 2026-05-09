@@ -320,12 +320,6 @@ async def _load_llm_config_from_db() -> None:
             os.environ[env_var] = value
             setattr(settings, attr, value)
 
-    # OpenAI-compatible proxy base URL (plaintext).
-    base_url = cfg_data.get("base_url", "")
-    if base_url and not os.environ.get("OPENAI_COMPAT_BASE_URL"):
-        settings.openai_compat_base_url = base_url
-        os.environ["OPENAI_COMPAT_BASE_URL"] = base_url
-
     # Custom provider fields. URL and model are plaintext; headers are encrypted.
     custom_url = cfg_data.get("custom_url", "")
     if custom_url and not os.environ.get("CUSTOM_LLM_URL"):
