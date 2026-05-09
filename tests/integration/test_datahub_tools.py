@@ -49,9 +49,7 @@ def test_tools_load(tools):
     # Spot-check the stable core tools rather than asserting exact equality —
     # new tools are added in datahub-agent-context without breaking the agent.
     required = {"search", "get_entities", "list_schema_fields", "get_me"}
-    assert required <= set(tools.keys()), (
-        f"Missing required tools: {required - set(tools.keys())}"
-    )
+    assert required <= set(tools.keys()), f"Missing required tools: {required - set(tools.keys())}"
 
 
 # ── get_me ──────────────────────────────────────────────────────────────────
