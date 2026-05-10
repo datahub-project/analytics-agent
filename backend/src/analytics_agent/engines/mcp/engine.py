@@ -69,7 +69,7 @@ class MCPQueryEngine(QueryEngine):
 
         if transport in ("http", "streamable_http"):
             return {
-                "transport": "streamable_http",
+                "transport": "http",
                 "url": self._mcp_cfg.get("url", ""),
                 "headers": self._mcp_cfg.get("headers") or None,
                 "timeout": 15,
