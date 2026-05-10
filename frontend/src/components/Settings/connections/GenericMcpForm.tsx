@@ -13,7 +13,7 @@ export function GenericMcpForm({
   onDone: (payload: NewConnectionPayload) => void;
   onCancel: () => void;
 }) {
-  const [transport, setTransport] = useState<"stdio" | "sse" | "http">("stdio");
+  const [transport, setTransport] = useState<"stdio" | "sse">("stdio");
   const [name, setName] = useState("");
   const [label, setLabel] = useState("");
 
@@ -46,16 +46,8 @@ export function GenericMcpForm({
               args: args.filter(Boolean),
               env: Object.fromEntries(env.filter((p) => p.key).map((p) => [p.key, p.value])),
             }
-          : transport === "sse"
-          ? {
-              transport: "sse" as const,
-              url: url.trim(),
-              headers: Object.fromEntries(
-                headers.filter((p) => p.key).map((p) => [p.key, p.value])
-              ),
-            }
           : {
-              transport: "http" as const,
+              transport: "sse" as const,
               url: url.trim(),
               headers: Object.fromEntries(
                 headers.filter((p) => p.key).map((p) => [p.key, p.value])
@@ -78,7 +70,7 @@ export function GenericMcpForm({
     <div className="space-y-4">
       {/* Transport selector */}
       <div className="flex gap-2">
-        {(["stdio", "sse", "http"] as const).map((t) => (
+        {(["stdio", "sse"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -89,11 +81,7 @@ export function GenericMcpForm({
                 : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
             }`}
           >
-            {t === "stdio"
-              ? "Local process (stdio)"
-              : t === "sse"
-              ? "Remote server (SSE)"
-              : "Remote server (HTTP)"}
+            {t === "stdio" ? "Local process (stdio)" : "Remote server (SSE)"}
           </button>
         ))}
       </div>
@@ -130,8 +118,8 @@ export function GenericMcpForm({
         </div>
       )}
 
-      {/* remote config */}
-      {(transport === "sse" || transport === "http") && (
+      {/* sse config */}
+      {transport === "sse" && (
         <div className="space-y-3">
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">
@@ -141,7 +129,7 @@ export function GenericMcpForm({
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder={transport === "sse" ? "https://mcp.example.com/sse" : "https://mcp.example.com/mcp"}
+              placeholder="https://mcp.example.com/sse"
               className="w-full text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
           </div>
