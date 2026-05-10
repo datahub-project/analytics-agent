@@ -61,7 +61,6 @@ def _make_custom(model: str, streaming: bool) -> BaseChatModel:
     if not model:
         raise ValueError("Custom LLM model not specified")
 
-    # Parse custom headers from JSON
     headers = {}
     if settings.custom_llm_headers:
         try:
@@ -69,7 +68,6 @@ def _make_custom(model: str, streaming: bool) -> BaseChatModel:
         except (json.JSONDecodeError, ValueError) as e:
             raise ValueError(f"Invalid custom headers JSON: {e}")
 
-    # Extract API key from Authorization header for ChatOpenAI
     api_key = ""
     if "Authorization" in headers:
         auth_value = headers.get("Authorization", "")
@@ -78,11 +76,7 @@ def _make_custom(model: str, streaming: bool) -> BaseChatModel:
         else:
             api_key = auth_value
 
-    # Remove base_url trailing slash to avoid double slashes
     base_url = url.rstrip("/")
-
-    # Never send Authorization: Bearer dummy — gateways that use only X-Requester-Token
-    # (no Authorization in JSON) must not get a bogus bearer.
     kwargs: dict = {
         "model": model,
         "base_url": base_url,

@@ -231,8 +231,6 @@ _KNOWN_TOOLS: dict[str, list[dict]] = {
     ],
 }
 
-_MCP_ENGINE_TYPES = {"mcp", "mcp-stdio", "mcp-sse"}
-
 
 def _build_tool_toggles(
     connection_type: str,
@@ -734,21 +732,6 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     ]
                     if f is not None
                 ]
-        elif intg.type in _MCP_ENGINE_TYPES:
-            mcp_cfg = conn_cfg.get("_mcp", {})
-            if isinstance(mcp_cfg, str):
-                with contextlib.suppress(Exception):
-                    mcp_cfg = orjson.loads(mcp_cfg)
-            if not isinstance(mcp_cfg, dict):
-                mcp_cfg = {}
-
-            transport = str(mcp_cfg.get("transport", "")).strip().lower()
-            if transport == "stdio":
-                has_cfg = bool(str(mcp_cfg.get("command", "")).strip())
-            else:
-                has_cfg = bool(str(mcp_cfg.get("url", "")).strip())
-            status_str = "connected" if has_cfg else "unconfigured"
-            fields = []
         else:
             status_str = "unconfigured"
             fields = []
@@ -2074,7 +2057,6 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
                 else:
                     api_key = auth_value
 
-            # Remove base_url trailing slash to avoid double slashes
             base_url = url.rstrip("/")
 
             llm_kwargs = {
