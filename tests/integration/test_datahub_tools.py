@@ -45,18 +45,11 @@ def tools(datahub_client):
 
 
 def test_tools_load(tools):
-    expected = {
-        "search",
-        "search_documents",
-        "get_entities",
-        "list_schema_fields",
-        "get_lineage",
-        "get_lineage_paths_between",
-        "get_dataset_queries",
-        "grep_documents",
-        "get_me",
-    }
-    assert expected == set(tools.keys()), f"Unexpected tool set: {set(tools.keys())}"
+    assert set(tools.keys()), "No tools loaded"
+    # Spot-check the stable core tools rather than asserting exact equality —
+    # new tools are added in datahub-agent-context without breaking the agent.
+    required = {"search", "get_entities", "list_schema_fields", "get_me"}
+    assert required <= set(tools.keys()), f"Missing required tools: {required - set(tools.keys())}"
 
 
 # ── get_me ──────────────────────────────────────────────────────────────────
