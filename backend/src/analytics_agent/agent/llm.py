@@ -50,6 +50,14 @@ def _make_bedrock(model: str, streaming: bool) -> BaseChatModel:
     return ChatBedrockConverse(**kwargs)
 
 
+def _api_key_from_headers(headers: dict) -> str:
+    """Extract an API key from an Authorization header, stripping the Bearer prefix."""
+    auth_value = headers.get("Authorization", "")
+    if not auth_value:
+        return ""
+    return auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
+
+
 def _make_custom(model: str, streaming: bool) -> BaseChatModel:
     import json
 
@@ -68,10 +76,7 @@ def _make_custom(model: str, streaming: bool) -> BaseChatModel:
         except (json.JSONDecodeError, ValueError) as e:
             raise ValueError(f"Invalid custom headers JSON: {e}")
 
-    api_key = ""
-    if "Authorization" in headers:
-        auth_value = headers.get("Authorization", "")
-        api_key = auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
+    api_key = _api_key_from_headers(headers)
 
     base_url = url.rstrip("/")
     kwargs: dict = {

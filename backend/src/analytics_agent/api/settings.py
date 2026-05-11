@@ -2034,6 +2034,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
         elif body.provider == "custom":
             from langchain_openai import ChatOpenAI
 
+            from analytics_agent.agent.llm import _api_key_from_headers
             from analytics_agent.config import settings as _cfg
 
             url = body.custom_url
@@ -2051,12 +2052,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
             if header_names:
                 logger.info(f"Custom headers used (names only): {header_names}")
 
-            # Extract API key from Authorization header for ChatOpenAI
-            api_key = ""
-            if "Authorization" in headers:
-                auth_value = headers.get("Authorization", "")
-                api_key = auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
-
+            api_key = _api_key_from_headers(headers)
             base_url = url.rstrip("/")
 
             llm_kwargs = {
