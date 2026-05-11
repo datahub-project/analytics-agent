@@ -146,6 +146,60 @@ async def test_get_llm_settings_returns_enable_prompt_cache_true() -> None:
     assert response.enable_prompt_cache is True
 
 
+@pytest.mark.asyncio
+async def test_get_llm_settings_custom_fields_populated() -> None:
+    """get_llm_settings must expose custom_url, custom_model, and header metadata."""
+    import json
+
+    headers = {"Authorization": "Bearer sk-xxx", "X-Org": "acme"}
+    cfg = _mock_cfg(
+        llm_provider="custom",
+        custom_llm_url="http://ollama:11434/v1",
+        custom_llm_model="llama3.2:1b",
+        custom_llm_headers=json.dumps(headers),
+    )
+    cfg.get_llm_model.return_value = "llama3.2:1b"
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+
+    assert response.custom_url == "http://ollama:11434/v1"
+    assert response.custom_model == "llama3.2:1b"
+    assert response.has_custom_headers is True
+    assert set(response.custom_header_keys) == {"Authorization", "X-Org"}
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_has_key_true_when_custom_url_and_model_set() -> None:
+    cfg = _mock_cfg(
+        llm_provider="custom",
+        custom_llm_url="http://localhost/v1",
+        custom_llm_model="llama3.2:1b",
+    )
+    cfg.get_llm_model.return_value = "llama3.2:1b"
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+    assert response.has_key is True
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_has_key_false_when_custom_url_missing() -> None:
+    cfg = _mock_cfg(llm_provider="custom", custom_llm_url="", custom_llm_model="model")
+    cfg.get_llm_model.return_value = "model"
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+    assert response.has_key is False
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_no_custom_headers_when_not_set() -> None:
+    cfg = _mock_cfg(llm_provider="custom", custom_llm_url="http://localhost/v1", custom_llm_headers="")
+    cfg.get_llm_model.return_value = ""
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+    assert response.has_custom_headers is False
+    assert response.custom_header_keys == []
+
+
 # ---------------------------------------------------------------------------
 # 3 & 4. _load_llm_config_from_db rehydration
 # ---------------------------------------------------------------------------

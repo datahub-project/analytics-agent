@@ -76,25 +76,32 @@ def _settings(provider: str, **overrides) -> Settings:
     )
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+# custom is excluded: its PROVIDER_DEFAULTS are intentionally empty ("") because
+# the user must supply a model. The _resolve_model fallback will return whatever
+# is in custom_llm_model/llm_model — which varies per environment. The custom
+# provider fallback behaviour is covered by test_custom_* tests below.
+_PROVIDERS_WITH_CURATED_DEFAULTS = EXPECTED_PROVIDERS - PROVIDERS_WITH_EMPTY_DEFAULTS
+
+
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_llm_model() == PROVIDER_DEFAULTS[provider]["main"]
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_chart_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_chart_llm_model() == PROVIDER_DEFAULTS[provider]["chart"]
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_quality_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_quality_llm_model() == PROVIDER_DEFAULTS[provider]["quality"]
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_delight_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_delight_llm_model() == PROVIDER_DEFAULTS[provider]["delight"]
@@ -124,6 +131,58 @@ def test_unknown_provider_falls_back_to_openai_defaults():
     """Graceful fallback — unknown provider should not raise, returns OpenAI defaults."""
     s = _settings("unknown-future-provider")
     assert s.get_llm_model() == PROVIDER_DEFAULTS["openai"]["main"]
+
+
+# ─── Settings._resolve_model — custom provider fallback ──────────────────────
+
+
+def test_custom_non_main_tiers_fall_back_to_custom_llm_model():
+    """For 'custom', chart/quality/delight use custom_llm_model when no tier override is set."""
+    s = _settings("custom", custom_llm_model="llama3.2:1b")
+    assert s.get_chart_llm_model() == "llama3.2:1b"
+    assert s.get_quality_llm_model() == "llama3.2:1b"
+    assert s.get_delight_llm_model() == "llama3.2:1b"
+
+
+def test_custom_non_main_tiers_prefer_llm_model_over_custom_llm_model():
+    """llm_model (the primary override) takes priority over custom_llm_model for non-main tiers."""
+    s = _settings("custom", llm_model="qwen2.5:7b", custom_llm_model="llama3.2:1b")
+    assert s.get_chart_llm_model() == "qwen2.5:7b"
+    assert s.get_quality_llm_model() == "qwen2.5:7b"
+    assert s.get_delight_llm_model() == "qwen2.5:7b"
+
+
+def test_custom_tier_override_wins_over_all_fallbacks():
+    """Per-tier override always beats the custom_llm_model fallback."""
+    s = _settings(
+        "custom",
+        chart_llm_model="chart-specific",
+        quality_llm_model="quality-specific",
+        delight_llm_model="delight-specific",
+        custom_llm_model="fallback",
+    )
+    assert s.get_chart_llm_model() == "chart-specific"
+    assert s.get_quality_llm_model() == "quality-specific"
+    assert s.get_delight_llm_model() == "delight-specific"
+
+
+def test_custom_main_tier_falls_back_to_custom_llm_model():
+    """get_llm_model() uses custom_llm_model when llm_model is unset for the custom provider."""
+    s = _settings("custom", custom_llm_model="llama3.2:1b")
+    assert s.get_llm_model() == "llama3.2:1b"
+
+
+def test_custom_empty_when_neither_model_set():
+    """All tiers return '' for custom provider when no models are configured.
+
+    Constructor kwargs take priority over env/.env in Pydantic BaseSettings, so
+    passing empty strings here isolates the test from the user's local .env.
+    """
+    s = _settings("custom", llm_model="", custom_llm_model="")
+    assert s.get_llm_model() == ""
+    assert s.get_chart_llm_model() == ""
+    assert s.get_quality_llm_model() == ""
+    assert s.get_delight_llm_model() == ""
 
 
 # ─── Settings.get_api_key ─────────────────────────────────────────────────────

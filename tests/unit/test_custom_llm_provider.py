@@ -133,6 +133,81 @@ def _patch_custom_llm(url: str, model: str):
 
 
 # ---------------------------------------------------------------------------
+# 0. Pure utilities — _api_key_from_headers, _build_custom_chat_openai
+# ---------------------------------------------------------------------------
+
+
+def test_api_key_from_headers_extracts_bearer() -> None:
+    from analytics_agent.agent.llm import _api_key_from_headers
+
+    assert _api_key_from_headers({"Authorization": "Bearer my-token"}) == "my-token"
+
+
+def test_api_key_from_headers_non_bearer_passthrough() -> None:
+    from analytics_agent.agent.llm import _api_key_from_headers
+
+    assert _api_key_from_headers({"Authorization": "ApiKey abc123"}) == "ApiKey abc123"
+
+
+def test_api_key_from_headers_no_auth_returns_empty() -> None:
+    from analytics_agent.agent.llm import _api_key_from_headers
+
+    assert _api_key_from_headers({"X-Custom": "value"}) == ""
+    assert _api_key_from_headers({}) == ""
+
+
+def test_build_custom_chat_openai_passes_streaming() -> None:
+    from analytics_agent.agent.llm import _build_custom_chat_openai
+
+    with patch("langchain_openai.ChatOpenAI") as MockChat:
+        MockChat.return_value = MockChat
+        _build_custom_chat_openai("model", "http://localhost/v1", {}, streaming=True)
+
+    assert MockChat.call_args.kwargs["streaming"] is True
+
+
+def test_build_custom_chat_openai_passes_max_tokens() -> None:
+    from analytics_agent.agent.llm import _build_custom_chat_openai
+
+    with patch("langchain_openai.ChatOpenAI") as MockChat:
+        MockChat.return_value = MockChat
+        _build_custom_chat_openai("model", "http://localhost/v1", {}, max_tokens=1)
+
+    assert MockChat.call_args.kwargs["max_tokens"] == 1
+
+
+def test_build_custom_chat_openai_forwards_headers_as_default_headers() -> None:
+    from analytics_agent.agent.llm import _build_custom_chat_openai
+
+    headers = {"X-Custom": "value", "Authorization": "Bearer tok"}
+    with patch("langchain_openai.ChatOpenAI") as MockChat:
+        MockChat.return_value = MockChat
+        _build_custom_chat_openai("model", "http://localhost/v1", headers)
+
+    assert MockChat.call_args.kwargs["default_headers"] == headers
+
+
+def test_build_custom_chat_openai_no_default_headers_when_empty() -> None:
+    from analytics_agent.agent.llm import _build_custom_chat_openai
+
+    with patch("langchain_openai.ChatOpenAI") as MockChat:
+        MockChat.return_value = MockChat
+        _build_custom_chat_openai("model", "http://localhost/v1", {})
+
+    assert "default_headers" not in MockChat.call_args.kwargs
+
+
+def test_build_custom_chat_openai_strips_trailing_slash_from_url() -> None:
+    from analytics_agent.agent.llm import _build_custom_chat_openai
+
+    with patch("langchain_openai.ChatOpenAI") as MockChat:
+        MockChat.return_value = MockChat
+        _build_custom_chat_openai("model", "http://localhost/v1/", {})
+
+    assert MockChat.call_args.kwargs["base_url"] == "http://localhost/v1"
+
+
+# ---------------------------------------------------------------------------
 # 1. Factory — ChatOpenAI is constructed with the right kwargs
 # ---------------------------------------------------------------------------
 
@@ -321,3 +396,138 @@ async def test_save_custom_url_reflected_in_get(mock_proxy_url: str, proxy_model
 
     assert response.provider == "custom"
     assert response.custom_url == mock_proxy_url
+
+
+# ---------------------------------------------------------------------------
+# 5. Header JSON parsing — _parse_custom_llm_headers_json
+# ---------------------------------------------------------------------------
+
+
+def test_parse_headers_valid_json() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    result = _parse_custom_llm_headers_json('{"Authorization": "Bearer token"}')
+    assert result == {"Authorization": "Bearer token"}
+
+
+def test_parse_headers_multiple_keys() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    result = _parse_custom_llm_headers_json('{"Authorization": "Bearer tok", "X-Org": "acme"}')
+    assert result == {"Authorization": "Bearer tok", "X-Org": "acme"}
+
+
+def test_parse_headers_none_returns_empty() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    assert _parse_custom_llm_headers_json(None) == {}
+
+
+def test_parse_headers_empty_string_returns_empty() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    assert _parse_custom_llm_headers_json("") == {}
+    assert _parse_custom_llm_headers_json("   ") == {}
+
+
+def test_parse_headers_invalid_json_returns_empty() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    assert _parse_custom_llm_headers_json("not json") == {}
+    assert _parse_custom_llm_headers_json("{bad}") == {}
+
+
+def test_parse_headers_non_dict_json_returns_empty() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    assert _parse_custom_llm_headers_json('["a", "b"]') == {}
+    assert _parse_custom_llm_headers_json('"just a string"') == {}
+
+
+def test_parse_headers_null_value_becomes_empty_string() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    result = _parse_custom_llm_headers_json('{"X-Key": null}')
+    assert result == {"X-Key": ""}
+
+
+def test_parse_headers_strips_whitespace_from_keys() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    result = _parse_custom_llm_headers_json('{" Authorization ": "Bearer tok"}')
+    assert "Authorization" in result
+    assert " Authorization " not in result
+
+
+def test_parse_headers_blank_key_dropped() -> None:
+    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+
+    result = _parse_custom_llm_headers_json('{"": "value", "X-Key": "v"}')
+    assert "" not in result
+    assert "X-Key" in result
+
+
+# ---------------------------------------------------------------------------
+# 6. Header merging — _merge_custom_llm_headers_request
+# ---------------------------------------------------------------------------
+
+
+def test_merge_new_value_wins_over_stored() -> None:
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    stored = '{"Authorization": "Bearer old-token"}'
+    request = '{"Authorization": "Bearer new-token"}'
+    assert _merge_custom_llm_headers_request(request, stored) == {
+        "Authorization": "Bearer new-token"
+    }
+
+
+def test_merge_blank_request_value_falls_back_to_stored() -> None:
+    """UI echoes header keys but blanks values — stored secret must be preserved."""
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    stored = '{"Authorization": "Bearer secret"}'
+    request = '{"Authorization": ""}'  # UI sent blank — must restore from stored
+    assert _merge_custom_llm_headers_request(request, stored) == {
+        "Authorization": "Bearer secret"
+    }
+
+
+def test_merge_no_request_returns_stored() -> None:
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    stored = '{"Authorization": "Bearer token", "X-Org": "acme"}'
+    result = _merge_custom_llm_headers_request(None, stored)
+    assert result == {"Authorization": "Bearer token", "X-Org": "acme"}
+
+
+def test_merge_both_empty_returns_empty() -> None:
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    assert _merge_custom_llm_headers_request(None, None) == {}
+    assert _merge_custom_llm_headers_request("", "") == {}
+
+
+def test_merge_new_key_with_value_included() -> None:
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    result = _merge_custom_llm_headers_request('{"X-New": "value"}', None)
+    assert result == {"X-New": "value"}
+
+
+def test_merge_blank_value_for_unknown_key_omitted() -> None:
+    """Blank value for a key that has no stored fallback is silently dropped."""
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    result = _merge_custom_llm_headers_request('{"X-Unknown": ""}', None)
+    assert "X-Unknown" not in result
+
+
+def test_merge_mixed_keys() -> None:
+    """New value for one key, blank (restore from stored) for another."""
+    from analytics_agent.api.settings import _merge_custom_llm_headers_request
+
+    stored = '{"Authorization": "Bearer old", "X-Org": "acme"}'
+    request = '{"Authorization": "Bearer new", "X-Org": ""}'
+    result = _merge_custom_llm_headers_request(request, stored)
+    assert result == {"Authorization": "Bearer new", "X-Org": "acme"}
