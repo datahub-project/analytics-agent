@@ -199,29 +199,30 @@ class Settings(BaseSettings):
         provider_defaults = PROVIDER_DEFAULTS.get(self.llm_provider, PROVIDER_DEFAULTS["openai"])
         return provider_defaults[tier]
 
+    def _resolve_model(self, tier_override: str, tier: str) -> str:
+        """Return the effective model for a tier.
+
+        Resolution order:
+          1. Per-tier override field (e.g. chart_llm_model)
+          2. Provider default for the tier
+          3. For the 'custom' provider only: llm_model → custom_llm_model
+        """
+        value = tier_override or self._default_model(tier)
+        if self.llm_provider == "custom" and not value:
+            value = self.llm_model or self.custom_llm_model
+        return value
+
     def get_llm_model(self) -> str:
-        main = self.llm_model or self._default_model("main")
-        if self.llm_provider == "custom" and not main:
-            main = self.custom_llm_model
-        return main
+        return self._resolve_model(self.llm_model, "main")
 
     def get_chart_llm_model(self) -> str:
-        chart = self.chart_llm_model or self._default_model("chart")
-        if self.llm_provider == "custom" and not chart:
-            chart = self.llm_model or self.custom_llm_model
-        return chart
+        return self._resolve_model(self.chart_llm_model, "chart")
 
     def get_quality_llm_model(self) -> str:
-        qual = self.quality_llm_model or self._default_model("quality")
-        if self.llm_provider == "custom" and not qual:
-            qual = self.llm_model or self.custom_llm_model
-        return qual
+        return self._resolve_model(self.quality_llm_model, "quality")
 
     def get_delight_llm_model(self) -> str:
-        delight = self.delight_llm_model or self._default_model("delight")
-        if self.llm_provider == "custom" and not delight:
-            delight = self.llm_model or self.custom_llm_model
-        return delight
+        return self._resolve_model(self.delight_llm_model, "delight")
 
     def get_api_key(self) -> str:
         """Return the configured API key for the active provider."""

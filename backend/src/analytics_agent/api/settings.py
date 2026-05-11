@@ -2032,9 +2032,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
                     bk_kwargs["aws_session_token"] = SecretStr(tok)
             llm = ChatBedrockConverse(**bk_kwargs)
         elif body.provider == "custom":
-            from langchain_openai import ChatOpenAI
-
-            from analytics_agent.agent.llm import _api_key_from_headers
+            from analytics_agent.agent.llm import _build_custom_chat_openai
             from analytics_agent.config import settings as _cfg
 
             url = body.custom_url
@@ -2048,25 +2046,10 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
             headers = _merge_custom_llm_headers_request(
                 body.custom_headers, _cfg.custom_llm_headers
             )
-            header_names = list(headers.keys())
-            if header_names:
-                logger.info(f"Custom headers used (names only): {header_names}")
-
-            api_key = _api_key_from_headers(headers)
-            base_url = url.rstrip("/")
-
-            llm_kwargs = {
-                "model": body.custom_model,
-                "base_url": base_url,
-                "api_key": SecretStr(api_key or ""),
-                "max_tokens": 1,
-                "temperature": 0,
-            }
-
             if headers:
-                llm_kwargs["default_headers"] = {str(k): str(v) for k, v in headers.items()}
+                logger.info(f"Custom headers used (names only): {list(headers.keys())}")
 
-            llm = ChatOpenAI(**llm_kwargs)
+            llm = _build_custom_chat_openai(body.custom_model, url, headers, max_tokens=1)
         else:
             from langchain_openai import ChatOpenAI
 

@@ -58,10 +58,34 @@ def _api_key_from_headers(headers: dict) -> str:
     return auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
 
 
+def _build_custom_chat_openai(
+    model: str,
+    url: str,
+    headers: dict,
+    *,
+    streaming: bool = False,
+    max_tokens: int | None = None,
+) -> BaseChatModel:
+    """Construct a ChatOpenAI instance pointed at a custom OpenAI-compatible endpoint."""
+    from langchain_openai import ChatOpenAI
+
+    api_key = _api_key_from_headers(headers)
+    kwargs: dict = {
+        "model": model,
+        "base_url": url.rstrip("/"),
+        "api_key": SecretStr(api_key or ""),
+        "streaming": streaming,
+        "temperature": 0,
+    }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if headers:
+        kwargs["default_headers"] = {str(k): str(v) for k, v in headers.items()}
+    return ChatOpenAI(**kwargs)
+
+
 def _make_custom(model: str, streaming: bool) -> BaseChatModel:
     import json
-
-    from langchain_openai import ChatOpenAI
 
     url = settings.custom_llm_url
     if not url:
@@ -76,21 +100,7 @@ def _make_custom(model: str, streaming: bool) -> BaseChatModel:
         except (json.JSONDecodeError, ValueError) as e:
             raise ValueError(f"Invalid custom headers JSON: {e}")
 
-    api_key = _api_key_from_headers(headers)
-
-    base_url = url.rstrip("/")
-    kwargs: dict = {
-        "model": model,
-        "base_url": base_url,
-        "api_key": SecretStr(api_key or ""),
-        "streaming": streaming,
-        "temperature": 0,
-    }
-
-    if headers:
-        kwargs["default_headers"] = {str(k): str(v) for k, v in headers.items()}
-
-    return ChatOpenAI(**kwargs)
+    return _build_custom_chat_openai(model, url, headers, streaming=streaming)
 
 
 # Registry — adding a provider means adding one entry here.
