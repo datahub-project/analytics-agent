@@ -27,7 +27,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import patch
 
 import pytest
-
 from analytics_agent.agent.llm import _api_key_from_headers, _build_custom_chat_openai, _make_custom
 from analytics_agent.api.settings import (
     _merge_custom_llm_headers_request,
@@ -437,9 +436,7 @@ def test_merge_blank_request_value_falls_back_to_stored() -> None:
     """UI echoes header keys but blanks values — stored secret must be preserved."""
     stored = '{"Authorization": "Bearer secret"}'
     request = '{"Authorization": ""}'  # UI sent blank — must restore from stored
-    assert _merge_custom_llm_headers_request(request, stored) == {
-        "Authorization": "Bearer secret"
-    }
+    assert _merge_custom_llm_headers_request(request, stored) == {"Authorization": "Bearer secret"}
 
 
 def test_merge_no_request_returns_stored() -> None:

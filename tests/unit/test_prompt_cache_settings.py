@@ -192,7 +192,9 @@ async def test_get_llm_settings_has_key_false_when_custom_url_missing() -> None:
 
 @pytest.mark.asyncio
 async def test_get_llm_settings_no_custom_headers_when_not_set() -> None:
-    cfg = _mock_cfg(llm_provider="custom", custom_llm_url="http://localhost/v1", custom_llm_headers="")
+    cfg = _mock_cfg(
+        llm_provider="custom", custom_llm_url="http://localhost/v1", custom_llm_headers=""
+    )
     cfg.get_llm_model.return_value = ""
     with patch("analytics_agent.config.settings", cfg):
         response: LlmSettingsResponse = await get_llm_settings()
