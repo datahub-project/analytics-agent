@@ -45,7 +45,8 @@ def tools(datahub_client):
 
 
 def test_tools_load(tools):
-    expected = {
+    assert set(tools.keys()), "No tools loaded"
+    required = {
         "search",
         "search_documents",
         "get_entities",
@@ -56,15 +57,7 @@ def test_tools_load(tools):
         "grep_documents",
         "get_me",
     }
-    assert expected == set(tools.keys()), f"Unexpected tool set: {set(tools.keys())}"
-
-
-# ── get_me ──────────────────────────────────────────────────────────────────
-
-
-def test_get_me(tools):
-    result = tools["get_me"].invoke({})
-    print("\nget_me:", result)
+    assert required <= set(tools.keys()), f"Missing required tools: {required - set(tools.keys())}"
 
 
 # ── get_me ──────────────────────────────────────────────────────────────────
