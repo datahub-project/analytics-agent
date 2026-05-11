@@ -15,6 +15,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from analytics_agent.agent.llm import _FACTORIES, _make_llm
 from analytics_agent.config import (
     PROVIDER_DEFAULTS,
     PROVIDER_KEY_ATTR,
@@ -24,13 +25,13 @@ from analytics_agent.config import (
 
 # ─── PROVIDER_DEFAULTS structure ─────────────────────────────────────────────
 
-EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock", "openai-compatible"}
-# Providers that authenticate with a single API key (bedrock uses AWS creds instead).
-# openai-compatible has an optional key, so it's included here.
-EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google", "openai-compatible"}
+EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock", "custom"}
+# Providers that authenticate with a single API key (bedrock uses AWS creds instead;
+# custom uses URL + model + optional headers — not PROVIDER_KEY_ENV).
+EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google"}
 EXPECTED_TIERS = {"main", "chart", "quality", "delight"}
 # Providers whose default model IDs are intentionally empty (user must supply the model).
-PROVIDERS_WITH_EMPTY_DEFAULTS = {"openai-compatible"}
+PROVIDERS_WITH_EMPTY_DEFAULTS = {"custom"}
 
 
 def test_provider_defaults_has_all_providers():
@@ -163,12 +164,7 @@ def test_get_api_key_unknown_provider_returns_empty():
 
 
 def test_factories_cover_all_providers():
-    from analytics_agent.agent.llm import _FACTORIES
-
     assert set(_FACTORIES) == EXPECTED_PROVIDERS
-
-
-from analytics_agent.agent.llm import _FACTORIES, _make_llm
 
 
 @patch("analytics_agent.agent.llm.settings")
@@ -208,8 +204,6 @@ def test_make_llm_google_calls_correct_factory(mock_settings):
 def test_make_llm_unknown_provider_raises(mock_settings):
     mock_settings.llm_provider = "mystery-provider"
 
-    from analytics_agent.agent.llm import _make_llm
-
     with pytest.raises(ValueError, match="Unknown LLM provider"):
         _make_llm("some-model")
 
@@ -217,8 +211,6 @@ def test_make_llm_unknown_provider_raises(mock_settings):
 @patch("analytics_agent.agent.llm.settings")
 def test_make_llm_error_message_lists_valid_providers(mock_settings):
     mock_settings.llm_provider = "mystery"
-
-    from analytics_agent.agent.llm import _make_llm
 
     with pytest.raises(ValueError) as exc_info:
         _make_llm("some-model")

@@ -1851,7 +1851,9 @@ def _parse_custom_llm_headers_json(raw: str | None) -> dict[str, str]:
     return out
 
 
-def _merge_custom_llm_headers_request(request_json: str | None, stored_json: str | None) -> dict[str, str]:
+def _merge_custom_llm_headers_request(
+    request_json: str | None, stored_json: str | None
+) -> dict[str, str]:
     """Build headers for a custom LLM request using the UI payload plus stored secrets.
 
     The Model settings UI lists saved header keys but leaves values blank so secrets
@@ -1986,7 +1988,6 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
     logger.info(f"Testing LLM provider: {body.provider}")
 
     def _run() -> None:
-        import json
         import logging
 
         from analytics_agent.config import PROVIDER_DEFAULTS
@@ -2043,7 +2044,9 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
 
             logger.info(f"Testing custom LLM provider: url={url}, model={body.custom_model}")
 
-            headers = _merge_custom_llm_headers_request(body.custom_headers, _cfg.custom_llm_headers)
+            headers = _merge_custom_llm_headers_request(
+                body.custom_headers, _cfg.custom_llm_headers
+            )
             header_names = list(headers.keys())
             if header_names:
                 logger.info(f"Custom headers used (names only): {header_names}")
@@ -2052,10 +2055,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
             api_key = ""
             if "Authorization" in headers:
                 auth_value = headers.get("Authorization", "")
-                if auth_value.startswith("Bearer "):
-                    api_key = auth_value[7:]
-                else:
-                    api_key = auth_value
+                api_key = auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
 
             base_url = url.rstrip("/")
 
@@ -2094,6 +2094,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
         return TestLlmKeyResponse(ok=False, message=_VERIFY_TIMEOUT_MSG)
     except Exception as exc:
         import logging
+
         logger = logging.getLogger(__name__)
         raw = str(exc)
         logger.error(f"LLM test failed for provider={body.provider}: {raw}")

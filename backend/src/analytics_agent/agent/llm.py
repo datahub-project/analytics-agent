@@ -71,10 +71,7 @@ def _make_custom(model: str, streaming: bool) -> BaseChatModel:
     api_key = ""
     if "Authorization" in headers:
         auth_value = headers.get("Authorization", "")
-        if auth_value.startswith("Bearer "):
-            api_key = auth_value[7:]
-        else:
-            api_key = auth_value
+        api_key = auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
 
     base_url = url.rstrip("/")
     kwargs: dict = {

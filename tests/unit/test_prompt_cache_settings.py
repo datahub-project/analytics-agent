@@ -44,6 +44,9 @@ def _mock_cfg(**kwargs) -> MagicMock:
     m.aws_secret_access_key = ""
     m.aws_region = ""
     m.enable_prompt_cache = True
+    m.custom_llm_url = ""
+    m.custom_llm_model = ""
+    m.custom_llm_headers = ""
     m.get_llm_model.return_value = ""
     for k, v in kwargs.items():
         setattr(m, k, v)
