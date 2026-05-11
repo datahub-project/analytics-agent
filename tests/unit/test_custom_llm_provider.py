@@ -28,6 +28,15 @@ from unittest.mock import patch
 
 import pytest
 
+from analytics_agent.agent.llm import _api_key_from_headers, _build_custom_chat_openai, _make_custom
+from analytics_agent.api.settings import (
+    _merge_custom_llm_headers_request,
+    _parse_custom_llm_headers_json,
+)
+from analytics_agent.config import settings
+
+_BUILD_URL = "http://localhost/v1"
+
 _AUTH_HEADERS_JSON = json.dumps({"Authorization": "Bearer test-key"})
 
 # ---------------------------------------------------------------------------
@@ -106,8 +115,6 @@ def proxy_model(mock_proxy_url: str) -> str:
 @contextmanager
 def _patch_custom_llm(url: str, model: str):
     """Temporarily point the settings singleton at the mock proxy."""
-    from analytics_agent.config import settings
-
     saved = (
         settings.llm_provider,
         settings.custom_llm_url,
@@ -137,74 +144,51 @@ def _patch_custom_llm(url: str, model: str):
 # ---------------------------------------------------------------------------
 
 
-def test_api_key_from_headers_extracts_bearer() -> None:
-    from analytics_agent.agent.llm import _api_key_from_headers
-
-    assert _api_key_from_headers({"Authorization": "Bearer my-token"}) == "my-token"
-
-
-def test_api_key_from_headers_non_bearer_passthrough() -> None:
-    from analytics_agent.agent.llm import _api_key_from_headers
-
-    assert _api_key_from_headers({"Authorization": "ApiKey abc123"}) == "ApiKey abc123"
-
-
-def test_api_key_from_headers_no_auth_returns_empty() -> None:
-    from analytics_agent.agent.llm import _api_key_from_headers
-
-    assert _api_key_from_headers({"X-Custom": "value"}) == ""
-    assert _api_key_from_headers({}) == ""
+@pytest.mark.parametrize(
+    "headers, expected",
+    [
+        ({"Authorization": "Bearer my-token"}, "my-token"),
+        ({"Authorization": "ApiKey abc123"}, "ApiKey abc123"),
+        ({"X-Custom": "value"}, ""),
+        ({}, ""),
+    ],
+)
+def test_api_key_from_headers(headers: dict, expected: str) -> None:
+    assert _api_key_from_headers(headers) == expected
 
 
-def test_build_custom_chat_openai_passes_streaming() -> None:
-    from analytics_agent.agent.llm import _build_custom_chat_openai
-
+@pytest.mark.parametrize(
+    "call_kwargs, url, expected_key, expected_val",
+    [
+        ({"streaming": True}, _BUILD_URL, "streaming", True),
+        ({"max_tokens": 1}, _BUILD_URL, "max_tokens", 1),
+        ({}, _BUILD_URL + "/", "base_url", _BUILD_URL),
+    ],
+)
+def test_build_custom_chat_openai_kwarg_forwarding(
+    call_kwargs: dict, url: str, expected_key: str, expected_val: object
+) -> None:
     with patch("langchain_openai.ChatOpenAI") as MockChat:
         MockChat.return_value = MockChat
-        _build_custom_chat_openai("model", "http://localhost/v1", {}, streaming=True)
-
-    assert MockChat.call_args.kwargs["streaming"] is True
-
-
-def test_build_custom_chat_openai_passes_max_tokens() -> None:
-    from analytics_agent.agent.llm import _build_custom_chat_openai
-
-    with patch("langchain_openai.ChatOpenAI") as MockChat:
-        MockChat.return_value = MockChat
-        _build_custom_chat_openai("model", "http://localhost/v1", {}, max_tokens=1)
-
-    assert MockChat.call_args.kwargs["max_tokens"] == 1
+        _build_custom_chat_openai("model", url, {}, **call_kwargs)
+    assert MockChat.call_args.kwargs[expected_key] == expected_val
 
 
 def test_build_custom_chat_openai_forwards_headers_as_default_headers() -> None:
-    from analytics_agent.agent.llm import _build_custom_chat_openai
-
     headers = {"X-Custom": "value", "Authorization": "Bearer tok"}
     with patch("langchain_openai.ChatOpenAI") as MockChat:
         MockChat.return_value = MockChat
-        _build_custom_chat_openai("model", "http://localhost/v1", headers)
+        _build_custom_chat_openai("model", _BUILD_URL, headers)
 
     assert MockChat.call_args.kwargs["default_headers"] == headers
 
 
 def test_build_custom_chat_openai_no_default_headers_when_empty() -> None:
-    from analytics_agent.agent.llm import _build_custom_chat_openai
-
     with patch("langchain_openai.ChatOpenAI") as MockChat:
         MockChat.return_value = MockChat
-        _build_custom_chat_openai("model", "http://localhost/v1", {})
+        _build_custom_chat_openai("model", _BUILD_URL, {})
 
     assert "default_headers" not in MockChat.call_args.kwargs
-
-
-def test_build_custom_chat_openai_strips_trailing_slash_from_url() -> None:
-    from analytics_agent.agent.llm import _build_custom_chat_openai
-
-    with patch("langchain_openai.ChatOpenAI") as MockChat:
-        MockChat.return_value = MockChat
-        _build_custom_chat_openai("model", "http://localhost/v1/", {})
-
-    assert MockChat.call_args.kwargs["base_url"] == "http://localhost/v1"
 
 
 # ---------------------------------------------------------------------------
@@ -214,15 +198,11 @@ def test_build_custom_chat_openai_strips_trailing_slash_from_url() -> None:
 
 def test_factory_passes_base_url_and_model(mock_proxy_url: str, proxy_model: str) -> None:
     """_make_custom must forward base_url and model to ChatOpenAI."""
-    from analytics_agent.config import settings
-
     settings.custom_llm_url = mock_proxy_url
     settings.custom_llm_headers = _AUTH_HEADERS_JSON
 
     with patch("langchain_openai.ChatOpenAI") as MockChat:
-        MockChat.return_value = MockChat  # keep the mock callable
-        from analytics_agent.agent.llm import _make_custom
-
+        MockChat.return_value = MockChat
         _make_custom(proxy_model, streaming=False)
 
     kwargs = MockChat.call_args.kwargs
@@ -233,15 +213,11 @@ def test_factory_passes_base_url_and_model(mock_proxy_url: str, proxy_model: str
 
 def test_factory_raises_without_url() -> None:
     """_make_custom must raise clearly when custom URL is not configured."""
-    from analytics_agent.config import settings
-
     saved_url = settings.custom_llm_url
     saved_headers = settings.custom_llm_headers
     settings.custom_llm_url = ""
     settings.custom_llm_headers = ""
     try:
-        from analytics_agent.agent.llm import _make_custom
-
         with pytest.raises(ValueError, match="custom_llm_url"):
             _make_custom("some-model", streaming=False)
     finally:
@@ -257,9 +233,6 @@ def test_factory_raises_without_url() -> None:
 def test_invoke_returns_response_from_proxy(mock_proxy_url: str, proxy_model: str) -> None:
     """ChatOpenAI built by the factory must complete a real HTTP round-trip
     through the (mock or real) proxy and return a non-empty AIMessage."""
-    from analytics_agent.agent.llm import _make_custom
-    from analytics_agent.config import settings
-
     settings.custom_llm_url = mock_proxy_url
     settings.custom_llm_headers = _AUTH_HEADERS_JSON
 
@@ -273,7 +246,6 @@ def test_get_llm_uses_custom_when_provider_is_set(mock_proxy_url: str, proxy_mod
     """The public get_llm() accessor must route through the custom backend when
     llm_provider='custom' and llm_model is set."""
     from analytics_agent.agent.llm import get_llm
-    from analytics_agent.config import settings
 
     saved_model = settings.llm_model
     settings.llm_model = proxy_model
@@ -403,65 +375,46 @@ async def test_save_custom_url_reflected_in_get(mock_proxy_url: str, proxy_model
 # ---------------------------------------------------------------------------
 
 
-def test_parse_headers_valid_json() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "",
+        "   ",
+        "not json",
+        "{bad}",
+        '["a", "b"]',
+        '"just a string"',
+    ],
+)
+def test_parse_headers_returns_empty_for_invalid_input(raw: object) -> None:
+    assert _parse_custom_llm_headers_json(raw) == {}
 
-    result = _parse_custom_llm_headers_json('{"Authorization": "Bearer token"}')
-    assert result == {"Authorization": "Bearer token"}
+
+def test_parse_headers_valid_json() -> None:
+    assert _parse_custom_llm_headers_json('{"Authorization": "Bearer token"}') == {
+        "Authorization": "Bearer token"
+    }
 
 
 def test_parse_headers_multiple_keys() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
-    result = _parse_custom_llm_headers_json('{"Authorization": "Bearer tok", "X-Org": "acme"}')
-    assert result == {"Authorization": "Bearer tok", "X-Org": "acme"}
-
-
-def test_parse_headers_none_returns_empty() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
-    assert _parse_custom_llm_headers_json(None) == {}
-
-
-def test_parse_headers_empty_string_returns_empty() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
-    assert _parse_custom_llm_headers_json("") == {}
-    assert _parse_custom_llm_headers_json("   ") == {}
-
-
-def test_parse_headers_invalid_json_returns_empty() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
-    assert _parse_custom_llm_headers_json("not json") == {}
-    assert _parse_custom_llm_headers_json("{bad}") == {}
-
-
-def test_parse_headers_non_dict_json_returns_empty() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
-    assert _parse_custom_llm_headers_json('["a", "b"]') == {}
-    assert _parse_custom_llm_headers_json('"just a string"') == {}
+    assert _parse_custom_llm_headers_json('{"Authorization": "Bearer tok", "X-Org": "acme"}') == {
+        "Authorization": "Bearer tok",
+        "X-Org": "acme",
+    }
 
 
 def test_parse_headers_null_value_becomes_empty_string() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
-    result = _parse_custom_llm_headers_json('{"X-Key": null}')
-    assert result == {"X-Key": ""}
+    assert _parse_custom_llm_headers_json('{"X-Key": null}') == {"X-Key": ""}
 
 
 def test_parse_headers_strips_whitespace_from_keys() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
     result = _parse_custom_llm_headers_json('{" Authorization ": "Bearer tok"}')
     assert "Authorization" in result
     assert " Authorization " not in result
 
 
 def test_parse_headers_blank_key_dropped() -> None:
-    from analytics_agent.api.settings import _parse_custom_llm_headers_json
-
     result = _parse_custom_llm_headers_json('{"": "value", "X-Key": "v"}')
     assert "" not in result
     assert "X-Key" in result
@@ -473,8 +426,6 @@ def test_parse_headers_blank_key_dropped() -> None:
 
 
 def test_merge_new_value_wins_over_stored() -> None:
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
     stored = '{"Authorization": "Bearer old-token"}'
     request = '{"Authorization": "Bearer new-token"}'
     assert _merge_custom_llm_headers_request(request, stored) == {
@@ -484,8 +435,6 @@ def test_merge_new_value_wins_over_stored() -> None:
 
 def test_merge_blank_request_value_falls_back_to_stored() -> None:
     """UI echoes header keys but blanks values — stored secret must be preserved."""
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
     stored = '{"Authorization": "Bearer secret"}'
     request = '{"Authorization": ""}'  # UI sent blank — must restore from stored
     assert _merge_custom_llm_headers_request(request, stored) == {
@@ -494,40 +443,32 @@ def test_merge_blank_request_value_falls_back_to_stored() -> None:
 
 
 def test_merge_no_request_returns_stored() -> None:
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
     stored = '{"Authorization": "Bearer token", "X-Org": "acme"}'
-    result = _merge_custom_llm_headers_request(None, stored)
-    assert result == {"Authorization": "Bearer token", "X-Org": "acme"}
+    assert _merge_custom_llm_headers_request(None, stored) == {
+        "Authorization": "Bearer token",
+        "X-Org": "acme",
+    }
 
 
 def test_merge_both_empty_returns_empty() -> None:
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
     assert _merge_custom_llm_headers_request(None, None) == {}
     assert _merge_custom_llm_headers_request("", "") == {}
 
 
 def test_merge_new_key_with_value_included() -> None:
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
-    result = _merge_custom_llm_headers_request('{"X-New": "value"}', None)
-    assert result == {"X-New": "value"}
+    assert _merge_custom_llm_headers_request('{"X-New": "value"}', None) == {"X-New": "value"}
 
 
 def test_merge_blank_value_for_unknown_key_omitted() -> None:
     """Blank value for a key that has no stored fallback is silently dropped."""
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
-    result = _merge_custom_llm_headers_request('{"X-Unknown": ""}', None)
-    assert "X-Unknown" not in result
+    assert "X-Unknown" not in _merge_custom_llm_headers_request('{"X-Unknown": ""}', None)
 
 
 def test_merge_mixed_keys() -> None:
     """New value for one key, blank (restore from stored) for another."""
-    from analytics_agent.api.settings import _merge_custom_llm_headers_request
-
     stored = '{"Authorization": "Bearer old", "X-Org": "acme"}'
     request = '{"Authorization": "Bearer new", "X-Org": ""}'
-    result = _merge_custom_llm_headers_request(request, stored)
-    assert result == {"Authorization": "Bearer new", "X-Org": "acme"}
+    assert _merge_custom_llm_headers_request(request, stored) == {
+        "Authorization": "Bearer new",
+        "X-Org": "acme",
+    }
