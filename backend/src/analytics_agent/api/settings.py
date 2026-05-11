@@ -803,8 +803,8 @@ async def create_connection(
     }
     label = body.label or f"{_type_labels.get(body.type, body.type.capitalize())} ({name})"
 
+    # Build config — merge flat fields + serialized MCP config if present
     conn_cfg = dict(body.config)
-    engine_type = body.type
     if body.mcp_config:
         from analytics_agent.config import DataHubMCPConfig
 
@@ -813,6 +813,7 @@ async def create_connection(
         if transport in ("http", "sse", "streamable_http"):
             _validate_mcp_url(url)
         headers = dict(body.mcp_config.headers or {})
+        # token from conn_cfg["token"] → Authorization header
         if conn_cfg.get("token"):
             headers["Authorization"] = f"Bearer {conn_cfg.pop('token')}"
         mcp_cfg = DataHubMCPConfig(
@@ -824,23 +825,7 @@ async def create_connection(
             args=list(body.mcp_config.args or []),
             env=dict(body.mcp_config.env or {}),
         )
-        if body.type in _CONTEXT_PLATFORM_TYPES or body.category == "context_platform":
-            conn_cfg = mcp_cfg.model_dump()
-        else:
-            conn_cfg["_mcp"] = {
-                "transport": transport,
-                "url": url,
-                "headers": headers,
-                "command": body.mcp_config.command or "",
-                "args": list(body.mcp_config.args or []),
-                "env": dict(body.mcp_config.env or {}),
-            }
-            if transport == "stdio":
-                engine_type = "mcp-stdio"
-            elif transport == "sse":
-                engine_type = "mcp-sse"
-            else:
-                engine_type = "mcp"
+        conn_cfg = mcp_cfg.model_dump()
 
     # Context platforms go to context_platforms table
     if body.type in _CONTEXT_PLATFORM_TYPES or body.category == "context_platform":
@@ -941,7 +926,7 @@ async def create_connection(
     await repo.upsert(
         id=integration_id,
         name=name,
-        type=engine_type,
+        type=body.type,
         label=label,
         config=orjson.dumps(conn_cfg).decode(),
         source="ui",
@@ -949,14 +934,14 @@ async def create_connection(
 
     # If the caller supplied secrets, translate and persist them to .env now.
     if body.secrets:
-        secret_env_vars = _resolve_secrets(engine_type, body.secrets)
+        secret_env_vars = _resolve_secrets(body.type, body.secrets)
         if secret_env_vars:
             env_path = _find_env_file()
             _upsert_env_vars(env_path, secret_env_vars)
             for k, v in secret_env_vars.items():
                 os.environ[k] = v
 
-    register_engine(name, engine_type, conn_cfg)
+    register_engine(name, body.type, conn_cfg)
     return {"success": True, "name": name, "message": f"Connection '{name}' created."}
 
 
