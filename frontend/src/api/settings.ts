@@ -247,10 +247,10 @@ export interface LlmSettings {
   has_aws_keys?: boolean;
   aws_region?: string;
   enable_prompt_cache?: boolean;
-  custom_url?: string;
-  custom_model?: string;
-  has_custom_headers?: boolean;
-  custom_header_keys?: string[];
+  base_url?: string;
+  openai_compatible_model?: string;
+  has_openai_compatible_headers?: boolean;
+  openai_compatible_header_keys?: string[];
 }
 
 /** Bedrock-only credential fields. All optional — leave blank to use the
@@ -285,9 +285,9 @@ export async function testLlmKey(s: {
   provider: string;
   api_key: string;
   model?: string;
-  custom_url?: string;
-  custom_model?: string;
-  custom_headers?: string;
+  base_url?: string;
+  openai_compatible_model?: string;
+  openai_compatible_headers?: string;
 } & BedrockCredentials): Promise<{ ok: boolean; message: string }> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), LLM_VERIFY_TIMEOUT_MS);
@@ -304,9 +304,9 @@ export async function testLlmKey(s: {
         aws_access_key_id: s.aws_access_key_id ?? "",
         aws_secret_access_key: s.aws_secret_access_key ?? "",
         aws_session_token: s.aws_session_token ?? "",
-        custom_url: s.custom_url ?? "",
-        custom_model: s.custom_model ?? "",
-        custom_headers: s.custom_headers ?? "",
+        base_url: s.base_url ?? "",
+        openai_compatible_model: s.openai_compatible_model ?? "",
+        openai_compatible_headers: s.openai_compatible_headers ?? "",
       }),
     });
     if (!res.ok) {
@@ -336,9 +336,9 @@ export async function saveLlmSettings(s: {
   api_key: string;
   model?: string;
   enable_prompt_cache?: boolean;
-  custom_url?: string;
-  custom_model?: string;
-  custom_headers?: string;
+  base_url?: string;
+  openai_compatible_model?: string;
+  openai_compatible_headers?: string;
 } & BedrockCredentials): Promise<void> {
   const res = await fetch("/api/settings/llm", {
     method: "PUT",
@@ -352,9 +352,9 @@ export async function saveLlmSettings(s: {
       aws_secret_access_key: s.aws_secret_access_key ?? "",
       aws_session_token: s.aws_session_token ?? "",
       enable_prompt_cache: s.enable_prompt_cache ?? true,
-      custom_url: s.custom_url ?? "",
-      custom_model: s.custom_model ?? "",
-      custom_headers: s.custom_headers ?? "",
+      base_url: s.base_url ?? "",
+      openai_compatible_model: s.openai_compatible_model ?? "",
+      openai_compatible_headers: s.openai_compatible_headers ?? "",
     }),
   });
   if (!res.ok) throw new Error("Failed to save LLM settings");

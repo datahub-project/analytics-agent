@@ -12,7 +12,7 @@ on:
       - backend/src/analytics_agent/config.py
       - backend/src/analytics_agent/api/settings.py
       - backend/src/analytics_agent/main.py
-      - tests/unit/test_openai_compat_proxy.py
+      - tests/unit/test_custom_llm_provider.py
   pull_request:
     branches: [main]
     paths:
@@ -20,7 +20,7 @@ on:
       - backend/src/analytics_agent/config.py
       - backend/src/analytics_agent/api/settings.py
       - backend/src/analytics_agent/main.py
-      - tests/unit/test_openai_compat_proxy.py
+      - tests/unit/test_custom_llm_provider.py
 
 jobs:
   ollama-proxy:
@@ -59,6 +59,6 @@ jobs:
 
       - name: Run integration tests against Ollama
         env:
-          OPENAI_COMPAT_TEST_URL: http://localhost:11434/v1
-          OPENAI_COMPAT_TEST_MODEL: llama3.2:1b
-        run: uv run pytest tests/unit/test_openai_compat_proxy.py -v
+          OPENAI_COMPATIBLE_TEST_URL: http://localhost:11434/v1
+          OPENAI_COMPATIBLE_TEST_MODEL: llama3.2:1b
+        run: uv run pytest tests/unit/test_custom_llm_provider.py -v

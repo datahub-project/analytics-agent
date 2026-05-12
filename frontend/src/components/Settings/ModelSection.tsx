@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Check, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { getLlmSettings, saveLlmSettings, testLlmKey } from "@/api/settings";
 
-type Provider = "anthropic" | "openai" | "google" | "bedrock" | "custom";
+type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible";
 type HeaderPair = { key: string; value: string };
 
 // Sentinel value for the "Custom…" radio option on providers (Bedrock) where
@@ -30,10 +30,10 @@ const MODELS = {
     { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0",  label: "Claude Haiku 4.5 (Bedrock)",  note: "Fastest"     },
     { value: CUSTOM_MODEL_VALUE,                              label: "Custom model ID",            note: "Enter your own" },
   ],
-} as Record<Exclude<Provider, "custom">, { value: string; label: string; note: string }[]>;
+} as Record<Exclude<Provider, "openai-compatible">, { value: string; label: string; note: string }[]>;
 
 function defaultModelFor(p: Provider): string {
-  if (p === "custom") return "";
+  if (p === "openai-compatible") return "";
   return p === "bedrock" ? MODELS[p][0].value : MODELS[p][1].value;
 }
 
@@ -57,9 +57,10 @@ export function ModelSection() {
   const [awsSessionToken, setAwsSessionToken] = useState("");
   const [showSessionToken, setShowSessionToken] = useState(false);
   const [enablePromptCache, setEnablePromptCache] = useState(true);
-  // Custom provider fields.
+  // OpenAI-compatible provider fields.
   const [customUrl, setCustomUrl] = useState("");
   const [customHeaders, setCustomHeaders] = useState<HeaderPair[]>([]);
+  const [showModelInput, setShowModelInput] = useState(false);
   // Track which provider the saved key belongs to so switching away and back
   // correctly shows/hides the "Key saved" placeholder.
   const [savedProvider, setSavedProvider] = useState<Provider | null>(null);
@@ -74,7 +75,7 @@ export function ModelSection() {
 
   const isCustomModel = model === CUSTOM_MODEL_VALUE;
   const effectiveModel =
-    provider === "custom" ? customModel.trim() : isCustomModel ? customModel.trim() : model;
+    provider === "openai-compatible" ? customModel.trim() : isCustomModel ? customModel.trim() : model;
   const hasExistingKey = savedProvider === provider && !apiKey;
   // Bedrock has a separate "configured" concept — either stored keys OR the
   // user opted into the system credential chain by saving with blank fields.
@@ -84,15 +85,19 @@ export function ModelSection() {
     getLlmSettings()
       .then((s) => {
         const p = (s.provider ?? "anthropic") as Provider;
-        const knownProvider = (p in MODELS ? p : "anthropic") as Exclude<Provider, "custom">;
+        const knownProvider = (p in MODELS ? p : "anthropic") as Exclude<Provider, "openai-compatible">;
         setProvider(p);
-        if (p === "custom") {
-          // Custom provider: load URL, model, and headers from settings
-          setCustomUrl(s.custom_url ?? "");
-          setCustomModel(s.custom_model ?? "");
-          if (s.has_custom_headers) {
+        if (p === "openai-compatible") {
+          // OpenAI-compatible provider: load URL, model, and headers from settings.
+          // Fall back to s.model for users who saved via the original openai-compatible
+          // form (which stored the model in the generic `model` DB key, not openai_compatible_model).
+          setCustomUrl(s.base_url ?? "");
+          const savedModel = s.openai_compatible_model || s.model || "";
+          setCustomModel(savedModel);
+          if (savedModel) setShowModelInput(true);
+          if (s.has_openai_compatible_headers) {
             setSavedProvider(p);
-            const keys = s.custom_header_keys ?? [];
+            const keys = s.openai_compatible_header_keys ?? [];
             setSavedHeaderKeys(keys);
             // Pre-populate headers with keys but no values so user can update
             setCustomHeaders(keys.map(k => ({ key: k, value: "" })));
@@ -128,6 +133,7 @@ export function ModelSection() {
     setCustomModel("");
     setCustomUrl("");
     setCustomHeaders([]);
+    setShowModelInput(false);
     setApiKey("");
     setAwsAccessKey("");
     setAwsSecret("");
@@ -143,14 +149,14 @@ export function ModelSection() {
     aws_access_key_id: awsAccessKey.trim(),
     aws_secret_access_key: awsSecret.trim(),
     aws_session_token: awsSessionToken.trim(),
-    custom_url: customUrl.trim(),
-    custom_model: customModel.trim(),
-    custom_headers: customHeaders.length > 0 ? JSON.stringify(Object.fromEntries(customHeaders.map((h) => [h.key.trim(), h.value.trim()]))) : "",
+    base_url: customUrl.trim(),
+    openai_compatible_model: customModel.trim(),
+    openai_compatible_headers: customHeaders.length > 0 ? JSON.stringify(Object.fromEntries(customHeaders.map((h) => [h.key.trim(), h.value.trim()]))) : "",
   });
 
   const runKeyTest = async (): Promise<boolean> => {
-    // For non-Bedrock/custom: nothing new to test if field is empty; existing key is fine.
-    if (provider !== "bedrock" && provider !== "custom" && !apiKey.trim()) return hasExistingKey;
+    // For non-Bedrock/openai-compatible: nothing new to test if field is empty; existing key is fine.
+    if (provider !== "bedrock" && provider !== "openai-compatible" && !apiKey.trim()) return hasExistingKey;
     // For Bedrock and custom: always testable — use either the typed creds or existing stored creds.
     setKeyStatus({ state: "testing" });
     try {
@@ -173,14 +179,9 @@ export function ModelSection() {
       setSaveStatus("error");
       return;
     }
-    if (provider === "custom") {
+    if (provider === "openai-compatible") {
       if (!customUrl.trim()) {
         setError("Enter the LLM backend URL.");
-        setSaveStatus("error");
-        return;
-      }
-      if (!customModel.trim()) {
-        setError("Enter the model name.");
         setSaveStatus("error");
         return;
       }
@@ -194,8 +195,8 @@ export function ModelSection() {
           const ok = await runKeyTest();
           if (!ok) { setSaveStatus("error"); return; }
         }
-      } else if (provider === "custom") {
-        // Custom: always require a test before saving
+      } else if (provider === "openai-compatible") {
+        // OpenAI-compatible: always require a test before saving
         if (keyStatus.state !== "ok") {
           const ok = await runKeyTest();
           if (!ok) { setSaveStatus("error"); return; }
@@ -220,9 +221,9 @@ export function ModelSection() {
         aws_secret_access_key: awsSecret.trim(),
         aws_session_token: awsSessionToken.trim(),
         enable_prompt_cache: enablePromptCache,
-        custom_url: customUrl.trim(),
-        custom_model: customModel.trim(),
-        custom_headers: customHeaders.length > 0 ? JSON.stringify(Object.fromEntries(customHeaders.map((h) => [h.key.trim(), h.value.trim()]))) : "",
+        base_url: customUrl.trim(),
+        openai_compatible_model: customModel.trim(),
+        openai_compatible_headers: customHeaders.length > 0 ? JSON.stringify(Object.fromEntries(customHeaders.map((h) => [h.key.trim(), h.value.trim()]))) : "",
       });
 
       if (apiKey.trim()) {
@@ -266,20 +267,20 @@ export function ModelSection() {
     : p === "openai" ? "OpenAI"
     : p === "google" ? "Google"
     : p === "bedrock" ? "AWS Bedrock"
-    : "Custom";
+    : "OpenAI-compatible";
 
   return (
     <div className="max-w-lg space-y-8">
       {/* Provider */}
       <div className="space-y-3">
         <label className="text-sm font-medium text-foreground">Provider</label>
-        <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 w-fit">
-          {(["anthropic", "openai", "google", "bedrock", "custom"] as Provider[]).map((p) => (
+        <div className="flex flex-nowrap rounded-xl border border-border p-1 gap-1 w-fit max-w-full overflow-x-auto">
+          {(["anthropic", "openai", "google", "bedrock", "openai-compatible"] as Provider[]).map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => handleProvider(p)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap
                 ${provider === p
                   ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -292,11 +293,11 @@ export function ModelSection() {
       </div>
 
       {/* Model — for known providers */}
-      {provider !== "custom" && (
+      {provider !== "openai-compatible" && (
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">Model</label>
           <div className="space-y-1">
-            {MODELS[provider as Exclude<Provider, "custom">].map((m) => {
+            {MODELS[provider as Exclude<Provider, "openai-compatible">].map((m) => {
               const active = model === m.value;
               return (
                 <button
@@ -344,8 +345,8 @@ export function ModelSection() {
         </div>
       )}
 
-      {/* Credentials — custom config, single key, or Bedrock AWS fields. */}
-      {provider === "custom" ? (
+      {/* Credentials — openai-compatible config, single key, or Bedrock AWS fields. */}
+      {provider === "openai-compatible" ? (
         <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground">
@@ -363,18 +364,34 @@ export function ModelSection() {
             <p className="text-xs text-muted-foreground/60 mt-1">OpenAI-compatible endpoint</p>
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              Model Name <span className="text-primary">*</span>
-            </label>
-            <input
-              type="text"
-              value={customModel}
-              onChange={(e) => setCustomModel(e.target.value)}
-              placeholder="custom-model"
-              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
-                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                         focus:border-primary/50 placeholder:text-muted-foreground/30"
-            />
+            <label className="text-xs font-medium text-muted-foreground">Model Name</label>
+            <p className="text-xs text-muted-foreground/60 mt-0.5 mb-2">Set by your proxy — override only if needed</p>
+            {(showModelInput || customModel) ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={customModel}
+                  onChange={(e) => setCustomModel(e.target.value)}
+                  placeholder="model-id"
+                  className="flex-1 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => { setCustomModel(""); setShowModelInput(false); }}
+                  className="text-muted-foreground/40 hover:text-red-500 transition-colors p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowModelInput(true)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                + Set model name
+              </button>
+            )}
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground">Custom Headers (optional)</label>
@@ -557,14 +574,14 @@ export function ModelSection() {
         </div>
       )}
 
-      {/* Shared verification status + Verify button (Bedrock and custom
+      {/* Shared verification status + Verify button (Bedrock and openai-compatible
           get an explicit button since there's no single field to blur off of). */}
       <div className="space-y-2">
-        {(provider === "bedrock" || provider === "custom") && (
+        {(provider === "bedrock" || provider === "openai-compatible") && (
           <button
             type="button"
             onClick={runKeyTest}
-            disabled={keyStatus.state === "testing" || (provider === "custom" && (!customUrl.trim() || !customModel.trim()))}
+            disabled={keyStatus.state === "testing" || (provider === "openai-compatible" && !customUrl.trim())}
             className="text-sm px-4 py-2 rounded-lg border border-border
                        hover:bg-muted/50 transition-colors disabled:opacity-40"
           >

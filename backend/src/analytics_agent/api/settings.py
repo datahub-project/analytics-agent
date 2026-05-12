@@ -1818,7 +1818,7 @@ def _fernet_decrypt(value: str) -> str:
     return Fernet(key.encode()).decrypt(value.encode()).decode()
 
 
-def _parse_custom_llm_headers_json(raw: str | None) -> dict[str, str]:
+def _parse_openai_compatible_headers_json(raw: str | None) -> dict[str, str]:
     if not raw or not str(raw).strip():
         return {}
     try:
@@ -1836,16 +1836,16 @@ def _parse_custom_llm_headers_json(raw: str | None) -> dict[str, str]:
     return out
 
 
-def _merge_custom_llm_headers_request(
+def _merge_openai_compatible_headers_request(
     request_json: str | None, stored_json: str | None
 ) -> dict[str, str]:
-    """Build headers for a custom LLM request using the UI payload plus stored secrets.
+    """Build headers for an openai-compatible LLM request using the UI payload plus stored secrets.
 
     The Model settings UI lists saved header keys but leaves values blank so secrets
     are not echoed; empty strings in the request must keep the previously stored value.
     """
-    stored = _parse_custom_llm_headers_json(stored_json)
-    req = _parse_custom_llm_headers_json(request_json)
+    stored = _parse_openai_compatible_headers_json(stored_json)
+    req = _parse_openai_compatible_headers_json(request_json)
     if not req:
         return dict(stored)
     out: dict[str, str] = {}
@@ -1867,11 +1867,11 @@ class LlmSettingsResponse(BaseModel):
     has_aws_keys: bool = False
     aws_region: str = ""
     enable_prompt_cache: bool = True
-    # Custom provider — OpenAI-compatible backend with headers
-    custom_url: str = ""
-    custom_model: str = ""
-    has_custom_headers: bool = False
-    custom_header_keys: list[str] = []  # List of header keys (values omitted for security)
+    # OpenAI-compatible proxy fields
+    base_url: str = ""
+    openai_compatible_model: str = ""
+    has_openai_compatible_headers: bool = False
+    openai_compatible_header_keys: list[str] = []  # Header keys (values omitted for security)
 
 
 class UpdateLlmSettingsRequest(BaseModel):
@@ -1885,10 +1885,10 @@ class UpdateLlmSettingsRequest(BaseModel):
     aws_session_token: str = ""
     # Prompt caching for system prompt + tool definitions (Anthropic + Bedrock).
     enable_prompt_cache: bool = True
-    # Custom provider — OpenAI-compatible backend with headers
-    custom_url: str = ""
-    custom_model: str = ""
-    custom_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
+    # OpenAI-compatible proxy fields
+    base_url: str = ""
+    openai_compatible_model: str = ""
+    openai_compatible_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1906,12 +1906,12 @@ async def get_llm_settings() -> LlmSettingsResponse:
     provider = cfg.llm_provider
     key_attr = PROVIDER_KEY_ATTR.get(provider, "")
     has_aws_keys = bool(cfg.aws_access_key_id and cfg.aws_secret_access_key)
-    has_custom_headers = bool(cfg.custom_llm_headers)
-    custom_header_keys = []
-    if has_custom_headers:
+    has_openai_compatible_headers = bool(cfg.openai_compatible_headers)
+    openai_compatible_header_keys: list[str] = []
+    if has_openai_compatible_headers:
         try:
-            headers = json.loads(cfg.custom_llm_headers)
-            custom_header_keys = list(headers.keys()) if isinstance(headers, dict) else []
+            headers = json.loads(cfg.openai_compatible_headers)
+            openai_compatible_header_keys = list(headers.keys()) if isinstance(headers, dict) else []
         except (json.JSONDecodeError, TypeError):
             pass
     if provider == "bedrock":
@@ -1919,9 +1919,9 @@ async def get_llm_settings() -> LlmSettingsResponse:
         # provider is explicitly selected — auth falls back to the AWS credential
         # chain (env vars, ~/.aws/credentials, IAM role) at call time.
         has_key = True
-    elif provider == "custom":
-        # Custom provider is configured if URL and model are set
-        has_key = bool(cfg.custom_llm_url and cfg.custom_llm_model)
+    elif provider == "openai-compatible":
+        # Configured when a URL is set; key/headers are optional (some proxies use no auth).
+        has_key = bool(cfg.openai_compatible_base_url)
     else:
         has_key = bool(getattr(cfg, key_attr, "")) if key_attr else False
     return LlmSettingsResponse(
@@ -1931,10 +1931,10 @@ async def get_llm_settings() -> LlmSettingsResponse:
         has_aws_keys=has_aws_keys,
         aws_region=cfg.aws_region,
         enable_prompt_cache=cfg.enable_prompt_cache,
-        custom_url=cfg.custom_llm_url,
-        custom_model=cfg.custom_llm_model,
-        has_custom_headers=has_custom_headers,
-        custom_header_keys=custom_header_keys,
+        base_url=cfg.openai_compatible_base_url,
+        openai_compatible_model=cfg.openai_compatible_model,
+        has_openai_compatible_headers=has_openai_compatible_headers,
+        openai_compatible_header_keys=openai_compatible_header_keys,
     )
 
 
@@ -1947,10 +1947,10 @@ class TestLlmKeyRequest(BaseModel):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
-    # Custom provider — OpenAI-compatible backend with headers
-    custom_url: str = ""
-    custom_model: str = ""
-    custom_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
+    # OpenAI-compatible proxy fields
+    base_url: str = ""
+    openai_compatible_model: str = ""
+    openai_compatible_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
 
 
 class TestLlmKeyResponse(BaseModel):
@@ -2016,25 +2016,32 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
                 if tok:
                     bk_kwargs["aws_session_token"] = SecretStr(tok)
             llm = ChatBedrockConverse(**bk_kwargs)
-        elif body.provider == "custom":
-            from analytics_agent.agent.llm import _build_custom_chat_openai
+        elif body.provider == "openai-compatible":
+            from analytics_agent.agent.llm import _build_openai_compatible
             from analytics_agent.config import settings as _cfg
 
-            url = body.custom_url
+            url = body.base_url
             if not url:
-                raise ValueError("Custom LLM URL not configured")
-            if not body.custom_model:
-                raise ValueError("Custom LLM model not specified")
+                raise ValueError("Proxy base URL is required for openai-compatible provider")
+            # Model is optional — use whatever the user specified, fall back to a
+            # generic name that most OpenAI-compatible proxies accept for tests.
+            model = body.openai_compatible_model or body.model or "gpt-3.5-turbo"
 
-            logger.info(f"Testing custom LLM provider: url={url}, model={body.custom_model}")
+            logger.info(f"Testing openai-compatible provider: url={url}, model={model}")
 
-            headers = _merge_custom_llm_headers_request(
-                body.custom_headers, _cfg.custom_llm_headers
+            headers = _merge_openai_compatible_headers_request(
+                body.openai_compatible_headers, _cfg.openai_compatible_headers
             )
             if headers:
-                logger.info(f"Custom headers used (names only): {list(headers.keys())}")
+                logger.info(f"openai-compatible headers used (names only): {list(headers.keys())}")
 
-            llm = _build_custom_chat_openai(body.custom_model, url, headers, max_tokens=1)
+            llm = _build_openai_compatible(
+                model,
+                url,
+                headers,
+                api_key=body.api_key or _cfg.openai_compatible_api_key,
+                max_tokens=1,
+            )
         else:
             from langchain_openai import ChatOpenAI
 
@@ -2062,8 +2069,10 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
         logger = logging.getLogger(__name__)
         raw = str(exc)
         logger.error(f"LLM test failed for provider={body.provider}: {raw}")
-        if body.provider == "custom":
-            logger.error(f"Custom provider error details: {exc.__class__.__name__}: {raw}")
+        if body.provider == "openai-compatible":
+            logger.error(
+                f"openai-compatible provider error details: {exc.__class__.__name__}: {raw}"
+            )
         if (
             "401" in raw
             or "authentication" in raw.lower()
@@ -2106,10 +2115,14 @@ async def update_llm_settings(
             pass
 
     new_cfg: dict[str, str] = {**existing, "provider": body.provider}
-    custom_headers_merged_plain: str | None = None
+    openai_compatible_headers_merged_plain: str | None = None
     model_to_store = body.model
-    if body.provider == "custom" and not model_to_store.strip() and body.custom_model:
-        model_to_store = body.custom_model
+    if (
+        body.provider == "openai-compatible"
+        and not model_to_store.strip()
+        and body.openai_compatible_model
+    ):
+        model_to_store = body.openai_compatible_model
     if model_to_store.strip():
         new_cfg["model"] = model_to_store.strip()
     if body.api_key:
@@ -2125,21 +2138,21 @@ async def update_llm_settings(
         new_cfg["aws_session_token"] = _fernet_encrypt(body.aws_session_token)
     # Bool — always persisted (no truthy gate; the user may want to set it false).
     new_cfg["enable_prompt_cache"] = "true" if body.enable_prompt_cache else "false"
-    # Custom provider fields. URL stored plaintext; headers encrypted.
-    if body.custom_url:
-        new_cfg["custom_url"] = body.custom_url
-    if body.custom_model:
-        new_cfg["custom_model"] = body.custom_model
-    if body.provider == "custom" and body.custom_headers.strip():
-        existing_enc = existing.get("custom_headers", "") or ""
+    # OpenAI-compatible proxy fields. URL and model stored plaintext; headers encrypted.
+    if body.base_url:
+        new_cfg["base_url"] = body.base_url
+    if body.openai_compatible_model:
+        new_cfg["openai_compatible_model"] = body.openai_compatible_model
+    if body.provider == "openai-compatible" and body.openai_compatible_headers.strip():
+        existing_enc = existing.get("openai_compatible_headers", "") or ""
         existing_plain = _fernet_decrypt(existing_enc) if existing_enc else ""
-        merged = _merge_custom_llm_headers_request(body.custom_headers, existing_plain)
+        merged = _merge_openai_compatible_headers_request(body.openai_compatible_headers, existing_plain)
         if merged:
-            custom_headers_merged_plain = json.dumps(merged)
-            new_cfg["custom_headers"] = _fernet_encrypt(custom_headers_merged_plain)
+            openai_compatible_headers_merged_plain = json.dumps(merged)
+            new_cfg["openai_compatible_headers"] = _fernet_encrypt(openai_compatible_headers_merged_plain)
         else:
-            new_cfg.pop("custom_headers", None)
-            custom_headers_merged_plain = ""
+            new_cfg.pop("openai_compatible_headers", None)
+            openai_compatible_headers_merged_plain = ""
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -2174,20 +2187,20 @@ async def update_llm_settings(
         cfg.aws_session_token = body.aws_session_token
     cfg.enable_prompt_cache = body.enable_prompt_cache
     os.environ["ENABLE_PROMPT_CACHE"] = "true" if body.enable_prompt_cache else "false"
-    # Custom provider fields flow into both env and singleton.
-    if body.custom_url:
-        os.environ["CUSTOM_LLM_URL"] = body.custom_url
-        cfg.custom_llm_url = body.custom_url
-    if body.custom_model:
-        os.environ["CUSTOM_LLM_MODEL"] = body.custom_model
-        cfg.custom_llm_model = body.custom_model
-    if custom_headers_merged_plain is not None:
-        if custom_headers_merged_plain:
-            os.environ["CUSTOM_LLM_HEADERS"] = custom_headers_merged_plain
-            cfg.custom_llm_headers = custom_headers_merged_plain
+    # OpenAI-compatible proxy fields flow into both env and singleton.
+    if body.base_url:
+        os.environ["OPENAI_COMPATIBLE_BASE_URL"] = body.base_url
+        cfg.openai_compatible_base_url = body.base_url
+    if body.openai_compatible_model:
+        os.environ["OPENAI_COMPATIBLE_MODEL"] = body.openai_compatible_model
+        cfg.openai_compatible_model = body.openai_compatible_model
+    if openai_compatible_headers_merged_plain is not None:
+        if openai_compatible_headers_merged_plain:
+            os.environ["OPENAI_COMPATIBLE_HEADERS"] = openai_compatible_headers_merged_plain
+            cfg.openai_compatible_headers = openai_compatible_headers_merged_plain
         else:
-            os.environ.pop("CUSTOM_LLM_HEADERS", None)
-            cfg.custom_llm_headers = ""
+            os.environ.pop("OPENAI_COMPATIBLE_HEADERS", None)
+            cfg.openai_compatible_headers = ""
 
     return {"success": True, "message": "LLM settings saved."}
 

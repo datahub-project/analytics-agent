@@ -25,13 +25,12 @@ from analytics_agent.config import (
 
 # ─── PROVIDER_DEFAULTS structure ─────────────────────────────────────────────
 
-EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock", "custom"}
-# Providers that authenticate with a single API key (bedrock uses AWS creds instead;
-# custom uses URL + model + optional headers — not PROVIDER_KEY_ENV).
-EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google"}
+EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock", "openai-compatible"}
+# Providers that authenticate with a single API key (bedrock uses AWS creds instead).
+EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google", "openai-compatible"}
 EXPECTED_TIERS = {"main", "chart", "quality", "delight"}
 # Providers whose default model IDs are intentionally empty (user must supply the model).
-PROVIDERS_WITH_EMPTY_DEFAULTS = {"custom"}
+PROVIDERS_WITH_EMPTY_DEFAULTS = {"openai-compatible"}
 
 
 def test_provider_defaults_has_all_providers():
@@ -76,10 +75,10 @@ def _settings(provider: str, **overrides) -> Settings:
     )
 
 
-# custom is excluded: its PROVIDER_DEFAULTS are intentionally empty ("") because
+# openai-compatible is excluded: its PROVIDER_DEFAULTS are intentionally empty ("") because
 # the user must supply a model. The _resolve_model fallback will return whatever
-# is in custom_llm_model/llm_model — which varies per environment. The custom
-# provider fallback behaviour is covered by test_custom_* tests below.
+# is in openai_compatible_model/llm_model — which varies per environment. The
+# openai-compatible fallback behaviour is covered by test_openai_compatible_* tests below.
 _PROVIDERS_WITH_CURATED_DEFAULTS = EXPECTED_PROVIDERS - PROVIDERS_WITH_EMPTY_DEFAULTS
 
 
@@ -133,52 +132,52 @@ def test_unknown_provider_falls_back_to_openai_defaults():
     assert s.get_llm_model() == PROVIDER_DEFAULTS["openai"]["main"]
 
 
-# ─── Settings._resolve_model — custom provider fallback ──────────────────────
+# ─── Settings._resolve_model — openai-compatible provider fallback ───────────
 
 
-def test_custom_non_main_tiers_fall_back_to_custom_llm_model():
-    """For 'custom', chart/quality/delight use custom_llm_model when no tier override is set."""
-    s = _settings("custom", custom_llm_model="llama3.2:1b")
+def test_openai_compatible_non_main_tiers_fall_back_to_openai_compatible_model():
+    """For 'openai-compatible', chart/quality/delight use openai_compatible_model when no tier override is set."""
+    s = _settings("openai-compatible", openai_compatible_model="llama3.2:1b")
     assert s.get_chart_llm_model() == "llama3.2:1b"
     assert s.get_quality_llm_model() == "llama3.2:1b"
     assert s.get_delight_llm_model() == "llama3.2:1b"
 
 
-def test_custom_non_main_tiers_prefer_llm_model_over_custom_llm_model():
-    """llm_model (the primary override) takes priority over custom_llm_model for non-main tiers."""
-    s = _settings("custom", llm_model="qwen2.5:7b", custom_llm_model="llama3.2:1b")
+def test_openai_compatible_non_main_tiers_prefer_llm_model_over_openai_compatible_model():
+    """llm_model (the primary override) takes priority over openai_compatible_model for non-main tiers."""
+    s = _settings("openai-compatible", llm_model="qwen2.5:7b", openai_compatible_model="llama3.2:1b")
     assert s.get_chart_llm_model() == "qwen2.5:7b"
     assert s.get_quality_llm_model() == "qwen2.5:7b"
     assert s.get_delight_llm_model() == "qwen2.5:7b"
 
 
-def test_custom_tier_override_wins_over_all_fallbacks():
-    """Per-tier override always beats the custom_llm_model fallback."""
+def test_openai_compatible_tier_override_wins_over_all_fallbacks():
+    """Per-tier override always beats the openai_compatible_model fallback."""
     s = _settings(
-        "custom",
+        "openai-compatible",
         chart_llm_model="chart-specific",
         quality_llm_model="quality-specific",
         delight_llm_model="delight-specific",
-        custom_llm_model="fallback",
+        openai_compatible_model="fallback",
     )
     assert s.get_chart_llm_model() == "chart-specific"
     assert s.get_quality_llm_model() == "quality-specific"
     assert s.get_delight_llm_model() == "delight-specific"
 
 
-def test_custom_main_tier_falls_back_to_custom_llm_model():
-    """get_llm_model() uses custom_llm_model when llm_model is unset for the custom provider."""
-    s = _settings("custom", custom_llm_model="llama3.2:1b")
+def test_openai_compatible_main_tier_falls_back_to_openai_compatible_model():
+    """get_llm_model() uses openai_compatible_model when llm_model is unset for the openai-compatible provider."""
+    s = _settings("openai-compatible", openai_compatible_model="llama3.2:1b")
     assert s.get_llm_model() == "llama3.2:1b"
 
 
-def test_custom_empty_when_neither_model_set():
-    """All tiers return '' for custom provider when no models are configured.
+def test_openai_compatible_empty_when_neither_model_set():
+    """All tiers return '' for openai-compatible provider when no models are configured.
 
     Constructor kwargs take priority over env/.env in Pydantic BaseSettings, so
     passing empty strings here isolates the test from the user's local .env.
     """
-    s = _settings("custom", llm_model="", custom_llm_model="")
+    s = _settings("openai-compatible", llm_model="", openai_compatible_model="")
     assert s.get_llm_model() == ""
     assert s.get_chart_llm_model() == ""
     assert s.get_quality_llm_model() == ""

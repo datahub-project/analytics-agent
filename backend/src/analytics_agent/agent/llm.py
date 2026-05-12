@@ -58,22 +58,23 @@ def _api_key_from_headers(headers: dict) -> str:
     return auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
 
 
-def _build_custom_chat_openai(
+def _build_openai_compatible(
     model: str,
     url: str,
     headers: dict,
     *,
+    api_key: str = "",
     streaming: bool = False,
     max_tokens: int | None = None,
 ) -> BaseChatModel:
-    """Construct a ChatOpenAI instance pointed at a custom OpenAI-compatible endpoint."""
+    """Construct a ChatOpenAI instance pointed at an OpenAI-compatible endpoint."""
     from langchain_openai import ChatOpenAI
 
-    api_key = _api_key_from_headers(headers)
+    effective_api_key = _api_key_from_headers(headers) or api_key
     kwargs: dict = {
         "model": model,
         "base_url": url.rstrip("/"),
-        "api_key": SecretStr(api_key or ""),
+        "api_key": SecretStr(effective_api_key or ""),
         "streaming": streaming,
         "temperature": 0,
     }
@@ -84,23 +85,27 @@ def _build_custom_chat_openai(
     return ChatOpenAI(**kwargs)
 
 
-def _make_custom(model: str, streaming: bool) -> BaseChatModel:
+def _make_openai_compatible(model: str, streaming: bool) -> BaseChatModel:
     import json
 
-    url = settings.custom_llm_url
+    url = settings.openai_compatible_base_url
     if not url:
-        raise ValueError("Custom LLM URL not configured (custom_llm_url is empty)")
-    if not model:
-        raise ValueError("Custom LLM model not specified")
+        raise ValueError("OPENAI_COMPATIBLE_BASE_URL is required for the openai-compatible provider")
 
     headers = {}
-    if settings.custom_llm_headers:
+    if settings.openai_compatible_headers:
         try:
-            headers = json.loads(settings.custom_llm_headers)
+            headers = json.loads(settings.openai_compatible_headers)
         except (json.JSONDecodeError, ValueError) as e:
-            raise ValueError(f"Invalid custom headers JSON: {e}")
+            raise ValueError(f"Invalid OPENAI_COMPATIBLE_HEADERS JSON: {e}")
 
-    return _build_custom_chat_openai(model, url, headers, streaming=streaming)
+    return _build_openai_compatible(
+        model,
+        url,
+        headers,
+        api_key=settings.openai_compatible_api_key,
+        streaming=streaming,
+    )
 
 
 # Registry — adding a provider means adding one entry here.
@@ -109,7 +114,7 @@ _FACTORIES: dict[str, Callable[[str, bool], BaseChatModel]] = {
     "openai": _make_openai,
     "google": _make_google,
     "bedrock": _make_bedrock,
-    "custom": _make_custom,
+    "openai-compatible": _make_openai_compatible,
 }
 
 
