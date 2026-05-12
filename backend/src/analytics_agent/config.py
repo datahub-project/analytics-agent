@@ -187,11 +187,11 @@ class Settings(BaseSettings):
     # Disable if you hit a Bedrock region/model where caching isn't supported.
     enable_prompt_cache: bool = True
     # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
-    openai_compatible_base_url: str = ""  # OPENAI_COMPATIBLE_BASE_URL
-    openai_compatible_api_key: str = ""  # OPENAI_COMPATIBLE_API_KEY
-    openai_compatible_model: str = ""  # OPENAI_COMPATIBLE_MODEL
+    openai_compatible_base_url: str = ""
+    openai_compatible_api_key: str = "" 
+    openai_compatible_model: str = "" 
     openai_compatible_headers: str = (
-        ""  # OPENAI_COMPATIBLE_HEADERS — JSON: {"Authorization": "Bearer token"}
+        ""  # JSON: {"Authorization": "Bearer token"}
     )
     # Model IDs — override any tier independently via env vars.
     # Unset tiers fall back to PROVIDER_DEFAULTS[llm_provider][tier].
