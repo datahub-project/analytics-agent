@@ -1898,8 +1898,6 @@ async def get_llm_settings() -> LlmSettingsResponse:
     The startup hook (_load_llm_config_from_db in main.py) copies any DB-stored
     key into the settings singleton, so reading the singleton is authoritative.
     """
-    import json
-
     from analytics_agent.config import PROVIDER_KEY_ATTR
     from analytics_agent.config import settings as cfg
 
@@ -1973,11 +1971,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
     logger.info(f"Testing LLM provider: {body.provider}")
 
     def _run() -> None:
-        import logging
-
         from analytics_agent.config import PROVIDER_DEFAULTS
-
-        logger = logging.getLogger(__name__)
         defaults = PROVIDER_DEFAULTS.get(body.provider, PROVIDER_DEFAULTS["openai"])
         model = body.model or defaults["chart"]  # use cheap/fast tier for the test
 
