@@ -286,7 +286,7 @@ Set `LLM_PROVIDER` to one of the values below, or use the **Settings → Model**
 | OpenAI | `openai` | `OPENAI_API_KEY` |
 | Google Gemini | `google` | `GOOGLE_API_KEY` |
 | AWS Bedrock | `bedrock` | AWS credential chain |
-| OpenAI-compatible proxy | `openai-compatible` | `OPENAI_COMPAT_BASE_URL` + optional `OPENAI_COMPAT_API_KEY` |
+| OpenAI-compatible proxy | `openai-compatible` | `OPENAI_COMPATIBLE_BASE_URL` + optional `OPENAI_COMPATIBLE_API_KEY` |
 
 <details>
 <summary><strong>Anthropic</strong></summary>
@@ -340,8 +340,8 @@ Any proxy that speaks the OpenAI chat completions API (`/v1/chat/completions`) w
 
 ```bash
 LLM_PROVIDER=openai-compatible
-OPENAI_COMPAT_BASE_URL=https://litellm.myorg.com/v1   # required
-OPENAI_COMPAT_API_KEY=sk-...                           # optional — omit if proxy uses network-level auth
+OPENAI_COMPATIBLE_BASE_URL=https://litellm.myorg.com/v1   # required
+OPENAI_COMPATIBLE_API_KEY=sk-...                           # optional — omit if proxy uses network-level auth
 LLM_MODEL=llama3.2                                     # model name as the proxy expects it
 ```
 

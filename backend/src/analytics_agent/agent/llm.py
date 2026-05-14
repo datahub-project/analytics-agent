@@ -50,21 +50,64 @@ def _make_bedrock(model: str, streaming: bool) -> BaseChatModel:
     return ChatBedrockConverse(**kwargs)
 
 
-def _make_openai_compat(model: str, streaming: bool) -> BaseChatModel:
+def _api_key_from_headers(headers: dict) -> str:
+    """Extract an API key from an Authorization header, stripping the Bearer prefix."""
+    auth_value = headers.get("Authorization", "")
+    if not auth_value:
+        return ""
+    return auth_value[7:] if auth_value.startswith("Bearer ") else auth_value
+
+
+def _build_openai_compatible(
+    model: str,
+    url: str,
+    headers: dict,
+    *,
+    api_key: str = "",
+    streaming: bool = False,
+    max_tokens: int | None = None,
+) -> BaseChatModel:
+    """Construct a ChatOpenAI instance pointed at an OpenAI-compatible endpoint."""
     from langchain_openai import ChatOpenAI
 
-    if not settings.openai_compat_base_url:
-        raise ValueError("OPENAI_COMPAT_BASE_URL is required for the openai-compatible provider")
+    effective_api_key = _api_key_from_headers(headers) or api_key
     kwargs: dict = {
         "model": model,
-        "temperature": 0,
+        "base_url": url.rstrip("/"),
+        "api_key": SecretStr(effective_api_key or ""),
         "streaming": streaming,
-        "base_url": settings.openai_compat_base_url,
+        "temperature": 0,
     }
-    # API key is optional — some proxies use network-level auth or no auth.
-    api_key = settings.openai_compat_api_key or "no-key"
-    kwargs["api_key"] = SecretStr(api_key)
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if headers:
+        kwargs["default_headers"] = {str(k): str(v) for k, v in headers.items()}
     return ChatOpenAI(**kwargs)
+
+
+def _make_openai_compatible(model: str, streaming: bool) -> BaseChatModel:
+    import json
+
+    url = settings.openai_compatible_base_url
+    if not url:
+        raise ValueError(
+            "OPENAI_COMPATIBLE_BASE_URL is required for the openai-compatible provider"
+        )
+
+    headers = {}
+    if settings.openai_compatible_headers:
+        try:
+            headers = json.loads(settings.openai_compatible_headers)
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ValueError(f"Invalid OPENAI_COMPATIBLE_HEADERS JSON: {e}")
+
+    return _build_openai_compatible(
+        model,
+        url,
+        headers,
+        api_key=settings.openai_compatible_api_key,
+        streaming=streaming,
+    )
 
 
 # Registry — adding a provider means adding one entry here.
@@ -73,7 +116,7 @@ _FACTORIES: dict[str, Callable[[str, bool], BaseChatModel]] = {
     "openai": _make_openai,
     "google": _make_google,
     "bedrock": _make_bedrock,
-    "openai-compatible": _make_openai_compat,
+    "openai-compatible": _make_openai_compatible,
 }
 
 

@@ -8,6 +8,7 @@ Covers:
 - Settings.get_api_key() returns the right attribute per provider
 - agent/llm._make_llm() dispatches to the correct factory
 - agent/llm._make_llm() raises a clear error for unknown providers
+- Backward-compat env var aliases: OPENAI_COMPAT_BASE_URL / OPENAI_COMPAT_API_KEY
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from analytics_agent.agent.llm import _FACTORIES, _make_llm
 from analytics_agent.config import (
     PROVIDER_DEFAULTS,
     PROVIDER_KEY_ATTR,
@@ -26,7 +28,6 @@ from analytics_agent.config import (
 
 EXPECTED_PROVIDERS = {"anthropic", "openai", "google", "bedrock", "openai-compatible"}
 # Providers that authenticate with a single API key (bedrock uses AWS creds instead).
-# openai-compatible has an optional key, so it's included here.
 EXPECTED_API_KEY_PROVIDERS = {"anthropic", "openai", "google", "openai-compatible"}
 EXPECTED_TIERS = {"main", "chart", "quality", "delight"}
 # Providers whose default model IDs are intentionally empty (user must supply the model).
@@ -75,25 +76,32 @@ def _settings(provider: str, **overrides) -> Settings:
     )
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+# openai-compatible is excluded: its PROVIDER_DEFAULTS are intentionally empty ("") because
+# the user must supply a model. The _resolve_model fallback will return whatever
+# is in openai_compatible_model/llm_model — which varies per environment. The
+# openai-compatible fallback behaviour is covered by test_openai_compatible_* tests below.
+_PROVIDERS_WITH_CURATED_DEFAULTS = EXPECTED_PROVIDERS - PROVIDERS_WITH_EMPTY_DEFAULTS
+
+
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_llm_model() == PROVIDER_DEFAULTS[provider]["main"]
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_chart_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_chart_llm_model() == PROVIDER_DEFAULTS[provider]["chart"]
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_quality_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_quality_llm_model() == PROVIDER_DEFAULTS[provider]["quality"]
 
 
-@pytest.mark.parametrize("provider", list(EXPECTED_PROVIDERS))
+@pytest.mark.parametrize("provider", sorted(_PROVIDERS_WITH_CURATED_DEFAULTS))
 def test_get_delight_llm_model_returns_provider_default(provider):
     s = _settings(provider)
     assert s.get_delight_llm_model() == PROVIDER_DEFAULTS[provider]["delight"]
@@ -123,6 +131,60 @@ def test_unknown_provider_falls_back_to_openai_defaults():
     """Graceful fallback — unknown provider should not raise, returns OpenAI defaults."""
     s = _settings("unknown-future-provider")
     assert s.get_llm_model() == PROVIDER_DEFAULTS["openai"]["main"]
+
+
+# ─── Settings._resolve_model — openai-compatible provider fallback ───────────
+
+
+def test_openai_compatible_non_main_tiers_fall_back_to_openai_compatible_model():
+    """For 'openai-compatible', chart/quality/delight use openai_compatible_model when no tier override is set."""
+    s = _settings("openai-compatible", openai_compatible_model="llama3.2:1b")
+    assert s.get_chart_llm_model() == "llama3.2:1b"
+    assert s.get_quality_llm_model() == "llama3.2:1b"
+    assert s.get_delight_llm_model() == "llama3.2:1b"
+
+
+def test_openai_compatible_non_main_tiers_prefer_llm_model_over_openai_compatible_model():
+    """llm_model (the primary override) takes priority over openai_compatible_model for non-main tiers."""
+    s = _settings(
+        "openai-compatible", llm_model="qwen2.5:7b", openai_compatible_model="llama3.2:1b"
+    )
+    assert s.get_chart_llm_model() == "qwen2.5:7b"
+    assert s.get_quality_llm_model() == "qwen2.5:7b"
+    assert s.get_delight_llm_model() == "qwen2.5:7b"
+
+
+def test_openai_compatible_tier_override_wins_over_all_fallbacks():
+    """Per-tier override always beats the openai_compatible_model fallback."""
+    s = _settings(
+        "openai-compatible",
+        chart_llm_model="chart-specific",
+        quality_llm_model="quality-specific",
+        delight_llm_model="delight-specific",
+        openai_compatible_model="fallback",
+    )
+    assert s.get_chart_llm_model() == "chart-specific"
+    assert s.get_quality_llm_model() == "quality-specific"
+    assert s.get_delight_llm_model() == "delight-specific"
+
+
+def test_openai_compatible_main_tier_falls_back_to_openai_compatible_model():
+    """get_llm_model() uses openai_compatible_model when llm_model is unset for the openai-compatible provider."""
+    s = _settings("openai-compatible", openai_compatible_model="llama3.2:1b")
+    assert s.get_llm_model() == "llama3.2:1b"
+
+
+def test_openai_compatible_empty_when_neither_model_set():
+    """All tiers return '' for openai-compatible provider when no models are configured.
+
+    Constructor kwargs take priority over env/.env in Pydantic BaseSettings, so
+    passing empty strings here isolates the test from the user's local .env.
+    """
+    s = _settings("openai-compatible", llm_model="", openai_compatible_model="")
+    assert s.get_llm_model() == ""
+    assert s.get_chart_llm_model() == ""
+    assert s.get_quality_llm_model() == ""
+    assert s.get_delight_llm_model() == ""
 
 
 # ─── Settings.get_api_key ─────────────────────────────────────────────────────
@@ -163,12 +225,7 @@ def test_get_api_key_unknown_provider_returns_empty():
 
 
 def test_factories_cover_all_providers():
-    from analytics_agent.agent.llm import _FACTORIES
-
     assert set(_FACTORIES) == EXPECTED_PROVIDERS
-
-
-from analytics_agent.agent.llm import _FACTORIES, _make_llm
 
 
 @patch("analytics_agent.agent.llm.settings")
@@ -208,8 +265,6 @@ def test_make_llm_google_calls_correct_factory(mock_settings):
 def test_make_llm_unknown_provider_raises(mock_settings):
     mock_settings.llm_provider = "mystery-provider"
 
-    from analytics_agent.agent.llm import _make_llm
-
     with pytest.raises(ValueError, match="Unknown LLM provider"):
         _make_llm("some-model")
 
@@ -218,11 +273,63 @@ def test_make_llm_unknown_provider_raises(mock_settings):
 def test_make_llm_error_message_lists_valid_providers(mock_settings):
     mock_settings.llm_provider = "mystery"
 
-    from analytics_agent.agent.llm import _make_llm
-
     with pytest.raises(ValueError) as exc_info:
         _make_llm("some-model")
 
     msg = str(exc_info.value)
     for p in EXPECTED_PROVIDERS:
         assert p in msg
+
+
+# ─── Backward-compatible env var aliases (OPENAI_COMPAT_* → OPENAI_COMPATIBLE_*) ─
+#
+# Pydantic treats an env var set to "" as a found (non-missing) value, so it would
+# shadow the next alias in AliasChoices. Tests therefore use monkeypatch.delenv to
+# fully remove the competing key rather than blanking it.
+
+_ALIAS_PAIRS = [
+    # (old_name, new_name, field_name, sample_value)
+    (
+        "OPENAI_COMPAT_BASE_URL",
+        "OPENAI_COMPATIBLE_BASE_URL",
+        "openai_compatible_base_url",
+        "http://proxy/v1",
+    ),
+    (
+        "OPENAI_COMPAT_API_KEY",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "openai_compatible_api_key",
+        "sk-test-key",
+    ),
+]
+
+
+def _make_settings(monkeypatch) -> Settings:
+    return Settings(llm_provider="openai-compatible", database_url="sqlite+aiosqlite:///./test.db")
+
+
+@pytest.mark.parametrize("old_name,new_name,field,value", _ALIAS_PAIRS)
+def test_legacy_env_var_is_accepted(monkeypatch, old_name, new_name, field, value):
+    """The pre-rename env var name must still populate its Settings field."""
+    monkeypatch.delenv(new_name, raising=False)
+    monkeypatch.setenv(old_name, value)
+    s = _make_settings(monkeypatch)
+    assert getattr(s, field) == value
+
+
+@pytest.mark.parametrize("old_name,new_name,field,value", _ALIAS_PAIRS)
+def test_new_env_var_is_accepted(monkeypatch, old_name, new_name, field, value):
+    """The current env var name must populate its Settings field."""
+    monkeypatch.delenv(old_name, raising=False)
+    monkeypatch.setenv(new_name, value)
+    s = _make_settings(monkeypatch)
+    assert getattr(s, field) == value
+
+
+@pytest.mark.parametrize("old_name,new_name,field,value", _ALIAS_PAIRS)
+def test_new_env_var_takes_priority_over_legacy(monkeypatch, old_name, new_name, field, value):
+    """When both names are set, the current name (first in AliasChoices) wins."""
+    monkeypatch.setenv(new_name, value)
+    monkeypatch.setenv(old_name, "should-not-appear")
+    s = _make_settings(monkeypatch)
+    assert getattr(s, field) == value

@@ -23,7 +23,7 @@ def get_config_dir() -> Path:
 _CONFIG_DIR = get_config_dir()
 
 import yaml
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import AliasChoices, BaseModel, Field, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -152,7 +152,7 @@ PROVIDER_KEY_ENV: dict[str, str] = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "google": "GOOGLE_API_KEY",
-    "openai-compatible": "OPENAI_COMPAT_API_KEY",
+    "openai-compatible": "OPENAI_COMPATIBLE_API_KEY",
 }
 
 # Settings attribute name for each provider's API key.
@@ -160,7 +160,7 @@ PROVIDER_KEY_ATTR: dict[str, str] = {
     "anthropic": "anthropic_api_key",
     "openai": "openai_api_key",
     "google": "google_api_key",
-    "openai-compatible": "openai_compat_api_key",
+    "openai-compatible": "openai_compatible_api_key",
 }
 
 
@@ -176,10 +176,6 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     google_api_key: str = ""
-    # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
-    openai_compat_base_url: str = ""  # OPENAI_COMPAT_BASE_URL
-    openai_compat_api_key: str = ""  # OPENAI_COMPAT_API_KEY
-
     # Bedrock — uses the standard AWS credential chain by default (env vars,
     # ~/.aws/credentials, IAM role). Set the explicit *_key_id/*_access_key
     # settings to override.
@@ -190,6 +186,21 @@ class Settings(BaseSettings):
     # Anthropic + Bedrock prompt caching (system prompt + tool definitions).
     # Disable if you hit a Bedrock region/model where caching isn't supported.
     enable_prompt_cache: bool = True
+    # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
+    openai_compatible_base_url: str = (
+        Field(  # The alias here is to keep backwards compatibility with the old env var name
+            default="",
+            validation_alias=AliasChoices("OPENAI_COMPATIBLE_BASE_URL", "OPENAI_COMPAT_BASE_URL"),
+        )
+    )
+    openai_compatible_api_key: str = (
+        Field(  # The alias here is to keep backwards compatibility with the old env var name
+            default="",
+            validation_alias=AliasChoices("OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPAT_API_KEY"),
+        )
+    )
+    openai_compatible_model: str = ""
+    openai_compatible_headers: str = ""  # JSON: {"Authorization": "Bearer token"}
     # Model IDs — override any tier independently via env vars.
     # Unset tiers fall back to PROVIDER_DEFAULTS[llm_provider][tier].
     llm_model: str = ""  # LLM_MODEL         — main analysis agent
@@ -201,17 +212,30 @@ class Settings(BaseSettings):
         provider_defaults = PROVIDER_DEFAULTS.get(self.llm_provider, PROVIDER_DEFAULTS["openai"])
         return provider_defaults[tier]
 
+    def _resolve_model(self, tier_override: str, tier: str) -> str:
+        """Return the effective model for a tier.
+
+        Resolution order:
+          1. Per-tier override field (e.g. chart_llm_model)
+          2. Provider default for the tier
+          3. For openai-compatible only: llm_model → openai_compatible_model
+        """
+        value = tier_override or self._default_model(tier)
+        if self.llm_provider == "openai-compatible" and not value:
+            value = self.llm_model or self.openai_compatible_model
+        return value
+
     def get_llm_model(self) -> str:
-        return self.llm_model or self._default_model("main")
+        return self._resolve_model(self.llm_model, "main")
 
     def get_chart_llm_model(self) -> str:
-        return self.chart_llm_model or self._default_model("chart")
+        return self._resolve_model(self.chart_llm_model, "chart")
 
     def get_quality_llm_model(self) -> str:
-        return self.quality_llm_model or self._default_model("quality")
+        return self._resolve_model(self.quality_llm_model, "quality")
 
     def get_delight_llm_model(self) -> str:
-        return self.delight_llm_model or self._default_model("delight")
+        return self._resolve_model(self.delight_llm_model, "delight")
 
     def get_api_key(self) -> str:
         """Return the configured API key for the active provider."""

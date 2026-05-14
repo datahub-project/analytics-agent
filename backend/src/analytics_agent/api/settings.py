@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import ipaddress
+import json
 import os
 import pathlib
 import urllib.parse
@@ -1817,6 +1818,46 @@ def _fernet_decrypt(value: str) -> str:
     return Fernet(key.encode()).decrypt(value.encode()).decode()
 
 
+def _parse_openai_compatible_headers_json(raw: str | None) -> dict[str, str]:
+    if not raw or not str(raw).strip():
+        return {}
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in data.items():
+        ks = str(k).strip()
+        if not ks:
+            continue
+        out[ks] = "" if v is None else str(v)
+    return out
+
+
+def _merge_openai_compatible_headers_request(
+    request_json: str | None, stored_json: str | None
+) -> dict[str, str]:
+    """Build headers for an openai-compatible LLM request using the UI payload plus stored secrets.
+
+    The Model settings UI lists saved header keys but leaves values blank so secrets
+    are not echoed; empty strings in the request must keep the previously stored value.
+    """
+    stored = _parse_openai_compatible_headers_json(stored_json)
+    req = _parse_openai_compatible_headers_json(request_json)
+    if not req:
+        return dict(stored)
+    out: dict[str, str] = {}
+    for k, v in req.items():
+        stripped = v.strip()
+        if stripped:
+            out[k] = stripped
+        elif k in stored:
+            out[k] = stored[k]
+    return out
+
+
 class LlmSettingsResponse(BaseModel):
     provider: str = "anthropic"
     model: str = ""
@@ -1826,8 +1867,11 @@ class LlmSettingsResponse(BaseModel):
     has_aws_keys: bool = False
     aws_region: str = ""
     enable_prompt_cache: bool = True
-    # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
+    # OpenAI-compatible proxy fields
     base_url: str = ""
+    openai_compatible_model: str = ""
+    has_openai_compatible_headers: bool = False
+    openai_compatible_header_keys: list[str] = []  # Header keys (values omitted for security)
 
 
 class UpdateLlmSettingsRequest(BaseModel):
@@ -1841,8 +1885,10 @@ class UpdateLlmSettingsRequest(BaseModel):
     aws_session_token: str = ""
     # Prompt caching for system prompt + tool definitions (Anthropic + Bedrock).
     enable_prompt_cache: bool = True
-    # OpenAI-compatible proxy base URL (plaintext — not a secret).
+    # OpenAI-compatible proxy fields
     base_url: str = ""
+    openai_compatible_model: str = ""
+    openai_compatible_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
 
 
 @router.get("/llm", response_model=LlmSettingsResponse)
@@ -1858,11 +1904,24 @@ async def get_llm_settings() -> LlmSettingsResponse:
     provider = cfg.llm_provider
     key_attr = PROVIDER_KEY_ATTR.get(provider, "")
     has_aws_keys = bool(cfg.aws_access_key_id and cfg.aws_secret_access_key)
+    has_openai_compatible_headers = bool(cfg.openai_compatible_headers)
+    openai_compatible_header_keys: list[str] = []
+    if has_openai_compatible_headers:
+        try:
+            headers = json.loads(cfg.openai_compatible_headers)
+            openai_compatible_header_keys = (
+                list(headers.keys()) if isinstance(headers, dict) else []
+            )
+        except (json.JSONDecodeError, TypeError):
+            pass
     if provider == "bedrock":
         # Bedrock has no single "API key". It's considered configured if the
         # provider is explicitly selected — auth falls back to the AWS credential
         # chain (env vars, ~/.aws/credentials, IAM role) at call time.
         has_key = True
+    elif provider == "openai-compatible":
+        # Configured when a URL is set; key/headers are optional (some proxies use no auth).
+        has_key = bool(cfg.openai_compatible_base_url)
     else:
         has_key = bool(getattr(cfg, key_attr, "")) if key_attr else False
     return LlmSettingsResponse(
@@ -1872,7 +1931,10 @@ async def get_llm_settings() -> LlmSettingsResponse:
         has_aws_keys=has_aws_keys,
         aws_region=cfg.aws_region,
         enable_prompt_cache=cfg.enable_prompt_cache,
-        base_url=cfg.openai_compat_base_url if provider == "openai-compatible" else "",
+        base_url=cfg.openai_compatible_base_url,
+        openai_compatible_model=cfg.openai_compatible_model,
+        has_openai_compatible_headers=has_openai_compatible_headers,
+        openai_compatible_header_keys=openai_compatible_header_keys,
     )
 
 
@@ -1885,8 +1947,10 @@ class TestLlmKeyRequest(BaseModel):
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
     aws_session_token: str = ""
-    # OpenAI-compatible proxy base URL.
+    # OpenAI-compatible proxy fields
     base_url: str = ""
+    openai_compatible_model: str = ""
+    openai_compatible_headers: str = ""  # JSON string: {"Authorization": "Bearer token"}
 
 
 class TestLlmKeyResponse(BaseModel):
@@ -1901,8 +1965,12 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
     Does NOT save anything — purely a connectivity check.
     """
     import asyncio
+    import logging
 
     from pydantic import SecretStr
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Testing LLM provider: {body.provider}")
 
     def _run() -> None:
         from analytics_agent.config import PROVIDER_DEFAULTS
@@ -1946,16 +2014,30 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
                     bk_kwargs["aws_session_token"] = SecretStr(tok)
             llm = ChatBedrockConverse(**bk_kwargs)
         elif body.provider == "openai-compatible":
-            from langchain_openai import ChatOpenAI
+            from analytics_agent.agent.llm import _build_openai_compatible
+            from analytics_agent.config import settings as _cfg
 
-            if not body.base_url:
+            url = body.base_url
+            if not url:
                 raise ValueError("Proxy base URL is required for openai-compatible provider")
-            llm = ChatOpenAI(  # type: ignore[assignment]
-                model=model or "default",
+            # Model is optional — use whatever the user specified, fall back to a
+            # generic name that most OpenAI-compatible proxies accept for tests.
+            model = body.openai_compatible_model or body.model or "gpt-3.5-turbo"
+
+            logger.info(f"Testing openai-compatible provider: url={url}, model={model}")
+
+            headers = _merge_openai_compatible_headers_request(
+                body.openai_compatible_headers, _cfg.openai_compatible_headers
+            )
+            if headers:
+                logger.info(f"openai-compatible headers used (names only): {list(headers.keys())}")
+
+            llm = _build_openai_compatible(
+                model,
+                url,
+                headers,
+                api_key=body.api_key or _cfg.openai_compatible_api_key,
                 max_tokens=1,
-                temperature=0,
-                base_url=body.base_url,
-                api_key=SecretStr(body.api_key or "no-key"),  # type: ignore[call-arg]
             )
         else:
             from langchain_openai import ChatOpenAI
@@ -1968,11 +2050,26 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
             )
         llm.invoke("hi")
 
+    _VERIFY_TIMEOUT_S = 30.0
+    _VERIFY_TIMEOUT_MSG = (
+        "Verification timed out after 30 seconds. The LLM endpoint may be slow, unreachable, "
+        "or blocked by a firewall or proxy. Check the URL, credentials, and network, then try again."
+    )
     try:
-        await asyncio.to_thread(_run)
+        await asyncio.wait_for(asyncio.to_thread(_run), timeout=_VERIFY_TIMEOUT_S)
         return TestLlmKeyResponse(ok=True, message="Key verified")
+    except TimeoutError:
+        return TestLlmKeyResponse(ok=False, message=_VERIFY_TIMEOUT_MSG)
     except Exception as exc:
+        import logging
+
+        logger = logging.getLogger(__name__)
         raw = str(exc)
+        logger.error(f"LLM test failed for provider={body.provider}: {raw}")
+        if body.provider == "openai-compatible":
+            logger.error(
+                f"openai-compatible provider error details: {exc.__class__.__name__}: {raw}"
+            )
         if (
             "401" in raw
             or "authentication" in raw.lower()
@@ -2015,8 +2112,16 @@ async def update_llm_settings(
             pass
 
     new_cfg: dict[str, str] = {**existing, "provider": body.provider}
-    if body.model:
-        new_cfg["model"] = body.model
+    openai_compatible_headers_merged_plain: str | None = None
+    model_to_store = body.model
+    if (
+        body.provider == "openai-compatible"
+        and not model_to_store.strip()
+        and body.openai_compatible_model
+    ):
+        model_to_store = body.openai_compatible_model
+    if model_to_store.strip():
+        new_cfg["model"] = model_to_store.strip()
     if body.api_key:
         new_cfg["api_key"] = _fernet_encrypt(body.api_key)
     # Bedrock AWS fields. Region stored plaintext (non-secret); keys encrypted.
@@ -2030,9 +2135,25 @@ async def update_llm_settings(
         new_cfg["aws_session_token"] = _fernet_encrypt(body.aws_session_token)
     # Bool — always persisted (no truthy gate; the user may want to set it false).
     new_cfg["enable_prompt_cache"] = "true" if body.enable_prompt_cache else "false"
-    # OpenAI-compatible proxy base URL — plaintext, not a secret.
+    # OpenAI-compatible proxy fields. URL and model stored plaintext; headers encrypted.
     if body.base_url:
         new_cfg["base_url"] = body.base_url
+    if body.openai_compatible_model:
+        new_cfg["openai_compatible_model"] = body.openai_compatible_model
+    if body.provider == "openai-compatible" and body.openai_compatible_headers.strip():
+        existing_enc = existing.get("openai_compatible_headers", "") or ""
+        existing_plain = _fernet_decrypt(existing_enc) if existing_enc else ""
+        merged = _merge_openai_compatible_headers_request(
+            body.openai_compatible_headers, existing_plain
+        )
+        if merged:
+            openai_compatible_headers_merged_plain = json.dumps(merged)
+            new_cfg["openai_compatible_headers"] = _fernet_encrypt(
+                openai_compatible_headers_merged_plain
+            )
+        else:
+            new_cfg.pop("openai_compatible_headers", None)
+            openai_compatible_headers_merged_plain = ""
 
     await repo.set(_KEY_LLM_CONFIG, orjson.dumps(new_cfg).decode())
 
@@ -2042,9 +2163,9 @@ async def update_llm_settings(
 
     os.environ["LLM_PROVIDER"] = body.provider
     cfg.llm_provider = body.provider
-    if body.model:
-        os.environ["LLM_MODEL"] = body.model
-        cfg.llm_model = body.model
+    if model_to_store.strip():
+        os.environ["LLM_MODEL"] = model_to_store.strip()
+        cfg.llm_model = model_to_store.strip()
     if body.api_key:
         env_var = PROVIDER_KEY_ENV.get(body.provider)
         attr = PROVIDER_KEY_ATTR.get(body.provider)
@@ -2067,9 +2188,20 @@ async def update_llm_settings(
         cfg.aws_session_token = body.aws_session_token
     cfg.enable_prompt_cache = body.enable_prompt_cache
     os.environ["ENABLE_PROMPT_CACHE"] = "true" if body.enable_prompt_cache else "false"
+    # OpenAI-compatible proxy fields flow into both env and singleton.
     if body.base_url:
-        os.environ["OPENAI_COMPAT_BASE_URL"] = body.base_url
-        cfg.openai_compat_base_url = body.base_url
+        os.environ["OPENAI_COMPATIBLE_BASE_URL"] = body.base_url
+        cfg.openai_compatible_base_url = body.base_url
+    if body.openai_compatible_model:
+        os.environ["OPENAI_COMPATIBLE_MODEL"] = body.openai_compatible_model
+        cfg.openai_compatible_model = body.openai_compatible_model
+    if openai_compatible_headers_merged_plain is not None:
+        if openai_compatible_headers_merged_plain:
+            os.environ["OPENAI_COMPATIBLE_HEADERS"] = openai_compatible_headers_merged_plain
+            cfg.openai_compatible_headers = openai_compatible_headers_merged_plain
+        else:
+            os.environ.pop("OPENAI_COMPATIBLE_HEADERS", None)
+            cfg.openai_compatible_headers = ""
 
     return {"success": True, "message": "LLM settings saved."}
 

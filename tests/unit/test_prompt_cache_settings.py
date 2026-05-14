@@ -44,6 +44,9 @@ def _mock_cfg(**kwargs) -> MagicMock:
     m.aws_secret_access_key = ""
     m.aws_region = ""
     m.enable_prompt_cache = True
+    m.openai_compatible_base_url = ""
+    m.openai_compatible_model = ""
+    m.openai_compatible_headers = ""
     m.get_llm_model.return_value = ""
     for k, v in kwargs.items():
         setattr(m, k, v)
@@ -141,6 +144,68 @@ async def test_get_llm_settings_returns_enable_prompt_cache_true() -> None:
     with patch("analytics_agent.config.settings", cfg):
         response: LlmSettingsResponse = await get_llm_settings()
     assert response.enable_prompt_cache is True
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_openai_compatible_fields_populated() -> None:
+    """get_llm_settings must expose base_url, openai_compatible_model, and header metadata."""
+    import json
+
+    headers = {"Authorization": "Bearer sk-xxx", "X-Org": "acme"}
+    cfg = _mock_cfg(
+        llm_provider="openai-compatible",
+        openai_compatible_base_url="http://ollama:11434/v1",
+        openai_compatible_model="llama3.2:1b",
+        openai_compatible_headers=json.dumps(headers),
+    )
+    cfg.get_llm_model.return_value = "llama3.2:1b"
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+
+    assert response.base_url == "http://ollama:11434/v1"
+    assert response.openai_compatible_model == "llama3.2:1b"
+    assert response.has_openai_compatible_headers is True
+    assert set(response.openai_compatible_header_keys) == {"Authorization", "X-Org"}
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_has_key_true_when_base_url_set() -> None:
+    cfg = _mock_cfg(
+        llm_provider="openai-compatible",
+        openai_compatible_base_url="http://localhost/v1",
+        openai_compatible_model="llama3.2:1b",
+    )
+    cfg.get_llm_model.return_value = "llama3.2:1b"
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+    assert response.has_key is True
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_has_key_false_when_base_url_missing() -> None:
+    cfg = _mock_cfg(
+        llm_provider="openai-compatible",
+        openai_compatible_base_url="",
+        openai_compatible_model="model",
+    )
+    cfg.get_llm_model.return_value = "model"
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+    assert response.has_key is False
+
+
+@pytest.mark.asyncio
+async def test_get_llm_settings_no_openai_compatible_headers_when_not_set() -> None:
+    cfg = _mock_cfg(
+        llm_provider="openai-compatible",
+        openai_compatible_base_url="http://localhost/v1",
+        openai_compatible_headers="",
+    )
+    cfg.get_llm_model.return_value = ""
+    with patch("analytics_agent.config.settings", cfg):
+        response: LlmSettingsResponse = await get_llm_settings()
+    assert response.has_openai_compatible_headers is False
+    assert response.openai_compatible_header_keys == []
 
 
 # ---------------------------------------------------------------------------

@@ -320,11 +320,33 @@ async def _load_llm_config_from_db() -> None:
             os.environ[env_var] = value
             setattr(settings, attr, value)
 
-    # OpenAI-compatible proxy base URL (plaintext).
+    # OpenAI-compatible provider fields. URL and model are plaintext; headers are encrypted.
     base_url = cfg_data.get("base_url", "")
-    if base_url and not os.environ.get("OPENAI_COMPAT_BASE_URL"):
-        settings.openai_compat_base_url = base_url
-        os.environ["OPENAI_COMPAT_BASE_URL"] = base_url
+    if base_url and not (
+        os.environ.get("OPENAI_COMPATIBLE_BASE_URL") or os.environ.get("OPENAI_COMPAT_BASE_URL")
+    ):
+        settings.openai_compatible_base_url = base_url
+        os.environ["OPENAI_COMPATIBLE_BASE_URL"] = base_url
+
+    compat_model = cfg_data.get("openai_compatible_model", "")
+    if compat_model and not os.environ.get("OPENAI_COMPATIBLE_MODEL"):
+        settings.openai_compatible_model = compat_model
+        os.environ["OPENAI_COMPATIBLE_MODEL"] = compat_model
+
+    encrypted_headers = cfg_data.get("openai_compatible_headers", "")
+    if encrypted_headers and not os.environ.get("OPENAI_COMPATIBLE_HEADERS"):
+        try:
+            from analytics_agent.api.settings import _fernet_decrypt
+
+            headers = _fernet_decrypt(encrypted_headers)
+        except Exception as exc:
+            logging.getLogger(__name__).error(
+                "Failed to decrypt openai_compatible_headers from DB: %s", exc
+            )
+            headers = ""
+        if headers:
+            os.environ["OPENAI_COMPATIBLE_HEADERS"] = headers
+            settings.openai_compatible_headers = headers
 
     # Prompt caching toggle (bool stored as "true"/"false" string).
     if "enable_prompt_cache" in cfg_data and not os.environ.get("ENABLE_PROMPT_CACHE"):

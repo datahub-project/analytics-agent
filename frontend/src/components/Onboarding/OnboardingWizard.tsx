@@ -4,6 +4,7 @@ import { saveDisplaySettings, saveLlmSettings, testLlmKey } from "@/api/settings
 import { useDisplayStore } from "@/store/display";
 
 type Provider = "anthropic" | "openai" | "google" | "bedrock" | "openai-compatible";
+type HeaderPair = { key: string; value: string };
 
 interface WizardProps {
   onComplete: () => void;
@@ -14,7 +15,7 @@ interface WizardProps {
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
-const MODELS: Record<Provider, { value: string; label: string; note: string }[]> = {
+const MODELS = {
   anthropic: [
     { value: "claude-opus-4-7",           label: "Claude Opus 4.7",    note: "Most capable" },
     { value: "claude-sonnet-4-6",         label: "Claude Sonnet 4.6",  note: "Recommended"  },
@@ -35,21 +36,19 @@ const MODELS: Record<Provider, { value: string; label: string; note: string }[]>
     { value: "us.anthropic.claude-haiku-4-5-20251001-v1:0",  label: "Claude Haiku 4.5 (Bedrock)",  note: "Fastest"     },
     { value: CUSTOM_MODEL_VALUE,                              label: "Custom model ID",            note: "Enter your own" },
   ],
-  "openai-compatible": [
-    { value: CUSTOM_MODEL_VALUE, label: "Model name", note: "Set by your proxy" },
-  ],
-};
+} as Record<Exclude<Provider, "openai-compatible">, { value: string; label: string; note: string }[]>;
 
 function defaultModelFor(p: Provider): string {
-  return p === "bedrock" || p === "openai-compatible" ? MODELS[p][0].value : MODELS[p][1].value;
+  if (p === "openai-compatible") return "";
+  return p === "bedrock" ? MODELS[p][0].value : MODELS[p][1].value;
 }
 
 const providerLabel = (p: Provider) =>
   p === "anthropic" ? "Anthropic"
     : p === "openai" ? "OpenAI"
     : p === "google" ? "Google"
-    : p === "openai-compatible" ? "OpenAI-compatible"
-    : "AWS Bedrock";
+    : p === "bedrock" ? "AWS Bedrock"
+    : "OpenAI-compatible";
 
 // ─── Step 1 — warm inline sentence ────────────────────────────────────────────
 
@@ -157,8 +156,10 @@ interface Step2Props {
   provider: Provider;   onProvider: (p: Provider) => void;
   model: string;        onModel: (m: string) => void;
   customModel: string;  onCustomModel: (m: string) => void;
+  showModelInput?: boolean; onShowModelInput?: (v: boolean) => void;
+  customUrl?: string;   onCustomUrl?: (u: string) => void;
+  customHeaders?: HeaderPair[]; onCustomHeaders?: (h: HeaderPair[]) => void;
   apiKey: string;       onApiKey: (k: string) => void;
-  baseUrl: string;      onBaseUrl: (v: string) => void;
   awsRegion: string;    onAwsRegion: (v: string) => void;
   awsAccessKey: string; onAwsAccessKey: (v: string) => void;
   awsSecret: string;    onAwsSecret: (v: string) => void;
@@ -169,12 +170,14 @@ interface Step2Props {
 function Step2Model(p: Step2Props) {
   const [showKey, setShowKey] = useState(false);
   const [showAwsSecret, setShowAwsSecret] = useState(false);
-  const models = MODELS[p.provider];
+  const models = p.provider !== "openai-compatible" ? MODELS[p.provider as Exclude<Provider, "openai-compatible">] : [];
   const isCustom = p.model === CUSTOM_MODEL_VALUE;
 
   const handleProvider = (next: Provider) => {
     p.onProvider(next);
     p.onModel(defaultModelFor(next));
+    p.onCustomModel("");
+    p.onShowModelInput?.(false);
   };
 
   return (
@@ -184,13 +187,13 @@ function Step2Model(p: Step2Props) {
         to pick a model to think with.
       </div>
 
-      <div className="flex flex-wrap rounded-xl border border-border p-1 gap-1 mb-7 w-fit">
+      <div className="flex flex-nowrap rounded-xl border border-border p-1 gap-1 mb-7 w-fit max-w-full overflow-x-auto">
         {(["anthropic", "openai", "google", "bedrock", "openai-compatible"] as Provider[]).map((name) => (
           <button
             key={name}
             type="button"
             onClick={() => handleProvider(name)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150
+            className={`px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150 whitespace-nowrap
               ${p.provider === name
                 ? "bg-primary text-primary-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
@@ -201,39 +204,152 @@ function Step2Model(p: Step2Props) {
         ))}
       </div>
 
-      <div className="space-y-1 mb-4">
-        {models.map((m) => {
-          const active = p.model === m.value;
-          return (
-            <button
-              key={m.value}
-              type="button"
-              onClick={() => p.onModel(m.value)}
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
-                transition-all duration-150 border
-                ${active
-                  ? "border-primary/30 bg-primary/[0.05]"
-                  : "border-transparent hover:border-border hover:bg-muted/40"
-                }`}
-            >
-              <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
-                transition-all duration-150
-                ${active ? "border-primary bg-primary" : "border-border"}`}>
-                {active && <div className="w-2 h-2 rounded-full bg-white" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
-                  {m.label}
+      {p.provider !== "openai-compatible" && (
+        <div className="space-y-1 mb-4">
+          {models.map((m: any) => {
+            const active = p.model === m.value;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                onClick={() => p.onModel(m.value)}
+                className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl text-left
+                  transition-all duration-150 border
+                  ${active
+                    ? "border-primary/30 bg-primary/[0.05]"
+                    : "border-transparent hover:border-border hover:bg-muted/40"
+                  }`}
+              >
+                <div className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center
+                  transition-all duration-150
+                  ${active ? "border-primary bg-primary" : "border-border"}`}>
+                  {active && <div className="w-2 h-2 rounded-full bg-white" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className={`text-sm font-medium ${active ? "text-foreground" : "text-foreground/80"}`}>
+                    {m.label}
+                  </span>
+                </div>
+                <span className={`text-xs flex-shrink-0 ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
+                  {m.note}
                 </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {p.provider === "openai-compatible" && (
+        <div className="space-y-4 rounded-lg border border-border bg-muted/20 p-4 mb-4">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">
+              LLM Backend URL <span className="text-primary">*</span>
+            </label>
+            <input
+              type="text"
+              value={p.customUrl ?? ""}
+              onChange={(e) => p.onCustomUrl?.(e.target.value)}
+              placeholder="http://localhost:8000/v1"
+              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
+                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
+                         focus:border-primary/50 placeholder:text-muted-foreground/30"
+            />
+            <p className="text-xs text-muted-foreground/60 mt-1">OpenAI-compatible endpoint</p>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Model Name</label>
+            <p className="text-xs text-muted-foreground/60 mt-0.5 mb-2">Set by your proxy — override only if needed</p>
+            {(p.showModelInput || p.customModel) ? (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={p.customModel}
+                  onChange={(e) => p.onCustomModel(e.target.value)}
+                  placeholder="model-id"
+                  className="flex-1 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => { p.onCustomModel(""); p.onShowModelInput?.(false); }}
+                  className="text-muted-foreground/40 hover:text-red-500 transition-colors p-0.5"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
-              <span className={`text-xs flex-shrink-0 ${active ? "text-primary/70" : "text-muted-foreground/50"}`}>
-                {m.note}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      {isCustom && (
+            ) : (
+              <button
+                type="button"
+                onClick={() => p.onShowModelInput?.(true)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                + Set model name
+              </button>
+            )}
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Custom Headers (optional)</label>
+            <p className="text-xs text-muted-foreground/60 mt-0.5 mb-2">Key-value pairs for authentication and other headers</p>
+            <div className="space-y-1">
+              {p.customHeaders && p.customHeaders.map((header, idx) => (
+                <div key={idx} className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={header.key}
+                    placeholder="Authorization"
+                    onChange={(e) => {
+                      const updated = [...(p.customHeaders || [])];
+                      updated[idx] = { ...updated[idx], key: e.target.value };
+                      p.onCustomHeaders?.(updated);
+                    }}
+                    className="w-32 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                  <span className="text-muted-foreground/40 text-xs">=</span>
+                  <input
+                    type="text"
+                    value={header.value}
+                    placeholder="Bearer …"
+                    onChange={(e) => {
+                      const updated = [...(p.customHeaders || [])];
+                      updated[idx] = { ...updated[idx], value: e.target.value };
+                      p.onCustomHeaders?.(updated);
+                    }}
+                    className="flex-1 text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const updated = (p.customHeaders || []).filter((_, i) => i !== idx);
+                      p.onCustomHeaders?.(updated);
+                    }}
+                    className="text-muted-foreground/40 hover:text-red-500 transition-colors p-0.5"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = [...(p.customHeaders || []), { key: "", value: "" }];
+                  p.onCustomHeaders?.(updated);
+                }}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
+              >
+                + Add header
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={p.onVerify}
+            disabled={p.keyStatus.state === "testing" || !p.customUrl?.trim()}
+            className="text-sm px-4 py-2 rounded-lg border border-border
+                       hover:bg-muted/50 transition-colors disabled:opacity-40"
+          >
+            {p.keyStatus.state === "testing" ? "Verifying…" : "Verify configuration"}
+          </button>
+        </div>
+      )}
+      {isCustom && p.provider !== "openai-compatible" && (
         <input
           type="text"
           value={p.customModel}
@@ -246,49 +362,10 @@ function Step2Model(p: Step2Props) {
                      focus:border-primary/50 placeholder:text-muted-foreground/30"
         />
       )}
-      {!isCustom && <div className="mb-6" />}
+      {!isCustom && p.provider !== "openai-compatible" && <div className="mb-6" />}
 
-      {/* Credentials — proxy URL + optional key, single API key, or Bedrock AWS fields. */}
-      {p.provider === "openai-compatible" ? (
-        <div className="space-y-3">
-          <div>
-            <label className="text-sm font-medium text-foreground">Proxy base URL</label>
-            <input
-              type="url"
-              value={p.baseUrl}
-              onChange={(e) => p.onBaseUrl(e.target.value)}
-              onBlur={() => { if (p.baseUrl.trim()) p.onVerify(); }}
-              placeholder="https://litellm.myorg.com"
-              className="w-full mt-1 bg-background border border-border rounded-xl px-4 py-3
-                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                         focus:border-primary/50 placeholder:text-muted-foreground/30"
-            />
-            <p className="text-xs text-muted-foreground/50 mt-1">
-              Any OpenAI-compatible endpoint — LiteLLM, vLLM, Ollama, etc.
-            </p>
-          </div>
-          <div className="relative">
-            <input
-              type="password"
-              value={p.apiKey}
-              onChange={(e) => p.onApiKey(e.target.value)}
-              placeholder="API key (optional)"
-              className="w-full bg-background border border-border rounded-xl px-4 py-2.5
-                         text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/25
-                         focus:border-primary/50 placeholder:text-muted-foreground/30"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={p.onVerify}
-            disabled={p.keyStatus.state === "testing" || !p.baseUrl.trim()}
-            className="text-sm px-4 py-2 rounded-lg border border-border
-                       hover:bg-muted/50 transition-colors disabled:opacity-40"
-          >
-            {p.keyStatus.state === "testing" ? "Verifying…" : "Verify connection"}
-          </button>
-        </div>
-      ) : p.provider === "bedrock" ? (
+      {/* Credentials — single API key, Bedrock AWS fields, or nothing for openai-compatible (configured above). */}
+      {p.provider === "bedrock" ? (
         <div className="space-y-3">
           <div>
             <label className="text-sm font-medium text-foreground">AWS credentials</label>
@@ -352,7 +429,7 @@ function Step2Model(p: Step2Props) {
             {p.keyStatus.state === "testing" ? "Verifying…" : "Verify credentials"}
           </button>
         </div>
-      ) : (
+      ) : p.provider !== "openai-compatible" ? (
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">
             API key <span className="text-primary">*</span>
@@ -381,7 +458,7 @@ function Step2Model(p: Step2Props) {
             </button>
           </div>
         </div>
-      )}
+      ) : null}
 
       <div className="mt-2 min-h-[1.25rem]">
         {p.keyStatus.state === "testing" && (
@@ -453,8 +530,10 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [provider, setProvider] = useState<Provider>("anthropic");
   const [model, setModel] = useState(defaultModelFor("anthropic"));
   const [customModel, setCustomModel] = useState("");
+  const [showModelInput, setShowModelInput] = useState(false);
+  const [customUrl, setCustomUrl] = useState("");
+  const [customHeaders, setCustomHeaders] = useState<HeaderPair[]>([]);
   const [apiKey, setApiKey] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
   const [awsRegion, setAwsRegion] = useState("us-west-2");
   const [awsAccessKey, setAwsAccessKey] = useState("");
   const [awsSecret, setAwsSecret] = useState("");
@@ -462,7 +541,7 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
   const [keyStatus, setKeyStatus] = useState<KeyStatus>({ state: "idle" });
 
   // Reset verification whenever any credential field changes.
-  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, baseUrl, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel]);
+  useEffect(() => { setKeyStatus({ state: "idle" }); }, [apiKey, provider, awsAccessKey, awsSecret, awsRegion, awsSessionToken, customModel, customUrl]);
 
   const [step, setStep] = useState(0);
   const [animKey, setAnimKey] = useState(0);
@@ -471,16 +550,17 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
 
   const displayName = agentName.trim() || "Analytics Agent";
   const isCustomModel = model === CUSTOM_MODEL_VALUE;
-  const effectiveModel = isCustomModel ? customModel.trim() : model;
+  const effectiveModel =
+    provider === "openai-compatible" ? customModel.trim() : isCustomModel ? customModel.trim() : model;
 
   // Step 2 advance rules:
+  //  - OpenAI-compatible: require URL, model, and verification passed.
   //  - Bedrock: allow as long as we have a model and verification didn't fail.
-  //  - openai-compatible: require a base URL (API key is optional).
   //  - Others: require an API key that isn't known-bad.
-  const canAdvanceStep2 = provider === "bedrock"
+  const canAdvanceStep2 = provider === "openai-compatible"
+    ? customUrl.trim().length > 0 && keyStatus.state !== "fail"
+    : provider === "bedrock"
     ? !!effectiveModel && keyStatus.state !== "fail"
-    : provider === "openai-compatible"
-    ? baseUrl.trim().length > 0 && !!effectiveModel && keyStatus.state !== "fail"
     : apiKey.trim().length > 0 && keyStatus.state !== "fail";
   const canContinue = step === 0 ? agentName.trim().length > 0 : canAdvanceStep2;
 
@@ -490,8 +570,18 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
     setAnimKey(k => k + 1);
   };
 
+  const serializeHeaders = (headers: HeaderPair[]): string => {
+    const filtered = headers
+      .filter(h => h.key.trim() && h.value.trim())
+      .reduce((acc, h) => {
+        acc[h.key.trim()] = h.value.trim();
+        return acc;
+      }, {} as Record<string, string>);
+    return Object.keys(filtered).length > 0 ? JSON.stringify(filtered) : "";
+  };
+
   const runKeyTest = async (): Promise<boolean> => {
-    if (provider === "openai-compatible" && !baseUrl.trim()) return false;
+    if (provider === "openai-compatible" && !customUrl.trim()) return false;
     if (provider !== "bedrock" && provider !== "openai-compatible" && !apiKey.trim()) return false;
     setKeyStatus({ state: "testing" });
     try {
@@ -499,11 +589,13 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
         provider,
         api_key: apiKey.trim(),
         model: effectiveModel,
-        base_url: baseUrl.trim(),
         aws_region: awsRegion.trim(),
         aws_access_key_id: awsAccessKey.trim(),
         aws_secret_access_key: awsSecret.trim(),
         aws_session_token: awsSessionToken.trim(),
+        base_url: customUrl.trim(),
+        openai_compatible_model: customModel.trim(),
+        openai_compatible_headers: serializeHeaders(customHeaders),
       });
       const next: KeyStatus = result.ok
         ? { state: "ok", msg: result.message }
@@ -529,6 +621,12 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
           setError("Enter a model ID or pick one from the list.");
           return;
         }
+        if (provider === "openai-compatible") {
+          if (!customUrl.trim()) {
+            setError("Enter the LLM backend URL.");
+            return;
+          }
+        }
         if (keyStatus.state !== "ok") {
           const ok = await runKeyTest();
           if (!ok) return;
@@ -537,11 +635,13 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
           provider,
           api_key: apiKey.trim(),
           model: effectiveModel,
-          base_url: baseUrl.trim(),
           aws_region: awsRegion.trim(),
           aws_access_key_id: awsAccessKey.trim(),
           aws_secret_access_key: awsSecret.trim(),
           aws_session_token: awsSessionToken.trim(),
+          base_url: customUrl.trim(),
+          openai_compatible_model: customModel.trim(),
+          openai_compatible_headers: serializeHeaders(customHeaders),
         });
         onComplete();
       }
@@ -621,8 +721,10 @@ export function OnboardingWizard({ onComplete, onDismiss }: WizardProps) {
               provider={provider} onProvider={setProvider}
               model={model}       onModel={setModel}
               customModel={customModel} onCustomModel={setCustomModel}
+              showModelInput={showModelInput} onShowModelInput={setShowModelInput}
+              customUrl={customUrl} onCustomUrl={setCustomUrl}
+              customHeaders={customHeaders} onCustomHeaders={setCustomHeaders}
               apiKey={apiKey}     onApiKey={setApiKey}
-              baseUrl={baseUrl}   onBaseUrl={setBaseUrl}
               awsRegion={awsRegion} onAwsRegion={setAwsRegion}
               awsAccessKey={awsAccessKey} onAwsAccessKey={setAwsAccessKey}
               awsSecret={awsSecret} onAwsSecret={setAwsSecret}
