@@ -322,7 +322,9 @@ async def _load_llm_config_from_db() -> None:
 
     # OpenAI-compatible provider fields. URL and model are plaintext; headers are encrypted.
     base_url = cfg_data.get("base_url", "")
-    if base_url and not os.environ.get("OPENAI_COMPATIBLE_BASE_URL"):
+    if base_url and not (
+        os.environ.get("OPENAI_COMPATIBLE_BASE_URL") or os.environ.get("OPENAI_COMPAT_BASE_URL")
+    ):
         settings.openai_compatible_base_url = base_url
         os.environ["OPENAI_COMPATIBLE_BASE_URL"] = base_url
 

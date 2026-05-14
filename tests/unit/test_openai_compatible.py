@@ -462,7 +462,9 @@ def test_merge_both_empty_returns_empty() -> None:
 
 
 def test_merge_new_key_with_value_included() -> None:
-    assert _merge_openai_compatible_headers_request('{"X-New": "value"}', None) == {"X-New": "value"}
+    assert _merge_openai_compatible_headers_request('{"X-New": "value"}', None) == {
+        "X-New": "value"
+    }
 
 
 def test_merge_blank_value_for_unknown_key_omitted() -> None:

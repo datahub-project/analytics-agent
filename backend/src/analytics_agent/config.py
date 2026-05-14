@@ -23,7 +23,7 @@ def get_config_dir() -> Path:
 _CONFIG_DIR = get_config_dir()
 
 import yaml
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import AliasChoices, BaseModel, Field, TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -187,12 +187,20 @@ class Settings(BaseSettings):
     # Disable if you hit a Bedrock region/model where caching isn't supported.
     enable_prompt_cache: bool = True
     # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
-    openai_compatible_base_url: str = ""
-    openai_compatible_api_key: str = "" 
-    openai_compatible_model: str = "" 
-    openai_compatible_headers: str = (
-        ""  # JSON: {"Authorization": "Bearer token"}
+    openai_compatible_base_url: str = (
+        Field(  # The alias here is to keep backwards compatibility with the old env var name
+            default="",
+            validation_alias=AliasChoices("OPENAI_COMPATIBLE_BASE_URL", "OPENAI_COMPAT_BASE_URL"),
+        )
     )
+    openai_compatible_api_key: str = (
+        Field(  # The alias here is to keep backwards compatibility with the old env var name
+            default="",
+            validation_alias=AliasChoices("OPENAI_COMPATIBLE_API_KEY", "OPENAI_COMPAT_API_KEY"),
+        )
+    )
+    openai_compatible_model: str = ""
+    openai_compatible_headers: str = ""  # JSON: {"Authorization": "Bearer token"}
     # Model IDs — override any tier independently via env vars.
     # Unset tiers fall back to PROVIDER_DEFAULTS[llm_provider][tier].
     llm_model: str = ""  # LLM_MODEL         — main analysis agent

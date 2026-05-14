@@ -8,6 +8,7 @@ Covers:
 - Settings.get_api_key() returns the right attribute per provider
 - agent/llm._make_llm() dispatches to the correct factory
 - agent/llm._make_llm() raises a clear error for unknown providers
+- Backward-compat env var aliases: OPENAI_COMPAT_BASE_URL / OPENAI_COMPAT_API_KEY
 """
 
 from __future__ import annotations
@@ -145,7 +146,9 @@ def test_openai_compatible_non_main_tiers_fall_back_to_openai_compatible_model()
 
 def test_openai_compatible_non_main_tiers_prefer_llm_model_over_openai_compatible_model():
     """llm_model (the primary override) takes priority over openai_compatible_model for non-main tiers."""
-    s = _settings("openai-compatible", llm_model="qwen2.5:7b", openai_compatible_model="llama3.2:1b")
+    s = _settings(
+        "openai-compatible", llm_model="qwen2.5:7b", openai_compatible_model="llama3.2:1b"
+    )
     assert s.get_chart_llm_model() == "qwen2.5:7b"
     assert s.get_quality_llm_model() == "qwen2.5:7b"
     assert s.get_delight_llm_model() == "qwen2.5:7b"
@@ -276,3 +279,57 @@ def test_make_llm_error_message_lists_valid_providers(mock_settings):
     msg = str(exc_info.value)
     for p in EXPECTED_PROVIDERS:
         assert p in msg
+
+
+# ─── Backward-compatible env var aliases (OPENAI_COMPAT_* → OPENAI_COMPATIBLE_*) ─
+#
+# Pydantic treats an env var set to "" as a found (non-missing) value, so it would
+# shadow the next alias in AliasChoices. Tests therefore use monkeypatch.delenv to
+# fully remove the competing key rather than blanking it.
+
+_ALIAS_PAIRS = [
+    # (old_name, new_name, field_name, sample_value)
+    (
+        "OPENAI_COMPAT_BASE_URL",
+        "OPENAI_COMPATIBLE_BASE_URL",
+        "openai_compatible_base_url",
+        "http://proxy/v1",
+    ),
+    (
+        "OPENAI_COMPAT_API_KEY",
+        "OPENAI_COMPATIBLE_API_KEY",
+        "openai_compatible_api_key",
+        "sk-test-key",
+    ),
+]
+
+
+def _make_settings(monkeypatch) -> Settings:
+    return Settings(llm_provider="openai-compatible", database_url="sqlite+aiosqlite:///./test.db")
+
+
+@pytest.mark.parametrize("old_name,new_name,field,value", _ALIAS_PAIRS)
+def test_legacy_env_var_is_accepted(monkeypatch, old_name, new_name, field, value):
+    """The pre-rename env var name must still populate its Settings field."""
+    monkeypatch.delenv(new_name, raising=False)
+    monkeypatch.setenv(old_name, value)
+    s = _make_settings(monkeypatch)
+    assert getattr(s, field) == value
+
+
+@pytest.mark.parametrize("old_name,new_name,field,value", _ALIAS_PAIRS)
+def test_new_env_var_is_accepted(monkeypatch, old_name, new_name, field, value):
+    """The current env var name must populate its Settings field."""
+    monkeypatch.delenv(old_name, raising=False)
+    monkeypatch.setenv(new_name, value)
+    s = _make_settings(monkeypatch)
+    assert getattr(s, field) == value
+
+
+@pytest.mark.parametrize("old_name,new_name,field,value", _ALIAS_PAIRS)
+def test_new_env_var_takes_priority_over_legacy(monkeypatch, old_name, new_name, field, value):
+    """When both names are set, the current name (first in AliasChoices) wins."""
+    monkeypatch.setenv(new_name, value)
+    monkeypatch.setenv(old_name, "should-not-appear")
+    s = _make_settings(monkeypatch)
+    assert getattr(s, field) == value

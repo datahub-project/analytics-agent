@@ -90,7 +90,9 @@ def _make_openai_compatible(model: str, streaming: bool) -> BaseChatModel:
 
     url = settings.openai_compatible_base_url
     if not url:
-        raise ValueError("OPENAI_COMPATIBLE_BASE_URL is required for the openai-compatible provider")
+        raise ValueError(
+            "OPENAI_COMPATIBLE_BASE_URL is required for the openai-compatible provider"
+        )
 
     headers = {}
     if settings.openai_compatible_headers:

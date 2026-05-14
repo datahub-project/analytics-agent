@@ -184,7 +184,9 @@ async def test_get_llm_settings_has_key_true_when_base_url_set() -> None:
 @pytest.mark.asyncio
 async def test_get_llm_settings_has_key_false_when_base_url_missing() -> None:
     cfg = _mock_cfg(
-        llm_provider="openai-compatible", openai_compatible_base_url="", openai_compatible_model="model"
+        llm_provider="openai-compatible",
+        openai_compatible_base_url="",
+        openai_compatible_model="model",
     )
     cfg.get_llm_model.return_value = "model"
     with patch("analytics_agent.config.settings", cfg):

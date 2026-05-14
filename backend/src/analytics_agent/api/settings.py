@@ -1909,7 +1909,9 @@ async def get_llm_settings() -> LlmSettingsResponse:
     if has_openai_compatible_headers:
         try:
             headers = json.loads(cfg.openai_compatible_headers)
-            openai_compatible_header_keys = list(headers.keys()) if isinstance(headers, dict) else []
+            openai_compatible_header_keys = (
+                list(headers.keys()) if isinstance(headers, dict) else []
+            )
         except (json.JSONDecodeError, TypeError):
             pass
     if provider == "bedrock":
@@ -1972,6 +1974,7 @@ async def test_llm_key(body: TestLlmKeyRequest) -> TestLlmKeyResponse:
 
     def _run() -> None:
         from analytics_agent.config import PROVIDER_DEFAULTS
+
         defaults = PROVIDER_DEFAULTS.get(body.provider, PROVIDER_DEFAULTS["openai"])
         model = body.model or defaults["chart"]  # use cheap/fast tier for the test
 
@@ -2140,10 +2143,14 @@ async def update_llm_settings(
     if body.provider == "openai-compatible" and body.openai_compatible_headers.strip():
         existing_enc = existing.get("openai_compatible_headers", "") or ""
         existing_plain = _fernet_decrypt(existing_enc) if existing_enc else ""
-        merged = _merge_openai_compatible_headers_request(body.openai_compatible_headers, existing_plain)
+        merged = _merge_openai_compatible_headers_request(
+            body.openai_compatible_headers, existing_plain
+        )
         if merged:
             openai_compatible_headers_merged_plain = json.dumps(merged)
-            new_cfg["openai_compatible_headers"] = _fernet_encrypt(openai_compatible_headers_merged_plain)
+            new_cfg["openai_compatible_headers"] = _fernet_encrypt(
+                openai_compatible_headers_merged_plain
+            )
         else:
             new_cfg.pop("openai_compatible_headers", None)
             openai_compatible_headers_merged_plain = ""
