@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datahub-analytics-agent"
-version = "0.3.0"
+version = "0.3.1"
 description = "Open-source talk-to-data agent with DataHub context and pluggable query engines"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -45,6 +45,7 @@ dependencies = [
     "acryl-datahub[base]>=1.5.0",
     # Query engines (SQLAlchemy-based; heavy native connectors are separate packages)
     "pymysql>=1.1.0",
+    "duckdb-engine>=0.13.0",
     # Observability (OTEL) — no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set
     "opentelemetry-sdk>=1.25.0",
     "opentelemetry-exporter-otlp-proto-http>=1.25.0",
