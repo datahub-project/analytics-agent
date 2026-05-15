@@ -16,6 +16,7 @@ export const mysqlPlugin: ConnectionPlugin = {
   category: "engine",
   transport: "native",
   description: "Connect to a MySQL or MariaDB database",
+  fields: FIELDS,
   Form: ({ onDone, onCancel }) => (
     <SimpleFormShell
       fields={FIELDS}

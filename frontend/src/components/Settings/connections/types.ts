@@ -44,6 +44,7 @@ export interface ConnectionPlugin {
   category: ConnectionCategory;
   transport: ConnectionTransport;
   description: string;
+  fields: FieldDef[];
   icon?: React.ReactNode;
   Form: React.FC<{
     onDone: (payload: NewConnectionPayload) => void;

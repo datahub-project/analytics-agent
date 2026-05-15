@@ -8,6 +8,7 @@ export const customMcpEnginePlugin: ConnectionPlugin = {
   category: "engine",
   transport: "mcp-stdio",
   description: "Connect to any MCP-compatible data source",
+  fields: [],
   Form: GenericMcpForm,
 };
 
@@ -18,5 +19,6 @@ export const customMcpContextPlugin: ConnectionPlugin = {
   category: "context_platform",
   transport: "mcp-stdio",
   description: "Connect to any MCP-compatible context platform",
+  fields: [],
   Form: GenericMcpForm,
 };

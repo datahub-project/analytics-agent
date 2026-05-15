@@ -13,6 +13,7 @@ export const sqlitePlugin: ConnectionPlugin = {
   category: "engine",
   transport: "native",
   description: "Connect to a local SQLite database file",
+  fields: FIELDS,
   Form: ({ onDone, onCancel }) => (
     <SimpleFormShell
       fields={FIELDS}

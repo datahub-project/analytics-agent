@@ -17,6 +17,25 @@ function normalizeAcrylMcpUrl(raw: string): string {
   return withScheme;
 }
 
+const FIELDS = [
+  {
+    key: "url",
+    label: "MCP server URL",
+    type: "mono" as const,
+    placeholder: "https://<tenant>.acryl.io/integrations/ai/mcp/",
+    required: true,
+    transform: normalizeAcrylMcpUrl,
+  },
+  {
+    key: "token",
+    label: "Access token",
+    type: "password" as const,
+    placeholder: "eyJhbGci…",
+    required: true,
+    hint: "Sent as Authorization: Bearer <token>",
+  },
+]
+
 function DataHubMcpForm({
   onDone,
   onCancel,
@@ -26,24 +45,7 @@ function DataHubMcpForm({
 }) {
   return (
     <SimpleFormShell
-      fields={[
-        {
-          key: "url",
-          label: "MCP server URL",
-          type: "mono",
-          placeholder: "https://<tenant>.acryl.io/integrations/ai/mcp/",
-          required: true,
-          transform: normalizeAcrylMcpUrl,
-        },
-        {
-          key: "token",
-          label: "Access token",
-          type: "password",
-          placeholder: "eyJhbGci…",
-          required: true,
-          hint: "Sent as Authorization: Bearer <token>",
-        },
-      ]}
+      fields={FIELDS}
       onCancel={onCancel}
       onDone={async (payload) => {
         const { url, token, ...rest } = payload.config;
@@ -68,5 +70,6 @@ export const datahubMcpPlugin: ConnectionPlugin = {
   category: "context_platform",
   transport: "mcp-sse",
   description: "Connect to DataHub through its managed MCP server",
+  fields: FIELDS,
   Form: DataHubMcpForm,
 };

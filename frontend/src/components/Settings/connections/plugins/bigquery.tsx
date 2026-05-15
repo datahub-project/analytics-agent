@@ -90,5 +90,6 @@ export const bigqueryPlugin: ConnectionPlugin = {
   category: "engine",
   transport: "native",
   description: "Connect to Google BigQuery",
+  fields: FIELDS,
   Form: BigQueryForm,
 };
