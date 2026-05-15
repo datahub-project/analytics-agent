@@ -1,6 +1,6 @@
 export interface ConnectionField {
   key: string;
-  label: string;
+  label: string | null;
   value: string;
   sensitive: boolean;
   placeholder: string;

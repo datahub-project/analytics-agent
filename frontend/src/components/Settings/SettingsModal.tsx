@@ -74,6 +74,7 @@ import { AddConnectionFlow } from "./connections/AddConnectionFlow";
 import type { NewConnectionPayload, ConnectionPlugin } from "./connections/types";
 import { ModelSection } from "./ModelSection";
 import { AboutSection } from "./AboutSection";
+import {CONNECTION_PLUGINS} from "@/components/Settings/connections";
 
 type Section = "connections" | "model" | "prompt" | "display" | "about";
 
@@ -977,7 +978,26 @@ function ConnectionsSection() {
 
   const CONTEXT_PLATFORM_TYPES = new Set(["datahub", "datahub-mcp"]);
   const datahubConns = connections.filter((c) => CONTEXT_PLATFORM_TYPES.has(c.type));
-  const engineConns = connections.filter((c) => !CONTEXT_PLATFORM_TYPES.has(c.type) && c.type !== "chart");
+  const engineConns = connections.filter((c) => !CONTEXT_PLATFORM_TYPES.has(c.type) && c.type !== "chart")
+      .map(conn =>{
+        // rebuild fields from plugin definition, carrying over stored values
+        const plugin = CONNECTION_PLUGINS.find(p => p.id === conn.type)
+        if (plugin && plugin.fields.length > 0) {
+          conn.fields = plugin.fields.map(pf => {
+            const value = conn.fields.find(f => f.key === pf.key)?.value ?? ""
+            const field: ConnectionField = {
+              key: pf.key,
+              label: pf.label,
+              value: value,
+              sensitive: pf.type === "password",
+              placeholder: pf.placeholder ?? "",
+              secret_key: ""
+            }
+            return field
+          })
+        }
+        return conn
+      })
 
   return (
     <div className="space-y-6">

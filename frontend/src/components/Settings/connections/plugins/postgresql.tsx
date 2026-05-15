@@ -16,6 +16,7 @@ export const postgresqlPlugin: ConnectionPlugin = {
   category: "engine",
   transport: "native",
   description: "Connect to a PostgreSQL database",
+  fields: FIELDS,
   Form: ({ onDone, onCancel }) => (
     <SimpleFormShell
       fields={FIELDS}

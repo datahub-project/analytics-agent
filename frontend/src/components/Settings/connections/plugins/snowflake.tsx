@@ -215,5 +215,6 @@ export const snowflakePlugin: ConnectionPlugin = {
   category: "engine",
   transport: "native",
   description: "Direct connection to Snowflake cloud data warehouse",
+  fields: [],
   Form: SnowflakeForm,
 };

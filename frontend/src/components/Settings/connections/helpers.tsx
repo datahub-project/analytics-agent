@@ -22,6 +22,7 @@ export function createSimplePlugin(spec: SimplePluginSpec): ConnectionPlugin {
     category: spec.category,
     transport: "native",
     description: spec.description,
+    fields: spec.fields,
     icon: spec.icon,
     Form: ({ onDone, onCancel }) => (
       <SimpleFormShell
@@ -93,6 +94,7 @@ export function createMcpStdioPlugin(spec: McpStdioPluginSpec): ConnectionPlugin
     transport: "mcp-stdio",
     description: spec.description,
     icon: spec.icon,
+    fields: fields,
     Form: ({ onDone, onCancel }) => (
       <SimpleFormShell
         fields={fields}
@@ -168,6 +170,7 @@ export function createMcpSsePlugin(spec: McpSsePluginSpec): ConnectionPlugin {
     transport: "mcp-sse",
     description: spec.description,
     icon: spec.icon,
+    fields: fields,
     Form: ({ onDone, onCancel }) => (
       <SimpleFormShell
         fields={fields}

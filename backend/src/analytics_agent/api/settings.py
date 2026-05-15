@@ -66,7 +66,7 @@ _MUTATION_TOOL_NAMES = _SKILL_TOOL_NAMES
 
 class ConnectionField(BaseModel):
     key: str
-    label: str
+    label: str | None
     value: str
     sensitive: bool = False
     placeholder: str = ""
@@ -734,7 +734,10 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 ]
         else:
             status_str = "unconfigured"
-            fields = []
+            # get fields from conn_cfg.items, set key and value
+            fields = [
+                ConnectionField(key=k, label=None, value=str(v)) for (k, v) in conn_cfg.items()
+            ]
 
         oauth_status = (
             OAuthStatus(
