@@ -265,6 +265,11 @@ async def _run_and_broadcast(
                     if isinstance(parsed, list):
                         hitl_policy_override = [str(t) for t in parsed]
 
+            from analytics_agent.agent.subagents import SETTINGS_KEY as _SUBAGENTS_KEY
+            from analytics_agent.agent.subagents import parse_config as _parse_subagents
+            subagents_raw = await settings_repo.get(_SUBAGENTS_KEY)
+            subagents_cfg = _parse_subagents(subagents_raw)
+
             disabled_conns_raw = await settings_repo.get("disabled_connections")
             disabled_connections: set[str] = set()
             if disabled_conns_raw:
@@ -308,6 +313,7 @@ async def _run_and_broadcast(
                     context_tools=context_tools,
                     engine_tools=engine_tools,
                     hitl_policy_override=hitl_policy_override,
+                    subagents_config=subagents_cfg,
                 )
             except Exception as exc:
                 for _evt in cast(

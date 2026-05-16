@@ -76,8 +76,9 @@ import type { NewConnectionPayload, ConnectionPlugin } from "./connections/types
 import { ModelSection } from "./ModelSection";
 import { AboutSection } from "./AboutSection";
 import { HitlSection } from "./HitlSection";
+import { SubagentsSection } from "./SubagentsSection";
 
-type Section = "connections" | "model" | "prompt" | "display" | "approvals" | "about";
+type Section = "connections" | "model" | "prompt" | "display" | "approvals" | "subagents" | "about";
 
 interface Props {
   onClose: () => void;
@@ -1327,6 +1328,7 @@ const SECTION_LABELS: Record<Section, string> = {
   model: "Model",
   prompt: "Prompt",
   approvals: "Approvals",
+  subagents: "Sub-agents",
   display: "Display Settings",
   about: "About",
 };
@@ -1336,6 +1338,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   model: "Choose your AI provider, model, and API key.",
   prompt: "View and customize the system prompt used by the AI assistant.",
   approvals: "Choose which tools require human approval before the agent can run them.",
+  subagents: "Enable / disable built-in sub-agents or define custom ones with their own tools.",
   display: "Customize the app name and logo.",
   about: "Current version, release notes, and update status.",
 };
@@ -1398,6 +1401,12 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
               onClick={() => setSection("approvals")}
             />
             <NavItem
+              label="Sub-agents"
+              icon={<Layers className="w-4 h-4" />}
+              active={section === "subagents"}
+              onClick={() => setSection("subagents")}
+            />
+            <NavItem
               label="Display Settings"
               icon={<Monitor className="w-4 h-4" />}
               active={section === "display"}
@@ -1423,6 +1432,7 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
           <div className={section !== "model"       ? "hidden" : ""}><ModelSection /></div>
           <div className={section !== "prompt"      ? "hidden" : ""}><PromptSection /></div>
           <div className={section !== "approvals"   ? "hidden" : ""}><HitlSection /></div>
+          <div className={section !== "subagents"   ? "hidden" : ""}><SubagentsSection /></div>
           <div className={section !== "display"     ? "hidden" : ""}><DisplaySection /></div>
           {section === "about" && <AboutSection />}
         </div>

@@ -478,3 +478,52 @@ export async function saveHitlPolicy(interrupt_tools: string[]): Promise<void> {
   });
   if (!res.ok) throw new Error("Save failed");
 }
+
+// --- Sub-agents ---
+
+export interface BuiltinSubagent {
+  name: string;
+  description: string;
+  system_prompt: string;
+  has_response_format: boolean;
+}
+
+export interface CustomSubagent {
+  name: string;
+  description: string;
+  system_prompt: string;
+  tool_names: string[];
+}
+
+export interface BuiltinOverride {
+  description?: string | null;
+  system_prompt?: string | null;
+  tool_names?: string[] | null;
+}
+
+export interface SubagentsConfig {
+  builtins: BuiltinSubagent[];
+  disabled_builtins: string[];
+  builtin_overrides: Record<string, BuiltinOverride>;
+  custom: CustomSubagent[];
+  available_tools: string[];
+}
+
+export async function getSubagentsConfig(): Promise<SubagentsConfig> {
+  const res = await fetch("/api/settings/subagents");
+  if (!res.ok) throw new Error("Failed to fetch sub-agents config");
+  return res.json();
+}
+
+export async function saveSubagentsConfig(body: {
+  disabled_builtins: string[];
+  builtin_overrides: Record<string, BuiltinOverride>;
+  custom: CustomSubagent[];
+}): Promise<void> {
+  const res = await fetch("/api/settings/subagents", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Save failed");
+}

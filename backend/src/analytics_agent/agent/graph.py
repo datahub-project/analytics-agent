@@ -3,13 +3,19 @@ from __future__ import annotations
 from typing import Literal
 
 import orjson
-from deepagents import SubAgent, create_deep_agent
+from deepagents import create_deep_agent
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
 from analytics_agent.agent.hitl import build_interrupt_config, get_checkpointer
 from analytics_agent.agent.llm import get_llm
 from analytics_agent.agent.state import AgentState
+from analytics_agent.agent.subagents import (
+    SubagentsConfig,
+    ToolPool,
+    build_subagents,
+    split_datahub_tools,
+)
 from analytics_agent.config import settings
 from analytics_agent.prompts.system import build_system_prompt
 from analytics_agent.skills.loader import build_skill_sources
@@ -43,6 +49,7 @@ def build_graph(
     context_tools: list | None = None,  # pre-built from DB context platforms at request time
     engine_tools: list | None = None,  # pre-built for MCP data sources (bypasses QueryEngine)
     hitl_policy_override: list[str] | None = None,  # operator-set list of tools to intercept
+    subagents_config: SubagentsConfig | None = None,  # operator-set sub-agent overlay
 ):
     """Build the agent graph backed by `deepagents.create_deep_agent`.
 
@@ -51,9 +58,11 @@ def build_graph(
     delegating to sub-agents — keeping high-volume turns out of the parent's
     context window.
 
-    Sub-agents:
-      - `datahub-explorer`: scoped to DataHub context tools for entity search
-        and schema lookup; returns only a textual summary to the parent.
+    Sub-agents are assembled from a builtin registry (sql-author,
+    lineage-tracer, data-profiler, datahub-explorer, datahub-editor) plus
+    any custom ones the operator has configured via
+    `/api/settings/subagents`. Builtins can be individually disabled or
+    have their description/system_prompt/tool list overridden.
 
     The outer `StateGraph` keeps the conditional `chart_node` post-step.
     """
@@ -129,24 +138,26 @@ def build_graph(
                 ]
             )
 
-    datahub_explorer = SubAgent(
-        name="datahub-explorer",
-        description=(
-            "Use to research DataHub metadata: find datasets, look up schemas, "
-            "search business glossary terms, inspect lineage. Returns a concise "
-            "summary of relevant entities and their fields. Prefer this over "
-            "calling DataHub tools directly when the question requires more than "
-            "one or two lookups."
-        ),
-        system_prompt=(
-            "You are a DataHub metadata research assistant. Use the provided "
-            "DataHub tools to answer the parent agent's question precisely. "
-            "Return a short, structured summary: dataset URNs, table names, "
-            "relevant column names with types, and any business context. Do NOT "
-            "execute SQL or generate charts — only research metadata."
-        ),
-        tools=datahub_tools,
+    # Sub-agents: builtins (sql-author, lineage-tracer, data-profiler,
+    # datahub-explorer, datahub-editor) overlaid with operator config.
+    # The parent agent does NOT receive datahub_tools directly — catalog
+    # reads/writes go through the relevant sub-agent, which keeps entity
+    # blobs out of the parent's context window.
+    datahub_reads, datahub_writes = split_datahub_tools(datahub_tools)
+    try:
+        from analytics_agent.skills.loader import build_datahub_research_tools
+
+        research_tools = build_datahub_research_tools()
+    except Exception:
+        research_tools = []
+    tool_pool = ToolPool(
+        datahub_reads=datahub_reads,
+        datahub_writes=datahub_writes,
+        engine_tools=engine_tools,
+        skill_tools=skill_tools,
+        research_tools=research_tools,
     )
+    sub_agents = build_subagents(tool_pool, subagents_config or SubagentsConfig())
 
     # Human-in-the-loop: pause the graph before mutation tools execute so
     # the user can approve / reject / edit. Tools not in this set
@@ -165,7 +176,7 @@ def build_graph(
         model=llm,
         tools=all_tools,
         system_prompt=system_for_agent,
-        subagents=[datahub_explorer],
+        subagents=sub_agents,
         skills=build_skill_sources(enabled_mutations),
         interrupt_on=interrupt_on or None,
         checkpointer=checkpointer,

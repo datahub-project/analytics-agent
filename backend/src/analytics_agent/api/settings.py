@@ -52,6 +52,7 @@ _KEY_ENABLED_MUTATIONS = "enabled_mutation_tools"
 _KEY_HITL_INTERRUPT_TOOLS = "hitl_interrupt_tools"  # list[str] override; empty = defaults
 _KEY_DISABLED_CONNECTIONS = "disabled_connections"
 _KEY_DYNAMIC_CONNECTIONS = "dynamic_connections"
+_KEY_SUBAGENTS = "subagents_config"
 
 # Write-back skills are opt-in (disabled unless explicitly enabled)
 _SKILL_TOOL_NAMES: set[str] = {
@@ -2292,7 +2293,7 @@ async def get_hitl_policy(session: AsyncSession = Depends(get_session)) -> HitlP
     enabled_mutations = await _get_enabled_mutations(repo)
 
     extra: set[str] = set()
-    if _app_settings.hitl_interrupt_execute and _app_settings.enable_python_sandbox:
+    if _app_settings.hitl_interrupt_execute:
         extra.add("execute")
 
     effective = sorted(
@@ -2320,3 +2321,189 @@ async def update_hitl_policy(
     repo = SettingsRepo(session)
     await repo.set(_KEY_HITL_INTERRUPT_TOOLS, orjson.dumps(safe).decode())
     return {"success": True, "message": "HITL policy saved.", "interrupt_tools": safe}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sub-agents
+#
+# Operators can disable any builtin sub-agent, override its description /
+# system_prompt / tool_names, and add custom sub-agents. Config is stored
+# as one JSON blob under `_KEY_SUBAGENTS`. Schema:
+#   {
+#     "disabled_builtins": ["data-profiler"],
+#     "builtin_overrides": {
+#       "sql-author": {"description": ..., "system_prompt": ..., "tool_names": [...]}
+#     },
+#     "custom": [
+#       {"name": ..., "description": ..., "system_prompt": ..., "tool_names": [...]}
+#     ]
+#   }
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class BuiltinSubagent(BaseModel):
+    name: str
+    description: str
+    system_prompt: str
+    has_response_format: bool
+
+
+class CustomSubagent(BaseModel):
+    name: str
+    description: str
+    system_prompt: str
+    tool_names: list[str]
+
+
+class BuiltinOverride(BaseModel):
+    description: str | None = None
+    system_prompt: str | None = None
+    # Empty list/None means "use the builtin's default selector".
+    tool_names: list[str] | None = None
+
+
+class SubagentsConfigResponse(BaseModel):
+    builtins: list[BuiltinSubagent]
+    disabled_builtins: list[str]
+    builtin_overrides: dict[str, BuiltinOverride]
+    custom: list[CustomSubagent]
+    available_tools: list[str]
+
+
+class UpdateSubagentsRequest(BaseModel):
+    disabled_builtins: list[str] = []
+    builtin_overrides: dict[str, BuiltinOverride] = {}
+    custom: list[CustomSubagent] = []
+
+
+async def _available_tool_names(session: AsyncSession) -> list[str]:
+    """Best-effort enumeration of tool names a sub-agent could be given.
+
+    Pulls from registered context platforms (DataHub), the default engine's
+    tools (if any), and the always-on / opt-in skills. Failures in any one
+    source just shrink the list — we don't fail the endpoint.
+    """
+    from analytics_agent.engines.factory import get_registry
+    from analytics_agent.skills.loader import (
+        build_always_on_skill_tools,
+        build_datahub_research_tools,
+        build_skill_tools,
+    )
+
+    names: set[str] = set()
+
+    try:
+        from analytics_agent.context.datahub import build_datahub_tools
+
+        for t in build_datahub_tools():
+            names.add(t.name)
+    except Exception:
+        logger.exception("listing DataHub tools failed")
+
+    try:
+        for t in build_datahub_research_tools():
+            names.add(t.name)
+    except Exception:
+        logger.exception("listing DataHub research tools failed")
+
+    try:
+        for t in build_always_on_skill_tools():
+            names.add(t.name)
+        # Surface opt-in mutations even if not currently enabled, so the UI
+        # can wire a sub-agent to them; HITL still gates execution.
+        for t in build_skill_tools({"publish_analysis", "save_correction"}):
+            names.add(t.name)
+    except Exception:
+        logger.exception("listing skill tools failed")
+
+    try:
+        registry = get_registry()
+        for engine in registry.values():
+            try:
+                for t in engine.get_tools():
+                    names.add(t.name)
+            except Exception:
+                continue
+    except Exception:
+        logger.exception("listing engine tools failed")
+
+    return sorted(names)
+
+
+def _load_subagents_blob(raw: str | None) -> dict[str, Any]:
+    if not raw:
+        return {"disabled_builtins": [], "builtin_overrides": {}, "custom": []}
+    try:
+        data = orjson.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+@router.get("/subagents", response_model=SubagentsConfigResponse)
+async def get_subagents_config(
+    session: AsyncSession = Depends(get_session),
+) -> SubagentsConfigResponse:
+    from analytics_agent.agent.subagents import list_builtins
+
+    repo = SettingsRepo(session)
+    raw = await repo.get(_KEY_SUBAGENTS)
+    blob = _load_subagents_blob(raw)
+
+    overrides_raw = blob.get("builtin_overrides") or {}
+    overrides: dict[str, BuiltinOverride] = {}
+    for name, rec in overrides_raw.items():
+        if isinstance(rec, dict):
+            overrides[name] = BuiltinOverride(**rec)
+
+    return SubagentsConfigResponse(
+        builtins=[BuiltinSubagent(**b) for b in list_builtins()],
+        disabled_builtins=[str(n) for n in (blob.get("disabled_builtins") or [])],
+        builtin_overrides=overrides,
+        custom=[CustomSubagent(**c) for c in (blob.get("custom") or []) if isinstance(c, dict)],
+        available_tools=await _available_tool_names(session),
+    )
+
+
+@router.put("/subagents")
+async def update_subagents_config(
+    body: UpdateSubagentsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    from analytics_agent.agent.subagents import BUILTINS
+
+    builtin_names = set(BUILTINS.keys())
+    disabled = [n for n in body.disabled_builtins if n in builtin_names]
+    overrides: dict[str, dict[str, Any]] = {}
+    for name, ov in body.builtin_overrides.items():
+        if name not in builtin_names:
+            continue
+        rec = ov.model_dump(exclude_none=True)
+        if rec:
+            overrides[name] = rec
+
+    # Validate custom records: unique non-empty names, no collisions with builtins.
+    seen: set[str] = set()
+    custom: list[dict[str, Any]] = []
+    for c in body.custom:
+        name = c.name.strip()
+        if not name or name in builtin_names or name in seen:
+            continue
+        seen.add(name)
+        custom.append(
+            {
+                "name": name,
+                "description": c.description.strip(),
+                "system_prompt": c.system_prompt.strip(),
+                "tool_names": list(c.tool_names),
+            }
+        )
+
+    payload = {
+        "disabled_builtins": disabled,
+        "builtin_overrides": overrides,
+        "custom": custom,
+    }
+    repo = SettingsRepo(session)
+    await repo.set(_KEY_SUBAGENTS, orjson.dumps(payload).decode())
+    return {"success": True, **payload}
