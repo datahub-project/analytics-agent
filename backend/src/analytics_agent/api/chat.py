@@ -112,11 +112,17 @@ async def _run_and_broadcast(
     user_text: str,
     engine_name: str,
     keepalive_interval: int,
+    resume_payload: Any | None = None,
 ) -> None:
     """
     Background task: runs the full agent pipeline independently of the HTTP
     connection. Commits each event immediately so switch-back sees them in DB.
     Fans out to all live SSE subscribers via ConvStream.
+
+    When `resume_payload` is set, the run resumes a previously-interrupted
+    graph (HITL approval flow) instead of starting a new turn. user_text is
+    ignored in that case — state is recovered from the langgraph
+    checkpointer keyed by conversation_id.
     """
     from analytics_agent.db.base import _get_session_factory
 
@@ -132,10 +138,26 @@ async def _run_and_broadcast(
             msg_repo = MessageRepo(session)
             sequence = await msg_repo.next_sequence(conversation_id)
 
-            await _persist_message(
-                session, conversation_id, "TEXT", "user", {"text": user_text}, sequence
-            )
-            await session.commit()
+            if resume_payload is None:
+                await _persist_message(
+                    session, conversation_id, "TEXT", "user", {"text": user_text}, sequence
+                )
+                await session.commit()
+                sequence += 1
+            else:
+                # Resuming — persist the decision so the timeline shows it.
+                await _persist_message(
+                    session,
+                    conversation_id,
+                    "INTERRUPT_DECISION",
+                    "user",
+                    {"decisions": resume_payload.get("decisions", [])}
+                    if isinstance(resume_payload, dict)
+                    else {"decisions": []},
+                    sequence,
+                )
+                await session.commit()
+                sequence += 1
             sequence += 1
 
             # ── MOCK_LLM ──────────────────────────────────────────────────────
@@ -235,6 +257,14 @@ async def _run_and_broadcast(
                 with contextlib.suppress(Exception):
                     enabled_mutations = set(orjson.loads(mutations_raw))
 
+            hitl_raw = await settings_repo.get("hitl_interrupt_tools")
+            hitl_policy_override: list[str] = []
+            if hitl_raw:
+                with contextlib.suppress(Exception):
+                    parsed = orjson.loads(hitl_raw)
+                    if isinstance(parsed, list):
+                        hitl_policy_override = [str(t) for t in parsed]
+
             disabled_conns_raw = await settings_repo.get("disabled_connections")
             disabled_connections: set[str] = set()
             if disabled_conns_raw:
@@ -277,6 +307,7 @@ async def _run_and_broadcast(
                     enabled_mutations=enabled_mutations,
                     context_tools=context_tools,
                     engine_tools=engine_tools,
+                    hitl_policy_override=hitl_policy_override,
                 )
             except Exception as exc:
                 for _evt in cast(
@@ -317,6 +348,7 @@ async def _run_and_broadcast(
                 engine_name=engine_name,
                 keepalive_interval=keepalive_interval,
                 history=history,
+                resume_payload=resume_payload,
             ):
                 if evt.get("event") not in (None, "KEEPALIVE"):
                     with contextlib.suppress(Exception):
@@ -456,6 +488,82 @@ async def send_message(
             body.text.strip(),
             conv.engine_name,
             settings.sse_keepalive_interval,
+        )
+    )
+
+    return StreamingResponse(
+        _sse_for_stream(stream, settings.sse_keepalive_interval),
+        media_type="text/event-stream",
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
+class ResumeDecision(BaseModel):
+    """One decision per pending tool call from the matching INTERRUPT.
+
+    Decision shape mirrors langchain's HITL middleware:
+      - {"type": "approve"}
+      - {"type": "reject", "message": "..."}
+      - {"type": "edit", "edited_action": {"name": "...", "args": {...}}}
+    """
+
+    type: str
+    message: str | None = None
+    edited_action: dict[str, Any] | None = None
+
+
+class ResumeRequest(BaseModel):
+    decisions: list[ResumeDecision]
+
+
+@router.post("/{conversation_id}/resume")
+async def resume_conversation(
+    conversation_id: str,
+    body: ResumeRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Resume a conversation that's paused on a HITL interrupt.
+
+    The caller passes one decision per tool call from the matching
+    INTERRUPT event. Backend assembles the decisions in the shape
+    langchain's HITLMiddleware expects (`{"decisions": [...]}`) and
+    threads it back into the graph via `Command(resume=...)`.
+    """
+    from analytics_agent.config import settings
+
+    conv = await ConversationRepo(session).get(conversation_id)
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    decisions: list[dict[str, Any]] = []
+    for d in body.decisions:
+        if d.type == "approve":
+            decisions.append({"type": "approve"})
+        elif d.type == "reject":
+            decisions.append(
+                {"type": "reject", "message": d.message or "User rejected the action."}
+            )
+        elif d.type == "edit":
+            if not d.edited_action:
+                raise HTTPException(
+                    status_code=422, detail="edit decisions require edited_action"
+                )
+            decisions.append({"type": "edit", "edited_action": d.edited_action})
+        else:
+            raise HTTPException(status_code=422, detail=f"Unknown decision type: {d.type}")
+
+    resume_payload = {"decisions": decisions}
+
+    stream = ConvStream(task=None)
+    _active_streams[conversation_id] = stream
+    stream.task = asyncio.create_task(
+        _run_and_broadcast(
+            conversation_id,
+            stream,
+            "",  # user_text unused on resume
+            conv.engine_name,
+            settings.sse_keepalive_interval,
+            resume_payload=resume_payload,
         )
     )
 

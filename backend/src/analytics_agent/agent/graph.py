@@ -7,6 +7,7 @@ from deepagents import SubAgent, create_deep_agent
 from langchain_core.messages import SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
+from analytics_agent.agent.hitl import build_interrupt_config, get_checkpointer
 from analytics_agent.agent.llm import get_llm
 from analytics_agent.agent.state import AgentState
 from analytics_agent.config import settings
@@ -41,6 +42,7 @@ def build_graph(
     enabled_mutations: set[str] | None = None,
     context_tools: list | None = None,  # pre-built from DB context platforms at request time
     engine_tools: list | None = None,  # pre-built for MCP data sources (bypasses QueryEngine)
+    hitl_policy_override: list[str] | None = None,  # operator-set list of tools to intercept
 ):
     """Build the agent graph backed by `deepagents.create_deep_agent`.
 
@@ -146,12 +148,27 @@ def build_graph(
         tools=datahub_tools,
     )
 
+    # Human-in-the-loop: pause the graph before mutation tools execute so
+    # the user can approve / reject / edit. Tools not in this set
+    # auto-proceed. Resume via POST /api/conversations/{id}/resume.
+    interrupt_on = build_interrupt_config(
+        enabled_mutations,
+        set(),
+        policy_override=hitl_policy_override,
+    )
+
+    # Shared checkpointer: required for interrupts to be resumable. The
+    # outer StateGraph and the inner deep_agent both need it.
+    checkpointer = get_checkpointer()
+
     deep_agent = create_deep_agent(
         model=llm,
         tools=all_tools,
         system_prompt=system_for_agent,
         subagents=[datahub_explorer],
         skills=build_skill_sources(enabled_mutations),
+        interrupt_on=interrupt_on or None,
+        checkpointer=checkpointer,
     )
 
     graph = StateGraph(AgentState)
@@ -165,4 +182,4 @@ def build_graph(
     )
     graph.add_edge("chart", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

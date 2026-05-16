@@ -30,6 +30,7 @@ import {
   BookOpen,
   Pencil,
   Info,
+  ShieldCheck,
 } from "lucide-react";
 import {
   listConnections,
@@ -74,8 +75,9 @@ import { AddConnectionFlow } from "./connections/AddConnectionFlow";
 import type { NewConnectionPayload, ConnectionPlugin } from "./connections/types";
 import { ModelSection } from "./ModelSection";
 import { AboutSection } from "./AboutSection";
+import { HitlSection } from "./HitlSection";
 
-type Section = "connections" | "model" | "prompt" | "display" | "about";
+type Section = "connections" | "model" | "prompt" | "display" | "approvals" | "about";
 
 interface Props {
   onClose: () => void;
@@ -1324,6 +1326,7 @@ const SECTION_LABELS: Record<Section, string> = {
   connections: "Connections",
   model: "Model",
   prompt: "Prompt",
+  approvals: "Approvals",
   display: "Display Settings",
   about: "About",
 };
@@ -1332,6 +1335,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   connections: "Manage your context platform (DataHub) and data source connections. Toggle tools and enable write-back.",
   model: "Choose your AI provider, model, and API key.",
   prompt: "View and customize the system prompt used by the AI assistant.",
+  approvals: "Choose which tools require human approval before the agent can run them.",
   display: "Customize the app name and logo.",
   about: "Current version, release notes, and update status.",
 };
@@ -1388,6 +1392,12 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
               onClick={() => setSection("prompt")}
             />
             <NavItem
+              label="Approvals"
+              icon={<ShieldCheck className="w-4 h-4" />}
+              active={section === "approvals"}
+              onClick={() => setSection("approvals")}
+            />
+            <NavItem
               label="Display Settings"
               icon={<Monitor className="w-4 h-4" />}
               active={section === "display"}
@@ -1412,6 +1422,7 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
           <div className={section !== "connections" ? "hidden" : ""}><ConnectionsSection /></div>
           <div className={section !== "model"       ? "hidden" : ""}><ModelSection /></div>
           <div className={section !== "prompt"      ? "hidden" : ""}><PromptSection /></div>
+          <div className={section !== "approvals"   ? "hidden" : ""}><HitlSection /></div>
           <div className={section !== "display"     ? "hidden" : ""}><DisplaySection /></div>
           {section === "about" && <AboutSection />}
         </div>

@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useState, useRef } from "react";
 import type { MessageRecord, UsagePayload, TurnUsage } from "@/types";
-import { streamMessage, reattachStream } from "@/api/stream";
+import { streamMessage, reattachStream, resumeStream } from "@/api/stream";
+import type { InterruptDecision, InterruptPayload } from "@/types";
 import { generateTitle, getConversation, createConversation } from "@/api/conversations";
 import { Download, X } from "lucide-react";
 import { useConversationsStore } from "@/store/conversations";
@@ -36,6 +37,9 @@ export function ChatView() {
     attachUsageToMessage,
     setFinalMsgTurnUsage,
     finalizeStreaming,
+    pendingInterruptId,
+    setPendingInterruptId,
+    setSessionAutoApprove,
   } = useConversationsStore();
 
   const activeConv = conversations.find((c) => c.id === activeId);
@@ -134,6 +138,26 @@ export function ChatView() {
             if (targetId) attachUsageToMessage(targetId, usage);
           } else if (event.event === "COMPLETE") {
             if (reattachTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...reattachTurnUsage });
+          } else if (event.event === "INTERRUPT") {
+            const p = event.payload as unknown as InterruptPayload;
+            setPendingInterruptId(p.interrupt_id);
+            appendMessage({
+              id: event.message_id,
+              event_type: "INTERRUPT",
+              role: "assistant",
+              payload: event.payload,
+            });
+            // Session-wide auto-approve: resolve immediately without
+            // waiting for the user to click. Card still renders so the
+            // history shows what was approved.
+            if (useConversationsStore.getState().sessionAutoApprove) {
+              const decisions: InterruptDecision[] = p.actions.map(() => ({ type: "approve" }));
+              setTimeout(() => {
+                if (useConversationsStore.getState().pendingInterruptId === p.interrupt_id) {
+                  void handleResolveInterrupt(decisions);
+                }
+              }, 0);
+            }
           } else {
             appendMessage({
               id: event.message_id,
@@ -216,6 +240,7 @@ export function ChatView() {
     });
 
     setStreaming(true);
+    setPendingInterruptId(null); // any prior pending interrupt is now stale
     resetStreamingText(); // new turn — reset so TEXT goes to a fresh message
 
     const conversationId = activeId;
@@ -260,6 +285,23 @@ export function ChatView() {
           if (targetId) attachUsageToMessage(targetId, usage);
         } else if (event.event === "COMPLETE") {
           if (sendTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...sendTurnUsage });
+        } else if (event.event === "INTERRUPT") {
+          const p = event.payload as unknown as InterruptPayload;
+          setPendingInterruptId(p.interrupt_id);
+          appendMessage({
+            id: event.message_id,
+            event_type: "INTERRUPT",
+            role: "assistant",
+            payload: event.payload,
+          });
+          if (useConversationsStore.getState().sessionAutoApprove) {
+            const decisions: InterruptDecision[] = p.actions.map(() => ({ type: "approve" }));
+            setTimeout(() => {
+              if (useConversationsStore.getState().pendingInterruptId === p.interrupt_id) {
+                void handleResolveInterrupt(decisions);
+              }
+            }, 0);
+          }
         } else {
           appendMessage({
             id: event.message_id,
@@ -287,6 +329,79 @@ export function ChatView() {
       setStreaming(false);
       if (!aborted) {
         // Fire-and-forget title generation after the turn completes
+        generateTitle(conversationId).then((r) => {
+          if (r.updated) updateConversationTitle(conversationId, r.title);
+        }).catch(() => {});
+      }
+    }
+  };
+
+  const handleResolveInterrupt = async (decisions: InterruptDecision[]) => {
+    if (!activeId || isStreaming) return;
+    const conversationId = activeId;
+    setStreaming(true);
+    setPendingInterruptId(null);
+    resetStreamingText();
+
+    // Audit trail in the UI before the network round-trip
+    appendMessage({
+      id: crypto.randomUUID(),
+      event_type: "INTERRUPT_DECISION",
+      role: "user",
+      payload: { decisions },
+    });
+
+    let aborted = false;
+    try {
+      const controller = new AbortController();
+      streamAbortRef.current = controller;
+      const stream = resumeStream(conversationId, decisions, controller.signal);
+      let result = await stream.next();
+      const turnUsage: TurnUsage = { input_tokens: 0, output_tokens: 0, total_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, calls: 0 };
+      while (!result.done) {
+        const event = result.value;
+        if (event.event === "TEXT") {
+          appendStreamingText((event.payload as { text: string }).text);
+        } else if (event.event === "TOOL_CALL") {
+          markCurrentAsThinking();
+          appendMessage({ id: event.message_id, event_type: event.event, role: "assistant", payload: event.payload });
+        } else if (event.event === "USAGE") {
+          const usage = event.payload as unknown as UsagePayload;
+          addUsage(usage);
+          turnUsage.input_tokens += usage.input_tokens || 0;
+          turnUsage.output_tokens += usage.output_tokens || 0;
+          turnUsage.total_tokens += usage.total_tokens || 0;
+          turnUsage.cache_read_tokens += usage.cache_read_tokens || 0;
+          turnUsage.cache_creation_tokens += usage.cache_creation_tokens || 0;
+          turnUsage.calls += 1;
+          const state = useConversationsStore.getState();
+          const targetId =
+            state.streamingTextId ??
+            [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
+            [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
+          if (targetId) attachUsageToMessage(targetId, usage);
+        } else if (event.event === "COMPLETE") {
+          if (turnUsage.calls > 0) setFinalMsgTurnUsage({ ...turnUsage });
+        } else if (event.event === "INTERRUPT") {
+          const p = event.payload as unknown as InterruptPayload;
+          setPendingInterruptId(p.interrupt_id);
+          appendMessage({ id: event.message_id, event_type: "INTERRUPT", role: "assistant", payload: event.payload });
+        } else {
+          appendMessage({ id: event.message_id, event_type: event.event, role: "assistant", payload: event.payload });
+        }
+        result = await stream.next();
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        aborted = true;
+        return;
+      }
+      appendMessage({ id: crypto.randomUUID(), event_type: "ERROR", role: "assistant", payload: { error: String(err) } });
+    } finally {
+      streamAbortRef.current = null;
+      finalizeStreaming();
+      setStreaming(false);
+      if (!aborted) {
         generateTitle(conversationId).then((r) => {
           if (r.updated) updateConversationTitle(conversationId, r.title);
         }).catch(() => {});
@@ -360,6 +475,9 @@ export function ChatView() {
         messages={messages}
         isStreaming={isStreaming}
         showReasoning={showReasoning}
+        pendingInterruptId={pendingInterruptId}
+        onResolveInterrupt={handleResolveInterrupt}
+        onTrustSession={() => setSessionAutoApprove(true)}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;
           chartErrorRetried.current = true;

@@ -49,6 +49,16 @@ interface ConversationsState {
   attachUsageToMessage: (messageId: string, usage: UsagePayload) => void;
   setFinalMsgTurnUsage: (tu: TurnUsage) => void;
   finalizeStreaming: () => void;
+
+  // HITL: id of the most recent INTERRUPT awaiting user decision, or null.
+  pendingInterruptId: string | null;
+  setPendingInterruptId: (id: string | null) => void;
+
+  // Per-conversation "approve all in session" — when true, future
+  // INTERRUPTs in the active conversation auto-resolve as approve.
+  // Reset to false when the active conversation changes.
+  sessionAutoApprove: boolean;
+  setSessionAutoApprove: (v: boolean) => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set) => ({
@@ -59,6 +69,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
   isStreaming: false,
   streamingTextId: null,
   usageTotals: { ...EMPTY_USAGE },
+  pendingInterruptId: null,
+  sessionAutoApprove: false,
 
   setConversations: (list) => set({ conversations: list }),
   addConversation: (conv) =>
@@ -69,7 +81,14 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
       activeId: s.activeId === id ? null : s.activeId,
     })),
   setActiveId: (id) =>
-    set({ activeId: id, messages: [], streamingTextId: null, usageTotals: { ...EMPTY_USAGE } }),
+    set({
+      activeId: id,
+      messages: [],
+      streamingTextId: null,
+      usageTotals: { ...EMPTY_USAGE },
+      pendingInterruptId: null,
+      sessionAutoApprove: false,
+    }),
   setMessages: (msgs) => set({ messages: msgs }),
   appendMessage: (msg) =>
     set((s) => ({ messages: [...s.messages, msg] })),
@@ -146,6 +165,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
       messages: s.messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m)),
       streamingTextId: null,
     })),
+  setPendingInterruptId: (id) => set({ pendingInterruptId: id }),
+  setSessionAutoApprove: (v) => set({ sessionAutoApprove: v }),
   addUsage: (usage) =>
     set((s) => ({
       usageTotals: {

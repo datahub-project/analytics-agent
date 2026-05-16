@@ -35,3 +35,5 @@ nohup.out
 # Playwright MCP test artifacts
 .playwright-mcp/
 *.png
+.DS_Store
+data/checkpoints*

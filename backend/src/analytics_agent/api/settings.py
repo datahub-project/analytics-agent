@@ -49,6 +49,7 @@ _KEY_DISPLAY = "display"
 _KEY_DISABLED_TOOLS = "disabled_tools"
 _KEY_DISABLED_TOOLS_PER_CP = "disabled_tools_per_cp"  # {conn_name: [tool_names]}
 _KEY_ENABLED_MUTATIONS = "enabled_mutation_tools"
+_KEY_HITL_INTERRUPT_TOOLS = "hitl_interrupt_tools"  # list[str] override; empty = defaults
 _KEY_DISABLED_CONNECTIONS = "disabled_connections"
 _KEY_DYNAMIC_CONNECTIONS = "dynamic_connections"
 
@@ -2255,3 +2256,67 @@ async def update_display(
         _KEY_DISPLAY, orjson.dumps({"app_name": body.app_name, "logo_url": body.logo_url}).decode()
     )
     return {"success": True, "message": "Display settings saved."}
+
+
+# --- HITL policy endpoints ---
+
+
+class HitlPolicy(BaseModel):
+    interrupt_tools: list[str]   # operator override (empty = use defaults)
+    available_tools: list[str]   # full universe of gateable tools
+    effective_tools: list[str]   # what's actually being gated right now
+
+
+class UpdateHitlPolicyRequest(BaseModel):
+    interrupt_tools: list[str]
+
+
+async def _get_hitl_interrupt_tools(repo: SettingsRepo) -> list[str]:
+    raw = await repo.get(_KEY_HITL_INTERRUPT_TOOLS)
+    if not raw:
+        return []
+    try:
+        data = orjson.loads(raw)
+        return [str(t) for t in data] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+@router.get("/hitl", response_model=HitlPolicy)
+async def get_hitl_policy(session: AsyncSession = Depends(get_session)) -> HitlPolicy:
+    from analytics_agent.agent.hitl import all_known_mutation_tools, build_interrupt_config
+    from analytics_agent.config import settings as _app_settings
+
+    repo = SettingsRepo(session)
+    override = await _get_hitl_interrupt_tools(repo)
+    enabled_mutations = await _get_enabled_mutations(repo)
+
+    extra: set[str] = set()
+    if _app_settings.hitl_interrupt_execute and _app_settings.enable_python_sandbox:
+        extra.add("execute")
+
+    effective = sorted(
+        build_interrupt_config(
+            enabled_mutations,
+            extra_tools=extra,
+            policy_override=override or None,
+        ).keys()
+    )
+    return HitlPolicy(
+        interrupt_tools=override,
+        available_tools=all_known_mutation_tools(),
+        effective_tools=effective,
+    )
+
+
+@router.put("/hitl")
+async def update_hitl_policy(
+    body: UpdateHitlPolicyRequest, session: AsyncSession = Depends(get_session)
+) -> dict[str, Any]:
+    from analytics_agent.agent.hitl import all_known_mutation_tools
+
+    allowed = set(all_known_mutation_tools())
+    safe = [t for t in body.interrupt_tools if t in allowed]
+    repo = SettingsRepo(session)
+    await repo.set(_KEY_HITL_INTERRUPT_TOOLS, orjson.dumps(safe).decode())
+    return {"success": True, "message": "HITL policy saved.", "interrupt_tools": safe}

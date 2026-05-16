@@ -7,7 +7,9 @@ export type SSEEventType =
   | "CHART"
   | "USAGE"
   | "COMPLETE"
-  | "ERROR";
+  | "ERROR"
+  | "INTERRUPT"
+  | "INTERRUPT_DECISION";
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -42,6 +44,30 @@ export interface ChartPayload {
   vega_lite_spec: Record<string, unknown>;
   reasoning: string;
   chart_type: string;
+}
+
+export type HitlDecisionType = "approve" | "reject" | "edit";
+
+export interface InterruptAction {
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+  description: string;
+  allowed_decisions: HitlDecisionType[];
+}
+
+export interface InterruptPayload {
+  interrupt_id: string;
+  actions: InterruptAction[];
+}
+
+export interface InterruptDecision {
+  type: HitlDecisionType;
+  message?: string;
+  edited_action?: { name: string; args: Record<string, unknown> };
+}
+
+export interface InterruptDecisionPayload {
+  decisions: InterruptDecision[];
 }
 
 export interface UsagePayload {

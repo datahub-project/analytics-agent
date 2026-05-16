@@ -64,6 +64,7 @@ dependencies = [
     # Telemetry
     "mixpanel>=4.10.0",
     "deepagents>=0.6.1",
+    "langgraph-checkpoint-sqlite>=3.0.3",
 ]
 
 [project.urls]

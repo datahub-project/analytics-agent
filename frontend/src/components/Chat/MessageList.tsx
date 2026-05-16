@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef } from "react";
-import type { UIMessage } from "@/types";
+import type { InterruptDecision, UIMessage } from "@/types";
 import { TextMessage } from "./messages/TextMessage";
 import { AgentWorkBlock } from "./messages/AgentWorkBlock";
 import { ChartMessage } from "./messages/ChartMessage";
@@ -10,9 +10,20 @@ interface Props {
   isStreaming?: boolean;
   showReasoning?: boolean;
   onChartError?: (error: string) => void;
+  pendingInterruptId?: string | null;
+  onResolveInterrupt?: (decisions: InterruptDecision[]) => void | Promise<void>;
+  onTrustSession?: () => void;
 }
 
-export function MessageList({ messages, isStreaming = false, showReasoning = true, onChartError }: Props) {
+export function MessageList({
+  messages,
+  isStreaming = false,
+  showReasoning = true,
+  onChartError,
+  pendingInterruptId,
+  onResolveInterrupt,
+  onTrustSession,
+}: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -52,6 +63,9 @@ export function MessageList({ messages, isStreaming = false, showReasoning = tru
               isStreaming={group.isActivelyStreaming}
               showReasoning={showReasoning}
               onChartError={onChartError}
+              pendingInterruptId={pendingInterruptId ?? undefined}
+              onResolveInterrupt={onResolveInterrupt}
+              onTrustSession={onTrustSession}
             />
           )}
 

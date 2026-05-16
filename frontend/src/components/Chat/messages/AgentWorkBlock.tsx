@@ -3,18 +3,25 @@ import { Settings2, ChevronDown, ChevronRight } from "lucide-react";
 import type { UIMessage, TurnUsage } from "@/types";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage, ToolResultMessage } from "./ToolCallMessage";
+import { InterruptCard } from "./InterruptCard";
+import type { InterruptDecision, InterruptPayload } from "@/types";
 import { SqlMessage } from "./SqlMessage";
 import { ChartMessage } from "./ChartMessage";
 import { ErrorMessage } from "./ErrorMessage";
 import { TurnTotalBadge } from "./TokenBadge";
 
 interface Props {
-  workMessages: UIMessage[];
+  workMessages: UIMessages | UIMessage[];
   turnUsage?: TurnUsage;
   isStreaming?: boolean;
   showReasoning?: boolean;
   onChartError?: (error: string) => void;
+  pendingInterruptId?: string;
+  onResolveInterrupt?: (decisions: InterruptDecision[]) => void | Promise<void>;
+  onTrustSession?: () => void;
 }
+
+type UIMessages = UIMessage[];
 
 export function AgentWorkBlock({
   workMessages,
@@ -22,6 +29,9 @@ export function AgentWorkBlock({
   isStreaming = false,
   showReasoning = true,
   onChartError,
+  pendingInterruptId,
+  onResolveInterrupt,
+  onTrustSession,
 }: Props) {
   const [expanded, setExpanded] = useState(isStreaming);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -179,6 +189,25 @@ export function AgentWorkBlock({
                 )}
                 {msg.event_type === "ERROR" && (
                   <ErrorMessage payload={msg.payload as never} />
+                )}
+                {msg.event_type === "INTERRUPT" && (
+                  <InterruptCard
+                    payload={msg.payload as unknown as InterruptPayload}
+                    resolved={
+                      pendingInterruptId !==
+                      (msg.payload as unknown as InterruptPayload).interrupt_id
+                    }
+                    onDecide={onResolveInterrupt}
+                    onTrustSession={onTrustSession}
+                  />
+                )}
+                {msg.event_type === "INTERRUPT_DECISION" && (
+                  <div className="text-xs text-muted-foreground italic">
+                    ↳ user submitted{" "}
+                    {((msg.payload as { decisions?: { type: string }[] })?.decisions || [])
+                      .map((d) => d.type)
+                      .join(", ")}
+                  </div>
                 )}
               </div>
             );

@@ -72,3 +72,37 @@ export async function* streamMessage(
     }
   }
 }
+
+export async function* resumeStream(
+  conversationId: string,
+  decisions: Array<{ type: string; message?: string; edited_action?: { name: string; args: Record<string, unknown> } }>,
+  signal?: AbortSignal
+): AsyncIterator<SSEEvent> {
+  const res = await fetch(`/api/conversations/${conversationId}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ decisions }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`resume HTTP ${res.status}`);
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() ?? "";
+    for (const chunk of lines) {
+      const dataLine = chunk.split("\n").find((l) => l.startsWith("data: "));
+      if (!dataLine) continue;
+      try {
+        const event: SSEEvent = JSON.parse(dataLine.slice(6));
+        yield event;
+      } catch {
+        // malformed chunk, skip
+      }
+    }
+  }
+}

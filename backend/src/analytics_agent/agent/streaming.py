@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import orjson
+from langchain_core.messages import BaseMessage
 
 _CHART_BLOCK_RE = re.compile(
     r"```(?:json)?\s*(\{.*?\"chart_schema\"\s*:.*?\})\s*```",
@@ -40,6 +41,88 @@ def to_sse(data: dict) -> str:
     return f"data: {orjson.dumps(data).decode()}\n\n"
 
 
+def _normalize_interrupts(raw: Any) -> list[dict]:
+    """Convert langgraph Interrupt objects into JSON-safe dicts for the UI.
+
+    langgraph emits `__interrupt__` as a tuple of `Interrupt` objects whose
+    `.value` is the `HITLRequest` from langchain — a dict with
+    `action_requests` and `review_configs` lists. We pass it through with
+    a stable `interrupt_id` and shape suitable for the frontend card.
+    """
+    out: list[dict] = []
+    items = raw if isinstance(raw, (list, tuple)) else [raw]
+    for it in items:
+        value = getattr(it, "value", it)
+        # Some langgraph versions wrap in {"value": ...}; flatten.
+        if isinstance(value, dict) and set(value.keys()) == {"value"}:
+            value = value["value"]
+        action_requests = (
+            value.get("action_requests", []) if isinstance(value, dict) else []
+        )
+        review_configs = (
+            value.get("review_configs", []) if isinstance(value, dict) else []
+        )
+        # Pair each action with its review config (allowed_decisions, etc.)
+        actions: list[dict] = []
+        for idx, action in enumerate(action_requests):
+            review = review_configs[idx] if idx < len(review_configs) else {}
+            actions.append(
+                {
+                    "tool_name": action.get("action", "") if isinstance(action, dict) else "",
+                    "tool_input": action.get("args", {}) if isinstance(action, dict) else {},
+                    "description": action.get("description", "")
+                    if isinstance(action, dict)
+                    else "",
+                    "allowed_decisions": (
+                        review.get("allowed_decisions", ["approve", "reject"])
+                        if isinstance(review, dict)
+                        else ["approve", "reject"]
+                    ),
+                }
+            )
+        out.append(
+            {
+                "interrupt_id": getattr(it, "id", None) or getattr(it, "ns", [""])[-1] or "",
+                "actions": actions,
+            }
+        )
+    return out
+
+
+def _stringify_tool_output(output: Any) -> str:
+    """Coerce a tool's `on_tool_end` output to a string for SSE/storage.
+
+    Handles four shapes that show up under deepagents:
+      - str: pass through
+      - langchain `BaseMessage` (ToolMessage, AIMessage): extract `.content`
+      - langgraph `Command` (returned by the `task` sub-agent dispatch tool):
+        pull the last message off `Command.update["messages"]`
+      - anything else: orjson.dumps with a string-fallback default for any
+        nested unserializable object (e.g. an embedded BaseMessage).
+    """
+    if isinstance(output, str):
+        return output
+    if isinstance(output, BaseMessage):
+        content = output.content
+        return content if isinstance(content, str) else orjson.dumps(content, default=str).decode()
+    update = getattr(output, "update", None)
+    if isinstance(update, dict):
+        messages = update.get("messages") or []
+        if messages:
+            last = messages[-1]
+            if isinstance(last, BaseMessage):
+                content = last.content
+                return (
+                    content
+                    if isinstance(content, str)
+                    else orjson.dumps(content, default=str).decode()
+                )
+    try:
+        return orjson.dumps(output, default=str).decode()
+    except (TypeError, ValueError):
+        return str(output)
+
+
 async def stream_graph_events(
     graph,
     user_text: str,
@@ -47,21 +130,31 @@ async def stream_graph_events(
     engine_name: str,
     keepalive_interval: int = 15,
     history: list | None = None,
+    resume_payload: Any | None = None,
 ) -> AsyncIterator[dict]:
     """
     Yield event dicts from the LangGraph graph.
     Callers convert to SSE strings via to_sse().
     history: reconstructed LangChain messages for prior turns (from history.py)
+    resume_payload: when set, the graph resumes from a prior interrupt with
+        this `Command(resume=...)` payload instead of starting a new turn.
     """
-    messages = history if history else [{"role": "user", "content": user_text}]
-    inputs: dict[str, Any] = {
-        "messages": messages,
-        "last_sql_result": None,
-        "pending_chart": None,
-        "conversation_id": conversation_id,
-        "engine_name": engine_name,
-        "user_question": user_text,
-    }
+    if resume_payload is not None:
+        # Resuming: pass the Command to astream_events; messages/inputs are
+        # ignored because state is recovered from the checkpointer.
+        from langgraph.types import Command
+
+        inputs: Any = Command(resume=resume_payload)
+    else:
+        messages = history if history else [{"role": "user", "content": user_text}]
+        inputs = {
+            "messages": messages,
+            "last_sql_result": None,
+            "pending_chart": None,
+            "conversation_id": conversation_id,
+            "engine_name": engine_name,
+            "user_question": user_text,
+        }
 
     pending_sql: dict[str, str] = {}
     final_text_parts: list[str] = []
@@ -69,11 +162,14 @@ async def stream_graph_events(
     chart_emitted = False  # guard against double-emitting CHART
 
     try:
+        from analytics_agent.agent.hitl import thread_config
         from analytics_agent.config import settings as _settings
 
-        async for event in graph.astream_events(
-            inputs, version="v2", config={"recursion_limit": _settings.agent_recursion_limit}
-        ):
+        cfg = {
+            "recursion_limit": _settings.agent_recursion_limit,
+            **thread_config(conversation_id),
+        }
+        async for event in graph.astream_events(inputs, version="v2", config=cfg):
             event_type: str = event.get("event", "")
             data: dict[str, Any] = event.get("data", {})
             name: str = event.get("name", "")
@@ -142,8 +238,6 @@ async def stream_graph_events(
             # ── SQL / TOOL_RESULT / CHART ──
             elif event_type == "on_tool_end":
                 output = data.get("output", "")
-                if hasattr(output, "content"):
-                    output = output.content
                 # MCP tools return a list of content blocks: [{"type":"text","text":"...","id":"..."}]
                 # Unwrap to the inner text so the rest of the pipeline sees a plain JSON string.
                 if (
@@ -153,7 +247,7 @@ async def stream_graph_events(
                     and "text" in output[0]
                 ):
                     output = output[0]["text"]
-                output_str = output if isinstance(output, str) else orjson.dumps(output).decode()
+                output_str = _stringify_tool_output(output)
 
                 if name == "execute_sql":
                     sql_text = pending_sql.pop(run_id, "")
@@ -267,6 +361,16 @@ async def stream_graph_events(
                 output = data.get("output", {})
                 if isinstance(output, dict):
                     final_state = output
+                # Detect HITL interrupts. langgraph surfaces them in the
+                # final chain output as `__interrupt__: tuple[Interrupt]`.
+                if isinstance(output, dict) and "__interrupt__" in output:
+                    for interrupt_evt in _normalize_interrupts(output["__interrupt__"]):
+                        yield {
+                            "event": "INTERRUPT",
+                            "conversation_id": conversation_id,
+                            "message_id": str(uuid.uuid4()),
+                            "payload": interrupt_evt,
+                        }
 
     except Exception as exc:
         yield {

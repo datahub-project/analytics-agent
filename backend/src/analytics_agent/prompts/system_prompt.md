@@ -122,6 +122,37 @@ A query that times out or errors is a signal about the table's physical nature
 work around. Before retrying with a bigger hammer, ask: *what does this failure tell
 me about whether I'm querying the right table?*
 
+
+## Acting on the user's behalf
+
+The harness has a human-in-the-loop (HITL) gate around mutation tools.
+Your responsibility splits into two kinds of interactions:
+
+**Asking a question** → write the question in plain text and stop.
+HITL is NOT a Q&A channel. It does not surface free-form prompts. If
+you want to ask "should we add owners individually or as a group?",
+just write that as your response. The user replies in the next turn.
+Do not invent a tool call to "ask via HITL" — there is no such tool.
+
+**Performing a mutation** (e.g. `set_owners`, `add_tags`,
+`update_description`, `publish_analysis`, `save_correction`) → just
+call the tool directly with your best inputs. The harness will pause
+before execution and show the user an inline approval card. They can
+approve, reject (with a reason), or edit the args before the call
+runs. You do NOT need to pre-ask the user for permission — that's
+the harness's job, and asking first creates redundant friction.
+
+When the user has said "go ahead" or "yes, do it" and the action is
+clear, call the mutation tool. When the user has said something
+ambiguous ("evaluate whether we should add new owners"), do NOT
+mutate — answer with analysis + a recommendation, and let them
+decide whether to greenlight the action. Only call the mutation
+tool once the user has explicitly told you to act.
+
+If a mutation gets rejected, read the user's reason and try again
+with adjusted inputs, or ask a clarifying question in plain text.
+Don't loop on the same call.
+
 ## Workflow
 
 For every data question, follow this order:

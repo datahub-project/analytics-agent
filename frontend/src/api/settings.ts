@@ -457,3 +457,24 @@ export async function getReleases(): Promise<Release[]> {
     return [];
   }
 }
+
+export interface HitlPolicy {
+  interrupt_tools: string[];   // operator override; empty = use defaults
+  available_tools: string[];   // full universe
+  effective_tools: string[];   // what's actually being gated right now
+}
+
+export async function getHitlPolicy(): Promise<HitlPolicy> {
+  const res = await fetch("/api/settings/hitl");
+  if (!res.ok) throw new Error("Failed to fetch HITL policy");
+  return res.json();
+}
+
+export async function saveHitlPolicy(interrupt_tools: string[]): Promise<void> {
+  const res = await fetch("/api/settings/hitl", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ interrupt_tools }),
+  });
+  if (!res.ok) throw new Error("Save failed");
+}

@@ -258,6 +258,17 @@ class Settings(BaseSettings):
     # within the 200K Claude context window. Override via MAX_HISTORY_TOKENS env var.
     max_history_tokens: int = 800_000
 
+    # Human-in-the-loop. The deepagents `interrupt_on` middleware pauses
+    # the graph before mutation tools so the user can approve / reject /
+    # edit. Tool list is built in agent/hitl.py.
+    hitl_interrupt_execute: bool = False
+    # Checkpointer backend. "sqlite" persists across restarts (default —
+    # keeps in-flight HITL interrupts resumable). "memory" keeps state
+    # only in RAM, fine for tests / smoke runs.
+    hitl_checkpointer: Literal["memory", "sqlite"] = "sqlite"
+    hitl_checkpoint_path: str = "data/checkpoints.sqlite"
+
+
     # Testing — when set, MCPContextPlatform.get_tools() returns a static stub list
     # instead of connecting to the real server.  Set to "1" in e2e test environments.
     mock_mcp_tools: bool = False
