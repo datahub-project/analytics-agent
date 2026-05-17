@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ShieldCheck, ShieldX, Pencil, AlertTriangle, Infinity as InfinityIcon } from "lucide-react";
 import type { InterruptPayload, InterruptDecision } from "@/types";
+import { AskUserCard } from "./AskUserCard";
 
 interface Props {
   payload: InterruptPayload;
@@ -10,6 +11,20 @@ interface Props {
 }
 
 export function InterruptCard({ payload, resolved, onDecide, onTrustSession }: Props) {
+  // ask_user is a special-case interrupt that asks the user a question
+  // rather than gating a real mutation. Render a friendlier card.
+  if (payload.actions?.length === 1 && payload.actions[0].tool_name === "ask_user") {
+    const action = payload.actions[0];
+    const args = action.tool_input as { question?: string; options?: string[] };
+    return (
+      <AskUserCard
+        question={args.question ?? ""}
+        options={args.options ?? []}
+        resolved={resolved}
+        onAnswer={(d) => onDecide?.([d])}
+      />
+    );
+  }
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
   const [edited, setEdited] = useState<Record<string, unknown>>({});

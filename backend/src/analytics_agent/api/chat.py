@@ -314,6 +314,7 @@ async def _run_and_broadcast(
                     engine_tools=engine_tools,
                     hitl_policy_override=hitl_policy_override,
                     subagents_config=subagents_cfg,
+                    conversation_id=conversation_id,
                 )
             except Exception as exc:
                 for _evt in cast(

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import orjson
 from deepagents import create_deep_agent
@@ -50,6 +50,7 @@ def build_graph(
     engine_tools: list | None = None,  # pre-built for MCP data sources (bypasses QueryEngine)
     hitl_policy_override: list[str] | None = None,  # operator-set list of tools to intercept
     subagents_config: SubagentsConfig | None = None,  # operator-set sub-agent overlay
+    conversation_id: str | None = None,  # per-conversation Python sandbox cwd
 ):
     """Build the agent graph backed by `deepagents.create_deep_agent`.
 
@@ -99,7 +100,11 @@ def build_graph(
         engine_tools = [t for t in engine.get_tools() if t.name not in disabled]
 
     chart_tools = [] if "create_chart" in disabled else [create_chart]
-    all_tools = datahub_tools + skill_tools + engine_tools + chart_tools
+
+    from analytics_agent.agent.ask_user import ask_user
+
+    ask_user_tools = [] if "ask_user" in disabled else [ask_user]
+    all_tools = datahub_tools + skill_tools + engine_tools + chart_tools + ask_user_tools
 
     if system_prompt_override:
         system_prompt = system_prompt_override.format(engine_name=engine_name)
@@ -152,12 +157,24 @@ def build_graph(
     )
     sub_agents = build_subagents(tool_pool, subagents_config or SubagentsConfig())
 
+    # Per-conversation Python + datahub-CLI sandbox. Off unless explicitly
+    # enabled. When off, deepagents falls back to its default StateBackend
+    # which provides the virtual filesystem but stubs `execute`.
+    backend = None
+    if settings.enable_python_sandbox and conversation_id:
+        from analytics_agent.agent.sandbox import build_sandbox_backend
+
+        backend = build_sandbox_backend(conversation_id)
+
     # Human-in-the-loop: pause the graph before mutation tools execute so
     # the user can approve / reject / edit. Tools not in this set
     # auto-proceed. Resume via POST /api/conversations/{id}/resume.
+    extra_interrupt_tools: set[str] = set()
+    if settings.hitl_interrupt_execute and settings.enable_python_sandbox:
+        extra_interrupt_tools.add("execute")
     interrupt_on = build_interrupt_config(
         enabled_mutations,
-        set(),
+        extra_interrupt_tools,
         policy_override=hitl_policy_override,
     )
 
@@ -165,7 +182,7 @@ def build_graph(
     # outer StateGraph and the inner deep_agent both need it.
     checkpointer = get_checkpointer()
 
-    deep_agent = create_deep_agent(
+    deep_agent_kwargs: dict[str, Any] = dict(
         model=llm,
         tools=all_tools,
         system_prompt=system_for_agent,
@@ -174,6 +191,9 @@ def build_graph(
         interrupt_on=interrupt_on or None,
         checkpointer=checkpointer,
     )
+    if backend is not None:
+        deep_agent_kwargs["backend"] = backend
+    deep_agent = create_deep_agent(**deep_agent_kwargs)
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", deep_agent)

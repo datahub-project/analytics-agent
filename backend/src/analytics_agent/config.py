@@ -252,15 +252,30 @@ class Settings(BaseSettings):
     # App
     log_level: str = "INFO"
     sse_keepalive_interval: int = 15
-    agent_recursion_limit: int = 50
+    agent_recursion_limit: int = 100
     # Token budget for reconstructed chat history sent to the LLM.
     # Leaves ~80K headroom for system prompt, tool definitions, and response
     # within the 200K Claude context window. Override via MAX_HISTORY_TOKENS env var.
     max_history_tokens: int = 800_000
 
+    # Python + datahub CLI sandbox (deepagents LocalShellBackend).
+    # OFF by default — when enabled, the agent gains an `execute` shell tool
+    # that runs commands on the host with the server process's permissions.
+    # Appropriate for trusted local/dev deployments; do NOT enable in
+    # multi-tenant or internet-exposed environments. See agent/sandbox.py
+    # for the env restrictions applied.
+    enable_python_sandbox: bool = False
+    # Per-conversation working dir parent. Each conversation gets a dedicated
+    # subdir at {sandbox_root_dir}/{conversation_id}/.
+    sandbox_root_dir: str = "data/sandboxes"
+    sandbox_command_timeout: int = 60
+    sandbox_max_output_bytes: int = 64_000
+
     # Human-in-the-loop. The deepagents `interrupt_on` middleware pauses
     # the graph before mutation tools so the user can approve / reject /
     # edit. Tool list is built in agent/hitl.py.
+    # When True, sandbox `execute` calls also interrupt (only meaningful if
+    # enable_python_sandbox=True).
     hitl_interrupt_execute: bool = False
     # Checkpointer backend. "sqlite" persists across restarts (default —
     # keeps in-flight HITL interrupts resumable). "memory" keeps state

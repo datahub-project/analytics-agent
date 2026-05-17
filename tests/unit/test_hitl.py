@@ -51,19 +51,36 @@ def test_build_interrupt_config_extra_tools_added():
 
 
 def test_build_interrupt_config_policy_override_replaces_defaults():
-    """When operator sets a policy, ONLY listed tools interrupt — defaults
-    are ignored entirely. Empty list / None mean 'use defaults'."""
-    from analytics_agent.agent.hitl import build_interrupt_config
+    """When operator sets a policy, ONLY listed tools interrupt (modulo
+    ALWAYS_INTERCEPTED). Empty list / None mean 'use defaults'."""
+    from analytics_agent.agent.hitl import ALWAYS_INTERCEPTED, build_interrupt_config
 
     cfg = build_interrupt_config(
         {"publish_analysis"},
         extra_tools={"execute"},
         policy_override=["execute_sql", "publish_analysis"],
     )
-    assert set(cfg.keys()) == {"execute_sql", "publish_analysis"}
+    assert set(cfg.keys()) == {"execute_sql", "publish_analysis"} | set(ALWAYS_INTERCEPTED)
     # Empty list falls back to defaults — DataHub mutations still present.
     cfg_empty = build_interrupt_config(None, policy_override=[])
     assert "add_tags" in cfg_empty
+
+
+def test_always_intercepted_in_defaults():
+    """ask_user is always gated regardless of operator policy."""
+    from analytics_agent.agent.hitl import build_interrupt_config
+
+    cfg = build_interrupt_config(None)
+    assert "ask_user" in cfg
+
+
+def test_always_intercepted_survives_policy_override():
+    """Even a minimal operator override still gates ask_user."""
+    from analytics_agent.agent.hitl import build_interrupt_config
+
+    cfg = build_interrupt_config(None, policy_override=["execute_sql"])
+    assert "ask_user" in cfg
+    assert "execute_sql" in cfg
 
 
 def test_all_known_mutation_tools_includes_expected_set():

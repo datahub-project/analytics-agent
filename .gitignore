@@ -37,3 +37,4 @@ nohup.out
 *.png
 .DS_Store
 data/checkpoints*
+data/sandboxes/

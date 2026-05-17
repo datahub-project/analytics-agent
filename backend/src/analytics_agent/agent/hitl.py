@@ -23,6 +23,11 @@ from langchain.agents.middleware.human_in_the_loop import InterruptOnConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
+# Always intercepted, regardless of operator policy. ask_user is a stub
+# tool whose entire purpose is to surface a question to the user via HITL —
+# it cannot function without the interrupt.
+ALWAYS_INTERCEPTED: frozenset[str] = frozenset({"ask_user"})
+
 # DataHub MCP / native write tools. Names match what
 # datahub_agent_context.langchain_tools exposes when include_mutations=True.
 DATAHUB_MUTATION_TOOLS: frozenset[str] = frozenset(
@@ -73,12 +78,15 @@ def build_interrupt_config(
         Tools not in the dict auto-proceed.
     """
     if policy_override:
-        return {name: True for name in policy_override}
+        # Even with an operator override, ALWAYS_INTERCEPTED tools (e.g.
+        # ask_user) are still gated — without the interrupt they would
+        # return their stub default and the feature would silently break.
+        return {name: True for name in (set(policy_override) | ALWAYS_INTERCEPTED)}
 
     enabled_mutations = enabled_mutations or set()
     extra_tools = extra_tools or set()
 
-    intercepted: set[str] = set()
+    intercepted: set[str] = set(ALWAYS_INTERCEPTED)
     intercepted.update(DATAHUB_MUTATION_TOOLS)
     intercepted.update(SKILL_MUTATION_TOOLS & enabled_mutations)
     intercepted.update(extra_tools)
