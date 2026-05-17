@@ -478,6 +478,7 @@ export function ChatView() {
         pendingInterruptId={pendingInterruptId}
         onResolveInterrupt={handleResolveInterrupt}
         onTrustSession={() => setSessionAutoApprove(true)}
+        onFollowUp={(q) => handleSend(q)}
         onChartError={(error) => {
           if (chartErrorRetried.current || isStreaming) return;
           chartErrorRetried.current = true;

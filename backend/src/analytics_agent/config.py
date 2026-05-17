@@ -186,6 +186,16 @@ class Settings(BaseSettings):
     # Anthropic + Bedrock prompt caching (system prompt + tool definitions).
     # Disable if you hit a Bedrock region/model where caching isn't supported.
     enable_prompt_cache: bool = True
+    # Typed final-response schema (agent/response_format.py). When on, the
+    # agent emits its final answer through a structured-output tool call
+    # so the frontend can render summary + follow-up chips deterministically.
+    # Off by default — the structured tool reduces the model's flexibility
+    # when the answer doesn't fit the shape (e.g. "what tools do you have").
+    enable_structured_response: bool = False
+    # Add the `compact_conversation` tool so the agent (or a UI button)
+    # can manually compact context. Auto-summarization is already on via
+    # the default deepagents middleware stack regardless of this flag.
+    enable_compact_tool: bool = True
     # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
     openai_compatible_base_url: str = (
         Field(  # The alias here is to keep backwards compatibility with the old env var name

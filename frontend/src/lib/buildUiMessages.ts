@@ -116,6 +116,7 @@ export function buildUiMessages(records: MessageRecord[]): {
       case "ERROR":
       case "INTERRUPT":
       case "INTERRUPT_DECISION":
+      case "FOLLOW_UPS":
         result.push({ id: m.id, event_type: m.event_type, role: m.role, payload: m.payload, created_at: m.created_at });
         break;
 

@@ -13,6 +13,7 @@ interface Props {
   pendingInterruptId?: string | null;
   onResolveInterrupt?: (decisions: InterruptDecision[]) => void | Promise<void>;
   onTrustSession?: () => void;
+  onFollowUp?: (question: string) => void;
 }
 
 export function MessageList({
@@ -23,6 +24,7 @@ export function MessageList({
   pendingInterruptId,
   onResolveInterrupt,
   onTrustSession,
+  onFollowUp,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -87,6 +89,26 @@ export function MessageList({
                 role="assistant"
                 isStreaming={group.finalMsg.isStreaming}
               />
+            </div>
+          )}
+
+          {/* Follow-up chips — from the agent's typed response_format. Each
+              chip submits as the next user turn when clicked. */}
+          {group.followUps.length > 0 && !group.isActivelyStreaming && onFollowUp && (
+            <div className="flex flex-wrap gap-2 pl-1 -mt-1" data-print-hide>
+              {group.followUps.map((q, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => onFollowUp(q)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-border
+                             bg-muted/30 hover:bg-muted/60 text-muted-foreground
+                             hover:text-foreground transition-colors"
+                  title="Send this as your next question"
+                >
+                  {q}
+                </button>
+              ))}
             </div>
           )}
         </Fragment>

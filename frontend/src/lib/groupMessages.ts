@@ -17,19 +17,21 @@ export interface TurnGroup {
   /** Chart events extracted from workMsgs — rendered outside the collapsible work block. */
   chartMsgs: UIMessage[];
   finalMsg?: UIMessage;
+  /** Suggested next questions from the agent's typed response — rendered as chips under finalMsg. */
+  followUps: string[];
   isActivelyStreaming: boolean;
 }
 
 export function groupIntoTurns(messages: UIMessage[], globalStreaming: boolean): TurnGroup[] {
   const groups: TurnGroup[] = [];
-  let current: TurnGroup = { key: "init", workMsgs: [], chartMsgs: [], isActivelyStreaming: false };
+  let current: TurnGroup = { key: "init", workMsgs: [], chartMsgs: [], followUps: [], isActivelyStreaming: false };
 
   for (const msg of messages) {
     if (msg.role === "user") {
       if (current.userMsg || current.workMsgs.length > 0 || current.chartMsgs.length > 0 || current.finalMsg) {
         groups.push(current);
       }
-      current = { key: msg.id, userMsg: msg, workMsgs: [], chartMsgs: [], isActivelyStreaming: false };
+      current = { key: msg.id, userMsg: msg, workMsgs: [], chartMsgs: [], followUps: [], isActivelyStreaming: false };
       continue;
     }
 
@@ -39,6 +41,11 @@ export function groupIntoTurns(messages: UIMessage[], globalStreaming: boolean):
     } else if (msg.event_type === "CHART") {
       // Charts rendered outside the collapsible work block so they stay visible when collapsed.
       current.chartMsgs.push(msg);
+    } else if (msg.event_type === "FOLLOW_UPS") {
+      const qs = (msg.payload as { questions?: unknown })?.questions;
+      if (Array.isArray(qs)) {
+        current.followUps = qs.filter((q): q is string => typeof q === "string" && q.trim().length > 0);
+      }
     } else if (WORK_TYPES.has(msg.event_type) || (msg.event_type === "TEXT" && msg.isThinking)) {
       current.workMsgs.push(msg);
     }

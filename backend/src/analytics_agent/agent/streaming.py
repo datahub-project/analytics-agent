@@ -415,6 +415,28 @@ async def stream_graph_events(
         if clean_text != full_text:
             final_text_parts[:] = [clean_text]
 
+    # Structured response (when create_deep_agent was built with
+    # response_format=AnalystResponse). Lives at state.structured_response.
+    # We only surface follow-ups — the summary text is already covered by
+    # the streamed TEXT events / COMPLETE payload.
+    structured = final_state.get("structured_response") if final_state else None
+    follow_ups: list[str] = []
+    if structured is not None:
+        raw_follow_ups = (
+            structured.follow_ups
+            if hasattr(structured, "follow_ups")
+            else structured.get("follow_ups", []) if isinstance(structured, dict) else []
+        )
+        if isinstance(raw_follow_ups, list):
+            follow_ups = [str(s).strip() for s in raw_follow_ups if str(s).strip()][:3]
+    if follow_ups:
+        yield {
+            "event": "FOLLOW_UPS",
+            "conversation_id": conversation_id,
+            "message_id": str(uuid.uuid4()),
+            "payload": {"questions": follow_ups},
+        }
+
     # Post-iteration interrupt detection. HumanInTheLoopMiddleware pauses
     # the graph BEFORE the tool actually runs, so there's no `on_tool_start`
     # event and the `on_chain_end` event for the outer LangGraph may not

@@ -9,7 +9,8 @@ export type SSEEventType =
   | "COMPLETE"
   | "ERROR"
   | "INTERRUPT"
-  | "INTERRUPT_DECISION";
+  | "INTERRUPT_DECISION"
+  | "FOLLOW_UPS";
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -68,6 +69,10 @@ export interface InterruptDecision {
 
 export interface InterruptDecisionPayload {
   decisions: InterruptDecision[];
+}
+
+export interface FollowUpsPayload {
+  questions: string[];
 }
 
 export interface UsagePayload {

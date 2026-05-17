@@ -193,6 +193,38 @@ def build_graph(
     )
     if backend is not None:
         deep_agent_kwargs["backend"] = backend
+
+    # Typed final-response: agent emits its answer via a structured-output
+    # tool call so the frontend can render summary + follow-ups deterministically.
+    if settings.enable_structured_response:
+        from analytics_agent.agent.response_format import AnalystResponse
+
+        deep_agent_kwargs["response_format"] = AnalystResponse
+
+    # Manual conversation-compaction tool — pairs with the auto-summarization
+    # middleware deepagents already adds by default. Lets the agent (or a UI
+    # button via a synthetic user turn) trigger compaction on demand.
+    extra_middleware: list = []
+    if settings.enable_compact_tool:
+        try:
+            from deepagents.backends.state import StateBackend
+            from deepagents.middleware.summarization import (
+                create_summarization_tool_middleware,
+            )
+
+            # Reuse the sandbox backend when present so conversation
+            # history offloads land in the same per-conversation dir as
+            # everything else; otherwise StateBackend is fine.
+            compact_backend = backend if backend is not None else StateBackend()
+            extra_middleware.append(
+                create_summarization_tool_middleware(llm, compact_backend)
+            )
+        except Exception:
+            # Older deepagents versions don't expose this factory — skip
+            # rather than fail the graph build.
+            pass
+    if extra_middleware:
+        deep_agent_kwargs["middleware"] = extra_middleware
     deep_agent = create_deep_agent(**deep_agent_kwargs)
 
     graph = StateGraph(AgentState)
