@@ -2426,19 +2426,6 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
     )
 
     curated_mutations = set(DATAHUB_MUTATION_TOOLS) | set(SKILL_MUTATION_TOOLS) | {"execute"}
-    # Verb-prefix heuristic used when an MCP server doesn't annotate the
-    # tool with readOnlyHint / destructiveHint. Errs on the side of
-    # marking ambiguous tools as mutations so they show up in the
-    # mutation subgroup rather than silently appearing under "Read-only".
-    import re as _re
-
-    _mutation_re = _re.compile(
-        r"^(add|remove|set|update|delete|create|save|publish|write|"
-        r"upsert|insert|patch|submit|send|run|execute|approve|reject|"
-        r"trigger|enable|disable|register|apply|attach|detach|link|"
-        r"unlink|revoke|grant|assign|unassign|drop|truncate)_",
-        _re.IGNORECASE,
-    )
 
     def _classify(name: str, tool: Any | None) -> bool:
         """Decide whether a tool is a mutation.
@@ -2448,7 +2435,6 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
              - destructiveHint=True or readOnlyHint=False → mutation
              - readOnlyHint=True → not a mutation
           2. Curated mutation set (hardcoded names in hitl.py + execute).
-          3. Verb-prefix regex fallback.
         """
         meta = getattr(tool, "metadata", None) if tool is not None else None
         if isinstance(meta, dict):
@@ -2458,9 +2444,7 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
                 return False
             if meta.get("readOnlyHint") is False:
                 return True
-        if name in curated_mutations:
-            return True
-        return bool(_mutation_re.match(name))
+        return name in curated_mutations
 
     # name → (source, is_mutation). Later sources overwrite earlier ones
     # so DB-backed platforms win over env-var fallbacks.
