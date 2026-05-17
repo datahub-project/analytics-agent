@@ -144,18 +144,11 @@ def build_graph(
     # reads/writes go through the relevant sub-agent, which keeps entity
     # blobs out of the parent's context window.
     datahub_reads, datahub_writes = split_datahub_tools(datahub_tools)
-    try:
-        from analytics_agent.skills.loader import build_datahub_research_tools
-
-        research_tools = build_datahub_research_tools()
-    except Exception:
-        research_tools = []
     tool_pool = ToolPool(
         datahub_reads=datahub_reads,
         datahub_writes=datahub_writes,
         engine_tools=engine_tools,
         skill_tools=skill_tools,
-        research_tools=research_tools,
     )
     sub_agents = build_subagents(tool_pool, subagents_config or SubagentsConfig())
 

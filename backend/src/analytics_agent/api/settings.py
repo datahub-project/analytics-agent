@@ -2386,7 +2386,6 @@ async def _available_tool_names(session: AsyncSession) -> list[str]:
     from analytics_agent.engines.factory import get_registry
     from analytics_agent.skills.loader import (
         build_always_on_skill_tools,
-        build_datahub_research_tools,
         build_skill_tools,
     )
 
@@ -2399,12 +2398,6 @@ async def _available_tool_names(session: AsyncSession) -> list[str]:
             names.add(t.name)
     except Exception:
         logger.exception("listing DataHub tools failed")
-
-    try:
-        for t in build_datahub_research_tools():
-            names.add(t.name)
-    except Exception:
-        logger.exception("listing DataHub research tools failed")
 
     try:
         for t in build_always_on_skill_tools():
