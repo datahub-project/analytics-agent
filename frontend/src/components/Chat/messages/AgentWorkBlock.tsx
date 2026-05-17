@@ -33,7 +33,20 @@ export function AgentWorkBlock({
   onResolveInterrupt,
   onTrustSession,
 }: Props) {
-  const [expanded, setExpanded] = useState(isStreaming);
+  // True while the most recent INTERRUPT in this work block is still
+  // awaiting the user's decision — used to keep the block expanded so
+  // the approval card stays visible instead of getting tucked behind
+  // the "Worked for …" header.
+  const hasPendingInterrupt = useMemo(() => {
+    if (!pendingInterruptId) return false;
+    return workMessages.some(
+      (m) =>
+        m.event_type === "INTERRUPT" &&
+        (m.payload as unknown as InterruptPayload | undefined)?.interrupt_id === pendingInterruptId,
+    );
+  }, [pendingInterruptId, workMessages]);
+
+  const [expanded, setExpanded] = useState(isStreaming || hasPendingInterrupt);
   const bodyRef = useRef<HTMLDivElement>(null);
   const startRef = useRef<number>(Date.now());
   const [liveElapsed, setLiveElapsed] = useState(0);
@@ -83,15 +96,17 @@ export function AgentWorkBlock({
     return () => clearInterval(iv);
   }, [isStreaming]);
 
-  // Expand while streaming, auto-collapse 600ms after done
+  // Expand while streaming OR awaiting an approval; auto-collapse 600ms
+  // after streaming ends, but only once any pending interrupt is
+  // resolved. The user can still toggle manually via the header.
   useEffect(() => {
-    if (isStreaming) {
+    if (isStreaming || hasPendingInterrupt) {
       setExpanded(true);
-    } else {
-      const t = setTimeout(() => setExpanded(false), 600);
-      return () => clearTimeout(t);
+      return;
     }
-  }, [isStreaming]);
+    const t = setTimeout(() => setExpanded(false), 600);
+    return () => clearTimeout(t);
+  }, [isStreaming, hasPendingInterrupt]);
 
   // Auto-scroll to bottom while streaming
   useEffect(() => {
