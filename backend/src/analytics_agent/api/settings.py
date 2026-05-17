@@ -2303,9 +2303,19 @@ async def get_hitl_policy(session: AsyncSession = Depends(get_session)) -> HitlP
             policy_override=override or None,
         ).keys()
     )
+
+    # Union of curated mutation defaults + every tool actually surfaced
+    # at runtime (DataHub + skills + engine + MCP). Lets the operator
+    # gate MCP / engine-specific tools that aren't in the curated set.
+    available = set(all_known_mutation_tools())
+    try:
+        available.update(await _available_tool_names(session))
+    except Exception:
+        logger.exception("dynamic tool enumeration for HITL failed; using curated set only")
+
     return HitlPolicy(
         interrupt_tools=override,
-        available_tools=all_known_mutation_tools(),
+        available_tools=sorted(available),
         effective_tools=effective,
     )
 
@@ -2316,7 +2326,14 @@ async def update_hitl_policy(
 ) -> dict[str, Any]:
     from analytics_agent.agent.hitl import all_known_mutation_tools
 
-    allowed = set(all_known_mutation_tools())
+    # Validate against the same union the GET returns — curated defaults
+    # plus the dynamic runtime pool. If enumeration fails we still accept
+    # curated names so the operator isn't blocked by a transient failure.
+    allowed: set[str] = set(all_known_mutation_tools())
+    try:
+        allowed.update(await _available_tool_names(session))
+    except Exception:
+        logger.exception("dynamic tool enumeration for HITL save failed; falling back to curated")
     safe = [t for t in body.interrupt_tools if t in allowed]
     repo = SettingsRepo(session)
     await repo.set(_KEY_HITL_INTERRUPT_TOOLS, orjson.dumps(safe).decode())
