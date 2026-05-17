@@ -2426,12 +2426,30 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
     )
 
     curated_mutations = set(DATAHUB_MUTATION_TOOLS) | set(SKILL_MUTATION_TOOLS) | {"execute"}
+    # Heuristic: any tool whose name starts with a mutation verb is
+    # treated as a mutation for UI grouping, even if the curated set
+    # hasn't been updated yet (e.g. add_structured_properties,
+    # register_feedback, remove_domains). Errs on the side of marking
+    # ambiguous tools as mutations so they show up in the right group.
+    import re as _re
+
+    _mutation_re = _re.compile(
+        r"^(add|remove|set|update|delete|create|save|publish|write|"
+        r"upsert|insert|patch|submit|send|run|execute|approve|reject|"
+        r"trigger|enable|disable|register|apply|attach|detach|link|"
+        r"unlink|revoke|grant|assign|unassign|drop|truncate)_",
+        _re.IGNORECASE,
+    )
+
+    def _is_mutation(name: str) -> bool:
+        return name in curated_mutations or bool(_mutation_re.match(name))
+
     # name → (source, is_mutation). Later sources overwrite earlier ones
     # so DB-backed platforms win over env-var fallbacks.
     seen: dict[str, tuple[str, bool]] = {}
 
     def _add(name: str, source: str) -> None:
-        seen[name] = (source, name in curated_mutations)
+        seen[name] = (source, _is_mutation(name))
 
     # ── Context platforms from the DB (native DataHub + datahub-mcp)
     try:
