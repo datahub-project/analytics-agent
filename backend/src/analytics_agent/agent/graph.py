@@ -107,7 +107,9 @@ def build_graph(
     all_tools = datahub_tools + skill_tools + engine_tools + chart_tools + ask_user_tools
 
     if system_prompt_override:
-        system_prompt = system_prompt_override.format(engine_name=engine_name)
+        # See prompts/system.py — str.replace, not str.format, so embedded
+        # jq / JSON snippets with literal `{key: …}` don't blow up.
+        system_prompt = system_prompt_override.replace("{engine_name}", engine_name)
     else:
         system_prompt = build_system_prompt(engine_name)
 

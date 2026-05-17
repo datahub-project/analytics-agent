@@ -373,11 +373,23 @@ async def stream_graph_events(
                         }
 
     except Exception as exc:
+        import traceback as _tb
+
+        from analytics_agent.config import settings as _settings_for_err
+
+        payload: dict[str, Any] = {
+            "error": f"{exc.__class__.__name__}: {exc}",
+            "error_class": exc.__class__.__name__,
+        }
+        if _settings_for_err.debug_errors:
+            payload["traceback"] = "".join(
+                _tb.format_exception(type(exc), exc, exc.__traceback__)
+            )
         yield {
             "event": "ERROR",
             "conversation_id": conversation_id,
             "message_id": str(uuid.uuid4()),
-            "payload": {"error": str(exc)},
+            "payload": payload,
         }
 
     # Emit CHART if chart_node populated pending_chart

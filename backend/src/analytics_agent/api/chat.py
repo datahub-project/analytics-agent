@@ -55,6 +55,28 @@ def _format_error(exc: BaseException) -> str:
     return f"{exc.__class__.__name__}: {exc}"
 
 
+def _error_payload(exc: BaseException) -> dict[str, Any]:
+    """Shape an ERROR SSE payload. Includes a traceback when debug_errors
+    is on so the chat UI can show enough detail to diagnose without
+    grepping server logs."""
+    import traceback as _tb
+
+    from analytics_agent.config import settings as _settings
+
+    inner: BaseException = exc
+    while isinstance(inner, BaseExceptionGroup) and inner.exceptions:
+        inner = inner.exceptions[0]
+    payload: dict[str, Any] = {
+        "error": _format_error(exc),
+        "error_class": inner.__class__.__name__,
+    }
+    if _settings.debug_errors:
+        payload["traceback"] = "".join(
+            _tb.format_exception(type(inner), inner, inner.__traceback__)
+        )
+    return payload
+
+
 def _maybe_schedule_quality(conv_id: str, factory) -> None:
     now = time.monotonic()
     current = _context_call_counts.get(conv_id, 0)
@@ -324,7 +346,7 @@ async def _run_and_broadcast(
                             "event": "ERROR",
                             "conversation_id": conversation_id,
                             "message_id": str(uuid.uuid4()),
-                            "payload": {"error": _format_error(exc)},
+                            "payload": _error_payload(exc),
                         },
                         {
                             "event": "COMPLETE",

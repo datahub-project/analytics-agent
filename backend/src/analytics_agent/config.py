@@ -196,6 +196,12 @@ class Settings(BaseSettings):
     # can manually compact context. Auto-summarization is already on via
     # the default deepagents middleware stack regardless of this flag.
     enable_compact_tool: bool = True
+
+    # Surface Python tracebacks in ERROR SSE payloads + the chat UI's
+    # error message. On for local dev (defaults true here); flip off in
+    # any environment where the chat is exposed to untrusted users — a
+    # traceback can leak file paths, version info, etc.
+    debug_errors: bool = True
     # OpenAI-compatible proxy (LiteLLM, vLLM, Ollama, etc.)
     openai_compatible_base_url: str = (
         Field(  # The alias here is to keep backwards compatibility with the old env var name

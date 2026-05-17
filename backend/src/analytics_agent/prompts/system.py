@@ -19,4 +19,11 @@ def build_system_prompt(
     don't break, but is not consumed.
     """
     today = date.today().strftime("%B %d, %Y")
-    return get_prompt_template().format(engine_name=engine_name, today=today)
+    # str.replace, not str.format — the shipped prompt embeds jq / json
+    # snippets like `{has_owner: ...}` that look like format placeholders
+    # and would raise KeyError. Replace is dumber but safe.
+    return (
+        get_prompt_template()
+        .replace("{engine_name}", engine_name)
+        .replace("{today}", today)
+    )
