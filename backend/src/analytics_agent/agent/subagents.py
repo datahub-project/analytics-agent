@@ -269,20 +269,39 @@ class SubagentsConfig:
 SETTINGS_KEY = _SETTINGS_KEY  # public re-export for the API layer
 
 
+def _default_disabled_config() -> SubagentsConfig:
+    """Initial state when no operator config has been saved yet.
+
+    All builtins are disabled — the operator must opt them in via
+    Settings → Sub-agents. This keeps the deployed default behavior
+    (no sub-agents, parent handles everything) until someone explicitly
+    turns on a sub-agent.
+    """
+    return SubagentsConfig(disabled_builtins=list(BUILTINS.keys()))
+
+
 def parse_config(raw: str | None) -> SubagentsConfig:
     """Parse a JSON-encoded subagents_config blob from the settings table.
 
-    Returns an empty config when raw is None/empty or unparseable.
+    When no config row exists (raw is None/empty), returns a config with
+    every builtin disabled — operators must opt sub-agents in. An empty
+    saved blob ({}) is treated the same as a fresh DB and returns the
+    "all disabled" default. A parseable blob is used verbatim, so once
+    the operator saves any config (even one that re-enables everything),
+    that becomes the persistent state.
     """
     import orjson
 
     if not raw:
-        return SubagentsConfig()
+        return _default_disabled_config()
     try:
-        return SubagentsConfig.from_dict(orjson.loads(raw))
+        data = orjson.loads(raw)
     except Exception:
         logger.exception("subagents_config row is not valid JSON; ignoring")
-        return SubagentsConfig()
+        return _default_disabled_config()
+    if not isinstance(data, dict) or not data:
+        return _default_disabled_config()
+    return SubagentsConfig.from_dict(data)
 
 
 # ── Build ─────────────────────────────────────────────────────────────────

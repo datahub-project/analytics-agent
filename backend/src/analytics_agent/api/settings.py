@@ -2394,13 +2394,23 @@ class UpdateSubagentsRequest(BaseModel):
 
 
 async def _available_tool_names(session: AsyncSession) -> list[str]:
-    """Best-effort enumeration of tool names a sub-agent could be given.
+    """Best-effort enumeration of every tool name the agent could call.
 
-    Pulls from registered context platforms (DataHub), the default engine's
-    tools (if any), and the always-on / opt-in skills. Failures in any one
-    source just shrink the list — we don't fail the endpoint.
+    Sources, each best-effort (failures shrink the list, never fail the
+    endpoint):
+      - context platforms stored in the DB (native DataHub + MCP) —
+        these are what chat.py uses at request time, so the UI shows
+        what will actually be available.
+      - native DataHub fallback (covers the case where no context
+        platform row exists but DATAHUB_GMS_* env vars are set).
+      - always-on skills + opt-in mutation skills.
+      - every registered query engine, awaiting `get_tools_async` for
+        MCP engines so their dynamic tool list is included.
     """
+    from analytics_agent.context.registry import build_platform
+    from analytics_agent.db.repository import ContextPlatformRepo
     from analytics_agent.engines.factory import get_registry
+    from analytics_agent.engines.mcp.engine import MCPQueryEngine
     from analytics_agent.skills.loader import (
         build_always_on_skill_tools,
         build_skill_tools,
@@ -2408,14 +2418,31 @@ async def _available_tool_names(session: AsyncSession) -> list[str]:
 
     names: set[str] = set()
 
+    # ── Context platforms (DataHub native + DataHub MCP) — DB-backed
+    try:
+        cp_repo = ContextPlatformRepo(session)
+        for row in await cp_repo.list_all():
+            try:
+                platform = build_platform(row, disabled_connections=set(), include_mutations=True)
+                if platform is None:
+                    continue
+                for t in await platform.get_tools():
+                    names.add(t.name)
+            except Exception:
+                logger.exception("listing tools for context platform %s failed", getattr(row, "name", "?"))
+    except Exception:
+        logger.exception("loading context platforms failed")
+
+    # ── Native DataHub fallback (env-var based)
     try:
         from analytics_agent.context.datahub import build_datahub_tools
 
-        for t in build_datahub_tools():
+        for t in build_datahub_tools(include_mutations=True):
             names.add(t.name)
     except Exception:
-        logger.exception("listing DataHub tools failed")
+        logger.exception("listing native DataHub tools failed")
 
+    # ── Skills
     try:
         for t in build_always_on_skill_tools():
             names.add(t.name)
@@ -2426,12 +2453,17 @@ async def _available_tool_names(session: AsyncSession) -> list[str]:
     except Exception:
         logger.exception("listing skill tools failed")
 
+    # ── Engine tools (native sync + MCP async)
     try:
         registry = get_registry()
         for engine in registry.values():
             try:
-                for t in engine.get_tools():
-                    names.add(t.name)
+                if isinstance(engine, MCPQueryEngine):
+                    for t in await engine.get_tools_async():
+                        names.add(t.name)
+                else:
+                    for t in engine.get_tools():
+                        names.add(t.name)
             except Exception:
                 continue
     except Exception:
@@ -2454,23 +2486,37 @@ def _load_subagents_blob(raw: str | None) -> dict[str, Any]:
 async def get_subagents_config(
     session: AsyncSession = Depends(get_session),
 ) -> SubagentsConfigResponse:
-    from analytics_agent.agent.subagents import list_builtins
+    from analytics_agent.agent.subagents import BUILTINS, list_builtins
 
     repo = SettingsRepo(session)
     raw = await repo.get(_KEY_SUBAGENTS)
-    blob = _load_subagents_blob(raw)
 
-    overrides_raw = blob.get("builtin_overrides") or {}
-    overrides: dict[str, BuiltinOverride] = {}
-    for name, rec in overrides_raw.items():
-        if isinstance(rec, dict):
-            overrides[name] = BuiltinOverride(**rec)
+    # Match parse_config: when no config has been saved yet, every
+    # builtin is disabled. The operator must opt them in. As soon as a
+    # blob is persisted (even an empty save), use it verbatim.
+    if not raw:
+        disabled_builtins = list(BUILTINS.keys())
+        overrides: dict[str, BuiltinOverride] = {}
+        custom_records: list[CustomSubagent] = []
+    else:
+        blob = _load_subagents_blob(raw)
+        disabled_builtins = [str(n) for n in (blob.get("disabled_builtins") or [])]
+        overrides = {
+            name: BuiltinOverride(**rec)
+            for name, rec in (blob.get("builtin_overrides") or {}).items()
+            if isinstance(rec, dict)
+        }
+        custom_records = [
+            CustomSubagent(**c)
+            for c in (blob.get("custom") or [])
+            if isinstance(c, dict)
+        ]
 
     return SubagentsConfigResponse(
         builtins=[BuiltinSubagent(**b) for b in list_builtins()],
-        disabled_builtins=[str(n) for n in (blob.get("disabled_builtins") or [])],
+        disabled_builtins=disabled_builtins,
         builtin_overrides=overrides,
-        custom=[CustomSubagent(**c) for c in (blob.get("custom") or []) if isinstance(c, dict)],
+        custom=custom_records,
         available_tools=await _available_tool_names(session),
     )
 

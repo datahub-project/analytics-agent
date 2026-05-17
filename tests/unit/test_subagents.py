@@ -38,11 +38,29 @@ def pool() -> ToolPool:
 
 
 def test_empty_config_builds_all_builtins_when_pool_supports_them(pool):
+    # An empty SubagentsConfig() (the dataclass default, not parse_config)
+    # still enables every builtin. The "everything disabled by default"
+    # policy lives in parse_config() — see test_parse_config_no_row_disables_all_builtins.
     subs = build_subagents(pool, SubagentsConfig())
     names = sorted(s["name"] for s in subs)
-    # All five builtins should appear — every selector resolves to a
-    # non-empty list given the populated pool.
     assert names == sorted(BUILTINS.keys())
+
+
+def test_parse_config_no_row_disables_all_builtins():
+    cfg = parse_config(None)
+    assert set(cfg.disabled_builtins) == set(BUILTINS.keys())
+
+
+def test_parse_config_empty_blob_disables_all_builtins():
+    cfg = parse_config("{}")
+    assert set(cfg.disabled_builtins) == set(BUILTINS.keys())
+
+
+def test_parse_config_saved_blob_used_verbatim():
+    # Once any non-empty config is saved, it's used verbatim — including
+    # one that opts every builtin back in.
+    cfg = parse_config('{"disabled_builtins": [], "custom": []}')
+    assert cfg.disabled_builtins == []
 
 
 def test_disabled_builtin_is_excluded(pool):
@@ -152,9 +170,10 @@ def test_custom_colliding_with_builtin_name_is_dropped(pool):
 
 
 def test_parse_config_handles_missing_and_garbage():
-    assert parse_config(None).disabled_builtins == []
-    assert parse_config("").disabled_builtins == []
-    assert parse_config("not-json").disabled_builtins == []
+    # Missing / empty / unparseable all fall back to "all disabled".
+    assert set(parse_config(None).disabled_builtins) == set(BUILTINS.keys())
+    assert set(parse_config("").disabled_builtins) == set(BUILTINS.keys())
+    assert set(parse_config("not-json").disabled_builtins) == set(BUILTINS.keys())
 
 
 def test_parse_config_round_trip():
