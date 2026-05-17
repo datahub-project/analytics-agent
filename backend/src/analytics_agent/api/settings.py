@@ -2426,11 +2426,10 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
     )
 
     curated_mutations = set(DATAHUB_MUTATION_TOOLS) | set(SKILL_MUTATION_TOOLS) | {"execute"}
-    # Heuristic: any tool whose name starts with a mutation verb is
-    # treated as a mutation for UI grouping, even if the curated set
-    # hasn't been updated yet (e.g. add_structured_properties,
-    # register_feedback, remove_domains). Errs on the side of marking
-    # ambiguous tools as mutations so they show up in the right group.
+    # Verb-prefix heuristic used when an MCP server doesn't annotate the
+    # tool with readOnlyHint / destructiveHint. Errs on the side of
+    # marking ambiguous tools as mutations so they show up in the
+    # mutation subgroup rather than silently appearing under "Read-only".
     import re as _re
 
     _mutation_re = _re.compile(
@@ -2441,15 +2440,34 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
         _re.IGNORECASE,
     )
 
-    def _is_mutation(name: str) -> bool:
-        return name in curated_mutations or bool(_mutation_re.match(name))
+    def _classify(name: str, tool: Any | None) -> bool:
+        """Decide whether a tool is a mutation.
+
+        Priority order:
+          1. MCP tool annotations on `tool.metadata` if present:
+             - destructiveHint=True or readOnlyHint=False → mutation
+             - readOnlyHint=True → not a mutation
+          2. Curated mutation set (hardcoded names in hitl.py + execute).
+          3. Verb-prefix regex fallback.
+        """
+        meta = getattr(tool, "metadata", None) if tool is not None else None
+        if isinstance(meta, dict):
+            if meta.get("destructiveHint") is True:
+                return True
+            if meta.get("readOnlyHint") is True:
+                return False
+            if meta.get("readOnlyHint") is False:
+                return True
+        if name in curated_mutations:
+            return True
+        return bool(_mutation_re.match(name))
 
     # name → (source, is_mutation). Later sources overwrite earlier ones
     # so DB-backed platforms win over env-var fallbacks.
     seen: dict[str, tuple[str, bool]] = {}
 
-    def _add(name: str, source: str) -> None:
-        seen[name] = (source, _is_mutation(name))
+    def _add(name: str, source: str, tool: Any | None = None) -> None:
+        seen[name] = (source, _classify(name, tool))
 
     # ── Context platforms from the DB (native DataHub + datahub-mcp)
     try:
@@ -2466,7 +2484,7 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
                 if platform is None:
                     continue
                 for t in await platform.get_tools():
-                    _add(t.name, source)
+                    _add(t.name, source, t)
             except Exception:
                 logger.exception("listing tools for context platform %s failed", display_name)
     except Exception:
@@ -2478,7 +2496,7 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
 
         for t in build_datahub_tools(include_mutations=True):
             if t.name not in seen:
-                _add(t.name, "DataHub (native)")
+                _add(t.name, "DataHub (native)", t)
     except Exception:
         logger.exception("listing native DataHub tools failed")
 
@@ -2503,7 +2521,7 @@ async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlTool
                     tools = engine.get_tools()
                 for t in tools:
                     if t.name not in seen:
-                        _add(t.name, source)
+                        _add(t.name, source, t)
             except Exception:
                 continue
     except Exception:
