@@ -2262,9 +2262,22 @@ async def update_display(
 # --- HITL policy endpoints ---
 
 
+class HitlToolInfo(BaseModel):
+    name: str
+    # Human-readable source label used by the UI for grouping.
+    # Examples: "DataHub (native)", "DataHub MCP: production", "Engine: snowflake",
+    # "Skills", "Sandbox", "Other".
+    source: str
+    # True if the tool is in the curated mutation set (datahub writes,
+    # write-back skills, sandbox shell). MCP/engine tools we don't have
+    # a definitive label for default to False — the operator can still
+    # check them to gate.
+    is_mutation: bool
+
+
 class HitlPolicy(BaseModel):
     interrupt_tools: list[str]   # operator override (empty = use defaults)
-    available_tools: list[str]   # full universe of gateable tools
+    available_tools: list[HitlToolInfo]  # full universe of gateable tools, with grouping metadata
     effective_tools: list[str]   # what's actually being gated right now
 
 
@@ -2304,18 +2317,20 @@ async def get_hitl_policy(session: AsyncSession = Depends(get_session)) -> HitlP
         ).keys()
     )
 
-    # Union of curated mutation defaults + every tool actually surfaced
-    # at runtime (DataHub + skills + engine + MCP). Lets the operator
-    # gate MCP / engine-specific tools that aren't in the curated set.
-    available = set(all_known_mutation_tools())
+    # Full grouped tool universe: one entry per name with source
+    # (per MCP server, per engine, etc.) + is_mutation flag.
     try:
-        available.update(await _available_tool_names(session))
+        available_tools = await _enumerate_tools_with_metadata(session)
     except Exception:
-        logger.exception("dynamic tool enumeration for HITL failed; using curated set only")
+        logger.exception("dynamic tool enumeration for HITL failed; falling back to curated set")
+        available_tools = [
+            HitlToolInfo(name=n, source="Curated", is_mutation=True)
+            for n in all_known_mutation_tools()
+        ]
 
     return HitlPolicy(
         interrupt_tools=override,
-        available_tools=sorted(available),
+        available_tools=available_tools,
         effective_tools=effective,
     )
 
@@ -2391,6 +2406,107 @@ class UpdateSubagentsRequest(BaseModel):
     disabled_builtins: list[str] = []
     builtin_overrides: dict[str, BuiltinOverride] = {}
     custom: list[CustomSubagent] = []
+
+
+async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlToolInfo]:
+    """Enumerate every tool the agent could call, tagged with source + mutation flag.
+
+    Used by the HITL Approvals UI to group tools by origin (per MCP
+    server, per engine, etc.) and visually separate mutations from
+    read-only / unclassified tools.
+    """
+    from analytics_agent.agent.hitl import DATAHUB_MUTATION_TOOLS, SKILL_MUTATION_TOOLS
+    from analytics_agent.context.registry import build_platform
+    from analytics_agent.db.repository import ContextPlatformRepo
+    from analytics_agent.engines.factory import get_registry
+    from analytics_agent.engines.mcp.engine import MCPQueryEngine
+    from analytics_agent.skills.loader import (
+        build_always_on_skill_tools,
+        build_skill_tools,
+    )
+
+    curated_mutations = set(DATAHUB_MUTATION_TOOLS) | set(SKILL_MUTATION_TOOLS) | {"execute"}
+    # name → (source, is_mutation). Later sources overwrite earlier ones
+    # so DB-backed platforms win over env-var fallbacks.
+    seen: dict[str, tuple[str, bool]] = {}
+
+    def _add(name: str, source: str) -> None:
+        seen[name] = (source, name in curated_mutations)
+
+    # ── Context platforms from the DB (native DataHub + datahub-mcp)
+    try:
+        cp_repo = ContextPlatformRepo(session)
+        for row in await cp_repo.list_all():
+            row_type = getattr(row, "type", "datahub")
+            display_name = getattr(row, "name", None) or row_type
+            if row_type == "datahub-mcp":
+                source = f"DataHub MCP: {display_name}"
+            else:
+                source = f"DataHub: {display_name}"
+            try:
+                platform = build_platform(row, disabled_connections=set(), include_mutations=True)
+                if platform is None:
+                    continue
+                for t in await platform.get_tools():
+                    _add(t.name, source)
+            except Exception:
+                logger.exception("listing tools for context platform %s failed", display_name)
+    except Exception:
+        logger.exception("loading context platforms failed")
+
+    # ── Native DataHub env-var fallback (only fills gaps left by the DB rows)
+    try:
+        from analytics_agent.context.datahub import build_datahub_tools
+
+        for t in build_datahub_tools(include_mutations=True):
+            if t.name not in seen:
+                _add(t.name, "DataHub (native)")
+    except Exception:
+        logger.exception("listing native DataHub tools failed")
+
+    # ── Skills
+    try:
+        for t in build_always_on_skill_tools():
+            _add(t.name, "Skills")
+        for t in build_skill_tools({"publish_analysis", "save_correction"}):
+            _add(t.name, "Skills (write-back)")
+    except Exception:
+        logger.exception("listing skill tools failed")
+
+    # ── Engine tools (one source label per registered engine)
+    try:
+        registry = get_registry()
+        for engine_name, engine in registry.items():
+            source = f"Engine: {engine_name}"
+            try:
+                if isinstance(engine, MCPQueryEngine):
+                    tools = await engine.get_tools_async()
+                else:
+                    tools = engine.get_tools()
+                for t in tools:
+                    if t.name not in seen:
+                        _add(t.name, source)
+            except Exception:
+                continue
+    except Exception:
+        logger.exception("listing engine tools failed")
+
+    # ── Curated mutations + sandbox `execute` that may not have surfaced
+    # from any of the above sources (e.g. an MCP connector temporarily
+    # offline). Always show them so the operator can still gate them.
+    for name in curated_mutations:
+        if name not in seen:
+            if name in DATAHUB_MUTATION_TOOLS:
+                _add(name, "DataHub (native)")
+            elif name in SKILL_MUTATION_TOOLS:
+                _add(name, "Skills (write-back)")
+            else:
+                _add(name, "Sandbox")
+
+    return [
+        HitlToolInfo(name=n, source=src, is_mutation=is_mut)
+        for n, (src, is_mut) in sorted(seen.items())
+    ]
 
 
 async def _available_tool_names(session: AsyncSession) -> list[str]:

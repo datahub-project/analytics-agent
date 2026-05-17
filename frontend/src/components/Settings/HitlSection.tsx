@@ -1,37 +1,42 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, Check, Loader2 } from "lucide-react";
-import { getHitlPolicy, saveHitlPolicy } from "@/api/settings";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { getHitlPolicy, saveHitlPolicy, type HitlToolInfo } from "@/api/settings";
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
-// Hand-curated metadata for the catalog-mutation-class tools so the UI can
-// describe each row. Anything in `available_tools` that's not in the map
-// renders with a sensible fallback.
-const TOOL_INFO: Record<string, { label: string; description: string; group: string }> = {
-  add_tags:                         { label: "Add tags",                      description: "Attach tags to a DataHub entity",                            group: "DataHub" },
-  remove_tags:                      { label: "Remove tags",                   description: "Strip tags from a DataHub entity",                           group: "DataHub" },
-  add_terms:                        { label: "Add glossary terms",            description: "Attach business glossary terms to an entity",                group: "DataHub" },
-  remove_terms:                     { label: "Remove glossary terms",         description: "Strip glossary terms from an entity",                        group: "DataHub" },
-  update_description:               { label: "Update description",            description: "Edit an entity's description",                               group: "DataHub" },
-  update_glossary_term_description: { label: "Update glossary term docs",     description: "Edit a glossary term's authoritative definition",            group: "DataHub" },
-  set_domains:                      { label: "Set domains",                   description: "Assign an entity to a domain",                               group: "DataHub" },
-  set_owners:                       { label: "Set owners",                    description: "Set ownership on an entity",                                 group: "DataHub" },
-  remove_owners:                    { label: "Remove owners",                 description: "Clear ownership on an entity",                               group: "DataHub" },
-  save_document:                    { label: "Save document",                 description: "Create or update a DataHub document (analyses, runbooks, …)", group: "DataHub" },
-  delete_entity:                    { label: "Delete entity",                 description: "Soft-delete a DataHub entity",                               group: "DataHub" },
-  publish_analysis:                 { label: "Publish analysis",              description: "Save a completed analysis as a DataHub document",            group: "Skills" },
-  save_correction:                  { label: "Save correction",               description: "Fix a glossary term / dataset description in DataHub",       group: "Skills" },
-  execute:                          { label: "Shell execute",                 description: "Run an arbitrary shell command in the per-conversation sandbox", group: "Sandbox" },
+// Hand-curated descriptions for the canonical mutation tools. Anything
+// not in the map renders with just its tool name.
+const TOOL_DESCRIPTIONS: Record<string, string> = {
+  add_tags: "Attach tags to a DataHub entity",
+  remove_tags: "Strip tags from a DataHub entity",
+  add_terms: "Attach business glossary terms to an entity",
+  remove_terms: "Strip glossary terms from an entity",
+  update_description: "Edit an entity's description",
+  update_glossary_term_description: "Edit a glossary term's authoritative definition",
+  set_domains: "Assign an entity to a domain",
+  set_owners: "Set ownership on an entity",
+  remove_owners: "Clear ownership on an entity",
+  save_document: "Create or update a DataHub document",
+  delete_entity: "Soft-delete a DataHub entity",
+  publish_analysis: "Save a completed analysis as a DataHub document",
+  save_correction: "Fix a glossary term / dataset description in DataHub",
+  execute: "Run an arbitrary shell command in the per-conversation sandbox",
 };
 
+interface SourceGroup {
+  source: string;
+  mutations: HitlToolInfo[];
+  readonly: HitlToolInfo[];
+}
+
 export function HitlSection() {
-  const [available, setAvailable] = useState<string[]>([]);
-  // What's actually being gated right now — used as the rendered
-  // checkbox state, regardless of defaults vs custom mode.
+  const [available, setAvailable] = useState<HitlToolInfo[]>([]);
   const [intercepted, setIntercepted] = useState<Set<string>>(new Set());
   const [usingDefaults, setUsingDefaults] = useState(true);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  // Per-source expand/collapse for the read-only subgroup.
+  const [readonlyExpanded, setReadonlyExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -39,9 +44,6 @@ export function HitlSection() {
       .then((p) => {
         if (cancelled) return;
         setAvailable(p.available_tools);
-        // Render the EFFECTIVE list — in defaults mode that's the
-        // computed defaults; in custom mode it's the override. Either
-        // way the user sees what's currently active and can edit it.
         setIntercepted(new Set(p.effective_tools));
         setUsingDefaults(p.interrupt_tools.length === 0);
       })
@@ -51,6 +53,27 @@ export function HitlSection() {
     };
   }, []);
 
+  const grouped: SourceGroup[] = useMemo(() => {
+    const bySource = new Map<string, SourceGroup>();
+    for (const t of available) {
+      const grp = bySource.get(t.source) ?? { source: t.source, mutations: [], readonly: [] };
+      (t.is_mutation ? grp.mutations : grp.readonly).push(t);
+      bySource.set(t.source, grp);
+    }
+    // Stable ordering: groups with any mutations first; within each, tools alphabetical.
+    const groups = Array.from(bySource.values()).sort((a, b) => {
+      const aHas = a.mutations.length > 0 ? 0 : 1;
+      const bHas = b.mutations.length > 0 ? 0 : 1;
+      if (aHas !== bHas) return aHas - bHas;
+      return a.source.localeCompare(b.source);
+    });
+    for (const g of groups) {
+      g.mutations.sort((a, b) => a.name.localeCompare(b.name));
+      g.readonly.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return groups;
+  }, [available]);
+
   const toggle = (tool: string) => {
     setIntercepted((prev) => {
       const next = new Set(prev);
@@ -58,16 +81,11 @@ export function HitlSection() {
       else next.add(tool);
       return next;
     });
-    // First check/uncheck flips the user out of defaults mode. The
-    // checkbox state already shows the effective set, so the change
-    // is purely additive/subtractive from the user's POV.
     setUsingDefaults(false);
     setSaveStatus("idle");
   };
 
   const setDefaults = async () => {
-    // Reset clears the override AND re-fetches so the rendered
-    // checkbox state matches the freshly-computed defaults.
     setSaveStatus("saving");
     setError(null);
     try {
@@ -87,8 +105,6 @@ export function HitlSection() {
     setSaveStatus("saving");
     setError(null);
     try {
-      // In defaults mode we still send [] so the backend keeps using
-      // the computed list. Otherwise persist the explicit set.
       await saveHitlPolicy(usingDefaults ? [] : Array.from(intercepted));
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
@@ -98,14 +114,6 @@ export function HitlSection() {
     }
   };
 
-  // Group tools for display; fall back to "Other" for anything in
-  // available_tools we don't recognize.
-  const grouped = available.reduce<Record<string, string[]>>((acc, t) => {
-    const grp = TOOL_INFO[t]?.group ?? "Other";
-    (acc[grp] ??= []).push(t);
-    return acc;
-  }, {});
-
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-amber-500/30 bg-amber-50/30 dark:bg-amber-950/20 p-4">
@@ -114,9 +122,9 @@ export function HitlSection() {
           <div className="text-xs text-muted-foreground leading-relaxed">
             When the agent calls one of the checked tools, it pauses and waits
             for you to <strong>approve, reject, or edit</strong> the call before
-            it runs. Read-only tools (search, get_entities, execute_sql, …) are
-            never gated. Per-conversation "trust this session" remains
-            available in the chat.
+            it runs. Each group below shows tools by source — known mutation
+            tools are shown by default; read-only or unclassified tools (mostly
+            harmless to skip) are collapsed.
           </div>
         </div>
       </div>
@@ -143,45 +151,60 @@ export function HitlSection() {
         </div>
 
         <div className="space-y-4">
-          {Object.entries(grouped).map(([group, tools]) => (
-            <div key={group} className="space-y-2">
-              <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                {group}
-              </div>
-              <div className="rounded-xl border border-border divide-y divide-border">
-                {tools.map((tool) => {
-                  const info = TOOL_INFO[tool];
-                  const checked = intercepted.has(tool);
-                  return (
-                    <label
-                      key={tool}
-                      className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 cursor-pointer transition-colors"
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-0.5"
-                        checked={checked}
-                        onChange={() => toggle(tool)}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium">
-                          {info?.label ?? tool}{" "}
-                          <code className="ml-1 px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-xs font-mono">
-                            {tool}
-                          </code>
+          {grouped.map((g) => {
+            const roOpen = readonlyExpanded[g.source] ?? false;
+            return (
+              <div key={g.source} className="space-y-2">
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  {g.source}
+                </div>
+                <div className="rounded-xl border border-border divide-y divide-border">
+                  {g.mutations.map((t) => (
+                    <ToolRow key={t.name} tool={t} checked={intercepted.has(t.name)} onToggle={toggle} />
+                  ))}
+                  {g.readonly.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReadonlyExpanded((prev) => ({ ...prev, [g.source]: !roOpen }))
+                        }
+                        className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-xs text-muted-foreground hover:bg-muted/30 transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          {roOpen ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                          Read-only / unclassified
+                        </span>
+                        <span>{g.readonly.length} tool{g.readonly.length === 1 ? "" : "s"}</span>
+                      </button>
+                      {roOpen && (
+                        <div className="divide-y divide-border">
+                          {g.readonly.map((t) => (
+                            <ToolRow
+                              key={t.name}
+                              tool={t}
+                              checked={intercepted.has(t.name)}
+                              onToggle={toggle}
+                            />
+                          ))}
                         </div>
-                        {info?.description && (
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            {info.description}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
+                      )}
+                    </div>
+                  )}
+                  {g.mutations.length === 0 && g.readonly.length === 0 && (
+                    <div className="px-4 py-3 text-xs text-muted-foreground">No tools.</div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+          {grouped.length === 0 && (
+            <div className="text-xs text-muted-foreground">Loading…</div>
+          )}
         </div>
       </div>
 
@@ -204,5 +227,37 @@ export function HitlSection() {
         {saveStatus === "saved" ? "Saved!" : "Save"}
       </button>
     </div>
+  );
+}
+
+function ToolRow({
+  tool,
+  checked,
+  onToggle,
+}: {
+  tool: HitlToolInfo;
+  checked: boolean;
+  onToggle: (name: string) => void;
+}) {
+  const description = TOOL_DESCRIPTIONS[tool.name];
+  return (
+    <label className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 cursor-pointer transition-colors">
+      <input type="checkbox" className="mt-0.5" checked={checked} onChange={() => onToggle(tool.name)} />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
+          <code className="px-1.5 py-0.5 bg-muted text-muted-foreground rounded text-xs font-mono">
+            {tool.name}
+          </code>
+          {tool.is_mutation && (
+            <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">
+              mutation
+            </span>
+          )}
+        </div>
+        {description && (
+          <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
+        )}
+      </div>
+    </label>
   );
 }

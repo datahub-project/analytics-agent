@@ -458,9 +458,15 @@ export async function getReleases(): Promise<Release[]> {
   }
 }
 
+export interface HitlToolInfo {
+  name: string;
+  source: string;
+  is_mutation: boolean;
+}
+
 export interface HitlPolicy {
   interrupt_tools: string[];   // operator override; empty = use defaults
-  available_tools: string[];   // full universe
+  available_tools: HitlToolInfo[];  // full universe with grouping metadata
   effective_tools: string[];   // what's actually being gated right now
 }
 
