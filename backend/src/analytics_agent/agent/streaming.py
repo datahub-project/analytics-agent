@@ -415,9 +415,36 @@ async def stream_graph_events(
         if clean_text != full_text:
             final_text_parts[:] = [clean_text]
 
-    yield {
-        "event": "COMPLETE",
-        "conversation_id": conversation_id,
-        "message_id": str(uuid.uuid4()),
-        "payload": {"text": "".join(final_text_parts)},
-    }
+    # Post-iteration interrupt detection. HumanInTheLoopMiddleware pauses
+    # the graph BEFORE the tool actually runs, so there's no `on_tool_start`
+    # event and the `on_chain_end` event for the outer LangGraph may not
+    # include `__interrupt__` (depending on langgraph version). Inspect the
+    # checkpointed state directly so an interrupt always surfaces.
+    interrupted = False
+    try:
+        snap = await graph.aget_state(cfg)
+        pending_interrupts: list[Any] = []
+        for task in getattr(snap, "tasks", ()) or ():
+            for it in (getattr(task, "interrupts", None) or ()):
+                pending_interrupts.append(it)
+        if pending_interrupts:
+            interrupted = True
+            for interrupt_evt in _normalize_interrupts(pending_interrupts):
+                yield {
+                    "event": "INTERRUPT",
+                    "conversation_id": conversation_id,
+                    "message_id": str(uuid.uuid4()),
+                    "payload": interrupt_evt,
+                }
+    except Exception:
+        # State inspection failed (e.g. no checkpointer mid-config); don't
+        # block COMPLETE — fall through.
+        pass
+
+    if not interrupted:
+        yield {
+            "event": "COMPLETE",
+            "conversation_id": conversation_id,
+            "message_id": str(uuid.uuid4()),
+            "payload": {"text": "".join(final_text_parts)},
+        }
