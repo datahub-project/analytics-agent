@@ -290,12 +290,24 @@ function DataHubCard({
     }
   }, [connection.status]);
 
-  const isMutationTool = (name: string) =>
-    connection.type?.includes("mcp")
-      ? /^(add|remove|set|update|delete|create|save|publish|write|upsert|insert|patch)_/i.test(name)
-      : MUTATION_TOOL_NAMES.has(name);
-  const readTools = (connection.tools ?? []).filter((t) => !isMutationTool(t.name));
-  const mutationTools = (connection.tools ?? []).filter((t) => isMutationTool(t.name));
+  // Heuristics for MCP tools whose mutation-ness isn't curated. Tools
+  // whose names match neither pattern land in the "untagged" bucket so
+  // the operator can review them explicitly rather than silently
+  // treating them as reads.
+  const MCP_MUTATION_RE = /^(add|remove|set|update|delete|create|save|publish|write|upsert|insert|patch|submit|send|run|execute|approve|reject|trigger|enable|disable)_/i;
+  const MCP_READ_RE = /^(get|list|search|find|lookup|describe|preview|count|query|read|grep|fetch|show|view|head|tail|check|inspect|status|info|help)(_|$)|^(ls|glob)$/i;
+  type ToolKind = "read" | "mutation" | "untagged";
+  const classifyTool = (name: string): ToolKind => {
+    if (connection.type?.includes("mcp")) {
+      if (MCP_MUTATION_RE.test(name)) return "mutation";
+      if (MCP_READ_RE.test(name)) return "read";
+      return "untagged";
+    }
+    return MUTATION_TOOL_NAMES.has(name) ? "mutation" : "read";
+  };
+  const readTools = (connection.tools ?? []).filter((t) => classifyTool(t.name) === "read");
+  const mutationTools = (connection.tools ?? []).filter((t) => classifyTool(t.name) === "mutation");
+  const untaggedTools = (connection.tools ?? []).filter((t) => classifyTool(t.name) === "untagged");
   // Master toggle: driven by disabledConnections, not individual tool state
   const contextEnabled = !disabledConnections.has(connection.name);
 
@@ -434,6 +446,39 @@ function DataHubCard({
           </div>
           <div className="pl-5 space-y-0.5">
             {readTools.map((tool) => {
+              const effectiveEnabled = contextEnabled && tool.enabled;
+              return (
+                <ToolToggleRow
+                  key={tool.name}
+                  tool={tool}
+                  enabled={effectiveEnabled}
+                  onToggle={() => onToolToggle(tool.name, tool.enabled, connection)}
+                  saving={toolSaving}
+                />
+              );
+            })}
+          </div>
+        </div>}
+
+        {/* Untagged tools — MCP-only, name didn't match read or mutation heuristics */}
+        {untaggedTools.length > 0 && <div className="space-y-0.5">
+          <div className="flex items-center gap-2 py-1">
+            <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span className="text-xs font-medium">Untagged tools</span>
+            <span className="text-xs text-muted-foreground/60">
+              ({contextEnabled ? untaggedTools.filter((t) => t.enabled).length : 0}/{untaggedTools.length} active)
+            </span>
+          </div>
+          <div className="flex items-start gap-2 text-xs px-2.5 py-2 rounded bg-amber-500/8 border border-amber-500/30 text-amber-700 dark:text-amber-300 mb-1">
+            <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span className="flex-1">
+              These tools weren't recognized as either reads or mutations. Review
+              their descriptions on the MCP server before enabling — they may
+              modify state. If they do, also gate them in Settings → Approvals.
+            </span>
+          </div>
+          <div className="pl-5 space-y-0.5">
+            {untaggedTools.map((tool) => {
               const effectiveEnabled = contextEnabled && tool.enabled;
               return (
                 <ToolToggleRow
