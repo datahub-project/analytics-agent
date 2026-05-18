@@ -462,6 +462,17 @@ fi
 
 ok ".env.quickstart written (uses host.docker.internal — your .env is untouched)"
 
+# Append local.env if present. Docker --env-file applies entries in
+# order; the last assignment of a duplicate key wins, so anything in
+# local.env overrides the auto-generated values above. local.env is
+# already covered by *.env in .gitignore — keep credentials and personal
+# tweaks there rather than touching the committed .env.
+if [[ -f "${REPO_ROOT}/local.env" ]]; then
+    printf '\n# --- local.env overrides ---\n' >> .env.quickstart
+    cat "${REPO_ROOT}/local.env" >> .env.quickstart
+    ok "Merged local.env into .env.quickstart"
+fi
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 7. Copy config.demo.yaml → config.yaml (baked into the Docker image)
 # ──────────────────────────────────────────────────────────────────────────────

@@ -165,7 +165,14 @@ PROVIDER_KEY_ATTR: dict[str, str] = {
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # `.env` is the committed example; `local.env` is a gitignored
+    # personal overlay. pydantic-settings reads later files last, so
+    # local.env keys override .env keys.
+    model_config = SettingsConfigDict(
+        env_file=(".env", "local.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # DataHub — fallback when config.yaml has no context_platforms entry
     datahub_gms_url: str = "http://localhost:8080"
