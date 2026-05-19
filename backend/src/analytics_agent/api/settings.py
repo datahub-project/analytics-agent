@@ -743,10 +743,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     raw = conn_cfg.get(df.key, "") or os.environ.get(
                         spec.env_map.get(df.key, ""), ""
                     )
-                    if df.sensitive:
-                        value = "(configured)" if raw else ""
-                    else:
-                        value = str(raw)
+                    value = ("(configured)" if raw else "") if df.sensitive else str(raw)
                     fields.append(
                         ConnectionField(
                             key=df.key,
