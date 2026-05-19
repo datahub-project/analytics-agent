@@ -733,8 +733,33 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     if f is not None
                 ]
         else:
-            status_str = "unconfigured"
-            fields = []
+            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
+
+            spec = _CM.get(intg.type)
+            if spec is not None and spec.display_fields:
+                status_str = "connected" if spec.is_configured(conn_cfg) else "unconfigured"
+                fields = []
+                for df in spec.display_fields:
+                    raw = conn_cfg.get(df.key, "") or os.environ.get(
+                        spec.env_map.get(df.key, ""), ""
+                    )
+                    if df.sensitive:
+                        value = "(configured)" if raw else ""
+                    else:
+                        value = str(raw)
+                    fields.append(
+                        ConnectionField(
+                            key=df.key,
+                            label=df.label,
+                            value=value,
+                            sensitive=df.sensitive,
+                            secret_key=df.secret_key,
+                            placeholder=df.placeholder,
+                        )
+                    )
+            else:
+                status_str = "unconfigured"
+                fields = []
 
         oauth_status = (
             OAuthStatus(

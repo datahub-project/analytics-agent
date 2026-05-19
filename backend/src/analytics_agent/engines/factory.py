@@ -10,6 +10,19 @@ _registry: dict[str, QueryEngine] = {}
 
 
 @dataclass
+class DisplayField:
+    """How a connector config key should render in the Settings UI."""
+
+    key: str
+    label: str
+    placeholder: str = ""
+    sensitive: bool = False
+    # When sensitive, the key under body.secrets the frontend posts on save.
+    # Must appear in secret_env_vars.
+    secret_key: str = ""
+
+
+@dataclass
 class ConnectorSpec:
     """Describes how to launch a native connector as an MCP subprocess via uvx."""
 
@@ -21,6 +34,10 @@ class ConnectorSpec:
     required_keys: list[str] = field(default_factory=list)
     # Keys where ANY ONE being present counts as having credentials.
     credential_keys: list[str] = field(default_factory=list)
+    # Field schema used by /api/connections to render the Data Sources list.
+    # When non-empty, list_connections derives ConnectionField objects from
+    # this spec instead of hand-coding a per-type branch.
+    display_fields: list[DisplayField] = field(default_factory=list)
 
     def is_configured(self, conn_cfg: dict, sso_connected: bool = False) -> bool:
         """True when the connection has enough config to attempt a real query.
@@ -113,6 +130,25 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
         },
         required_keys=["host"],
         credential_keys=["user", "password"],
+        display_fields=[
+            DisplayField(key="host", label="Host", placeholder="kyuubi-host or localhost"),
+            DisplayField(key="port", label="Port", placeholder="10000"),
+            DisplayField(key="database", label="Database", placeholder="default"),
+            DisplayField(key="auth", label="Auth", placeholder="NONE  (or NOSASL, LDAP, KERBEROS)"),
+            DisplayField(key="user", label="Username", placeholder="analytics_user"),
+            DisplayField(
+                key="password",
+                label="Password",
+                placeholder="LDAP/PLAIN only",
+                sensitive=True,
+                secret_key="password",
+            ),
+            DisplayField(
+                key="kerberos_service_name",
+                label="Kerberos Service Name",
+                placeholder="hive",
+            ),
+        ],
     ),
     "bigquery": ConnectorSpec(
         package="analytics-agent-connector-bigquery",

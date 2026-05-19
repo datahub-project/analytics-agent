@@ -19,6 +19,7 @@ from analytics_agent.api.settings import (
     _resolve_secrets,
     _upsert_env_vars,
     create_connection,
+    list_connections,
     update_connection,
 )
 from fastapi import HTTPException
@@ -332,3 +333,177 @@ async def test_post_config_and_secrets(tmp_path: pathlib.Path) -> None:
     assert persisted_config.get("account") == "myorg-myacct"
     env_vars = _read_env(env_file)
     assert env_vars["SNOWFLAKE_PASSWORD"] == "postpwd"
+
+
+# ---------------------------------------------------------------------------
+# list_connections: spec-driven display_fields rendering
+# ---------------------------------------------------------------------------
+
+
+def _hive_integration(config: dict | None = None) -> MagicMock:
+    intg = MagicMock()
+    intg.name = "myhive"
+    intg.type = "hive"
+    intg.label = "My Hive"
+    intg.source = "ui"
+    intg.config = orjson.dumps(config or {}).decode()
+    intg.updated_at = None
+    return intg
+
+
+@pytest.mark.asyncio
+async def test_list_connections_hive_unconfigured_renders_all_fields() -> None:
+    """Hive with no config still shows all 7 plugin fields (closes #52)."""
+    intg = _hive_integration(config={})
+    session = AsyncMock()
+
+    mock_intg_repo = AsyncMock()
+    mock_intg_repo.list_all = AsyncMock(return_value=[intg])
+    mock_cred_repo = AsyncMock()
+    mock_cred_repo.get = AsyncMock(return_value=None)
+    mock_settings_repo = AsyncMock()
+
+    with (
+        patch("analytics_agent.db.repository.IntegrationRepo", return_value=mock_intg_repo),
+        patch("analytics_agent.db.repository.CredentialRepo", return_value=mock_cred_repo),
+        patch("analytics_agent.api.settings.SettingsRepo", return_value=mock_settings_repo),
+        patch(
+            "analytics_agent.api.settings._get_datahub_connections",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_tools",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_enabled_mutations",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_connections",
+            AsyncMock(return_value=set()),
+        ),
+        patch.dict("analytics_agent.api.settings.os.environ", {}, clear=True),
+    ):
+        conns = await list_connections(session)
+
+    hive = next(c for c in conns if c.type == "hive")
+    assert hive.status == "unconfigured"
+    field_keys = [f.key for f in hive.fields]
+    assert field_keys == [
+        "host",
+        "port",
+        "database",
+        "auth",
+        "user",
+        "password",
+        "kerberos_service_name",
+    ]
+    labels = {f.key: f.label for f in hive.fields}
+    assert labels["host"] == "Host"
+    assert labels["password"] == "Password"
+    # Sensitive password field is masked and routes through secret_key.
+    password = next(f for f in hive.fields if f.key == "password")
+    assert password.sensitive is True
+    assert password.secret_key == "password"
+    assert password.value == ""
+
+
+@pytest.mark.asyncio
+async def test_list_connections_hive_configured_masks_password_and_shows_values() -> None:
+    intg = _hive_integration(
+        config={
+            "host": "kyuubi.internal",
+            "port": "10000",
+            "database": "analytics",
+            "user": "svc",
+            "password": "super-secret",
+        }
+    )
+    session = AsyncMock()
+
+    mock_intg_repo = AsyncMock()
+    mock_intg_repo.list_all = AsyncMock(return_value=[intg])
+    mock_cred_repo = AsyncMock()
+    mock_cred_repo.get = AsyncMock(return_value=None)
+    mock_settings_repo = AsyncMock()
+
+    with (
+        patch("analytics_agent.db.repository.IntegrationRepo", return_value=mock_intg_repo),
+        patch("analytics_agent.db.repository.CredentialRepo", return_value=mock_cred_repo),
+        patch("analytics_agent.api.settings.SettingsRepo", return_value=mock_settings_repo),
+        patch(
+            "analytics_agent.api.settings._get_datahub_connections",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_tools",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_enabled_mutations",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_connections",
+            AsyncMock(return_value=set()),
+        ),
+        patch.dict("analytics_agent.api.settings.os.environ", {}, clear=True),
+    ):
+        conns = await list_connections(session)
+
+    hive = next(c for c in conns if c.type == "hive")
+    assert hive.status == "connected"
+    values = {f.key: f.value for f in hive.fields}
+    assert values["host"] == "kyuubi.internal"
+    assert values["port"] == "10000"
+    assert values["user"] == "svc"
+    # Password value is never sent verbatim; the placeholder string signals "set".
+    assert values["password"] == "(configured)"
+
+
+@pytest.mark.asyncio
+async def test_list_connections_unknown_type_falls_through_to_empty() -> None:
+    """A type with no spec and no display_fields still gets handled gracefully."""
+    intg = MagicMock()
+    intg.name = "mystery"
+    intg.type = "totally-unknown-engine"
+    intg.label = "Mystery"
+    intg.source = "ui"
+    intg.config = orjson.dumps({"foo": "bar"}).decode()
+    intg.updated_at = None
+    session = AsyncMock()
+
+    mock_intg_repo = AsyncMock()
+    mock_intg_repo.list_all = AsyncMock(return_value=[intg])
+    mock_cred_repo = AsyncMock()
+    mock_cred_repo.get = AsyncMock(return_value=None)
+    mock_settings_repo = AsyncMock()
+
+    with (
+        patch("analytics_agent.db.repository.IntegrationRepo", return_value=mock_intg_repo),
+        patch("analytics_agent.db.repository.CredentialRepo", return_value=mock_cred_repo),
+        patch("analytics_agent.api.settings.SettingsRepo", return_value=mock_settings_repo),
+        patch(
+            "analytics_agent.api.settings._get_datahub_connections",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_tools",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_enabled_mutations",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_connections",
+            AsyncMock(return_value=set()),
+        ),
+        patch.dict("analytics_agent.api.settings.os.environ", {}, clear=True),
+    ):
+        conns = await list_connections(session)
+
+    mystery = next(c for c in conns if c.type == "totally-unknown-engine")
+    assert mystery.status == "unconfigured"
+    assert mystery.fields == []
