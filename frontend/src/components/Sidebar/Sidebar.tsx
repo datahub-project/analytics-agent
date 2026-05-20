@@ -1,7 +1,11 @@
 import { useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { useConversationsStore } from "@/store/conversations";
-import { createConversation, deleteConversation } from "@/api/conversations";
+import {
+  createConversation,
+  deleteAllConversations,
+  deleteConversation,
+} from "@/api/conversations";
 import { ConversationItem } from "./ConversationItem";
 import { AppLogo } from "@/components/Brand/AppLogo";
 import { DataHubBadge } from "@/components/Brand/DataHubBadge";
@@ -15,6 +19,7 @@ export function Sidebar() {
     setActiveId,
     addConversation,
     removeConversation,
+    setConversations,
   } = useConversationsStore();
 
   const [filter, setFilter] = useState("");
@@ -31,6 +36,19 @@ export function Sidebar() {
   const handleDelete = async (id: string) => {
     await deleteConversation(id);
     removeConversation(id);
+  };
+
+  const handleClearAll = async () => {
+    if (conversations.length === 0) return;
+    const ok = window.confirm(
+      `Delete all ${conversations.length} conversation${
+        conversations.length === 1 ? "" : "s"
+      }? This cannot be undone. Settings and connections are kept.`,
+    );
+    if (!ok) return;
+    await deleteAllConversations();
+    setConversations([]);
+    setActiveId(null);
   };
 
   const normalizedFilter = filter.trim().toLowerCase();
@@ -51,13 +69,23 @@ export function Sidebar() {
         >
           <AppLogo />
         </button>
-        <button
-          onClick={handleNew}
-          className="p-1.5 rounded-md hover:bg-muted transition-colors"
-          title="New conversation"
-        >
-          <Plus className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleClearAll}
+            disabled={conversations.length === 0}
+            className="p-1.5 rounded-md hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Clear all conversations"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+          <button
+            onClick={handleNew}
+            className="p-1.5 rounded-md hover:bg-muted transition-colors"
+            title="New conversation"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Filter */}

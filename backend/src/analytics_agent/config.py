@@ -172,6 +172,8 @@ class Settings(BaseSettings):
         env_file=(".env", "local.env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        str_strip_whitespace=True,
+        env_ignore_empty=True,
     )
 
     # DataHub — fallback when config.yaml has no context_platforms entry
@@ -293,6 +295,13 @@ class Settings(BaseSettings):
     sandbox_root_dir: str = "data/sandboxes"
     sandbox_command_timeout: int = 60
     sandbox_max_output_bytes: int = 64_000
+
+    # Auto-eviction threshold for large tool results (deepagents
+    # FilesystemMiddleware). Tool results above this token count are
+    # written to /large_tool_results/<tool_call_id> and replaced inline
+    # with a head/tail preview. 0 disables eviction. Operator-set value
+    # in the DB (see api/settings.py) takes precedence at request time.
+    large_tool_results_token_limit: int = 20_000
 
     # Human-in-the-loop. The deepagents `interrupt_on` middleware pauses
     # the graph before mutation tools so the user can approve / reject /

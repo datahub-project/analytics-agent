@@ -94,15 +94,19 @@ def build_sandbox_backend(conversation_id: str) -> LocalShellBackend:
 
     return LocalShellBackend(
         root_dir=sandbox_dir,
-        # virtual_mode=False so write_file and execute share the same path
-        # semantics: cwd = root_dir, relative paths resolve there, absolute
-        # paths hit the real OS root. With virtual_mode=True, write_file
-        # silently rewrites "/foo" to "<root_dir>/foo" but execute does not
-        # — so `execute("python /foo")` can't find the script that
-        # `write_file("/foo", ...)` just created.
-        # The path-traversal guardrail virtual_mode provides is moot: execute
-        # can read any path the server user can read regardless.
-        virtual_mode=False,
+        # virtual_mode=True so the agent's virtual-FS mental model (absolute
+        # paths like "/work.py" and "/large_tool_results/<id>") maps into
+        # the sandbox dir instead of escaping to the real OS root. With
+        # virtual_mode=False, write_file("/foo") writes to literal /foo
+        # (usually a permission-denied silent failure) and the auto-evicted
+        # /large_tool_results/<id> files never land where execute can read
+        # them. Tradeoff: when shelling out, the agent must use the
+        # relative form — `execute("python work.py")`, not
+        # `execute("python /work.py")` — because execute's cwd is
+        # root_dir on the real filesystem and "/work.py" is not rewritten
+        # for shell commands. The system prompt's sandbox examples already
+        # use the relative form.
+        virtual_mode=True,
         timeout=settings.sandbox_command_timeout,
         max_output_bytes=settings.sandbox_max_output_bytes,
         inherit_env=False,

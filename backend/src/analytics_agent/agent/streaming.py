@@ -14,6 +14,60 @@ _CHART_BLOCK_RE = re.compile(
 )
 
 
+# Per-conversation snapshot of the deepagents virtual filesystem. Populated
+# during streaming whenever write_file/edit_file fires (and at end-of-turn for
+# FilesystemMiddleware eviction). The `/files` HTTP endpoint reads this first
+# so the Files panel can survive a reload without depending on outer-graph
+# checkpoint propagation, which is unreliable for DeltaChannel subgraph state.
+FILES_SNAPSHOTS: dict[str, dict[str, str]] = {}
+
+
+def _normalize_files(raw: Any) -> dict[str, str]:
+    """Coerce a deepagents `files` channel value into {path: content_str}.
+
+    deepagents stores entries as `FileData` dicts (`{content, encoding, ...}`)
+    in v2 format and plain strings in v1. We surface only the content for the
+    UI panel — encoding/mtime aren't displayed.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for path, data in raw.items():
+        if isinstance(data, str):
+            out[path] = data
+        elif isinstance(data, dict):
+            content = data.get("content")
+            if isinstance(content, str):
+                out[path] = content
+            elif isinstance(content, list):
+                # v1 stored content as list[str] (lines)
+                out[path] = "\n".join(str(line) for line in content)
+    return out
+
+
+async def _snapshot_virtual_files(graph: Any, cfg: dict) -> dict[str, str]:
+    """Read the current virtual-filesystem snapshot from the live graph.
+
+    `aget_state(subgraphs=True)` walks into the deepagents subgraph so we pick
+    up files even when the outer state's `files` channel hasn't received the
+    subgraph's delta yet (DeltaChannel propagation across StateGraph nodes is
+    not guaranteed to be synchronous within a single agent step).
+    """
+    try:
+        snap = await graph.aget_state(cfg, subgraphs=True)
+    except Exception:
+        return {}
+    files = _normalize_files((snap.values or {}).get("files"))
+    # Walk pending subgraph tasks; deepagents writes files inside the inner
+    # agent's state and we want those even mid-step.
+    for task in getattr(snap, "tasks", ()) or ():
+        sub = getattr(task, "state", None)
+        sub_values = getattr(sub, "values", None) if sub is not None else None
+        if isinstance(sub_values, dict):
+            files.update(_normalize_files(sub_values.get("files")))
+    return files
+
+
 def _extract_chart_from_text(text: str) -> dict | None:
     """Extract a Vega-Lite chart spec if the model output it as a JSON code block."""
     match = _CHART_BLOCK_RE.search(text)
@@ -213,6 +267,30 @@ async def stream_graph_events(
                 # create_chart renders as a CHART event — don't show a tool call bubble
                 if name == "create_chart":
                     continue
+                # `task` is the deepagents sub-agent dispatcher — surface as a
+                # dedicated SUBAGENT_CALL so the UI can show "Delegating to X".
+                if name == "task":
+                    yield {
+                        "event": "SUBAGENT_CALL",
+                        "conversation_id": conversation_id,
+                        "message_id": run_id,
+                        "payload": {
+                            "subagent_type": tool_input.get("subagent_type", ""),
+                            "description": tool_input.get("description", ""),
+                        },
+                    }
+                    continue
+                # `write_todos` is the deepagents planning tool — surface as a
+                # dedicated TODOS event so the UI plan panel can subscribe.
+                if name == "write_todos":
+                    todos = tool_input.get("todos", [])
+                    yield {
+                        "event": "TODOS",
+                        "conversation_id": conversation_id,
+                        "message_id": str(uuid.uuid4()),
+                        "payload": {"todos": todos},
+                    }
+                    continue
                 yield {
                     "event": "TOOL_CALL",
                     "conversation_id": conversation_id,
@@ -235,9 +313,37 @@ async def stream_graph_events(
                 }
                 pending_sql.pop(run_id, None)
 
-            # ── SQL / TOOL_RESULT / CHART ──
+            # ── SQL / TOOL_RESULT / CHART / SUBAGENT_RESULT / FILES_UPDATE ──
             elif event_type == "on_tool_end":
                 output = data.get("output", "")
+                # File-mutating deepagents tools — re-snapshot the virtual FS.
+                # Snapshot is read from the latest checkpointed state below
+                # (via aget_state) to keep payload small and authoritative.
+                if name in ("write_file", "edit_file"):
+                    file_path = (data.get("input") or {}).get("file_path", "")
+                    files_snap = await _snapshot_virtual_files(graph, cfg)
+                    FILES_SNAPSHOTS[conversation_id] = files_snap
+                    yield {
+                        "event": "FILES_UPDATE",
+                        "conversation_id": conversation_id,
+                        "message_id": str(uuid.uuid4()),
+                        "payload": {"changed_path": file_path, "files": files_snap},
+                    }
+                if name == "task":
+                    # Sub-agent completion — emit a result event the UI can pair
+                    # with the SUBAGENT_CALL to collapse the trace.
+                    result_text = _stringify_tool_output(output)
+                    yield {
+                        "event": "SUBAGENT_RESULT",
+                        "conversation_id": conversation_id,
+                        "message_id": run_id,
+                        "payload": {"result": result_text[:4000]},
+                    }
+                    continue
+                if name == "write_todos":
+                    # The TODOS event was already emitted at tool_start with the
+                    # full planned list; the tool_end output is just an ack.
+                    continue
                 # MCP tools return a list of content blocks: [{"type":"text","text":"...","id":"..."}]
                 # Unwrap to the inner text so the rest of the pipeline sees a plain JSON string.
                 if (
@@ -473,6 +579,23 @@ async def stream_graph_events(
     except Exception:
         # State inspection failed (e.g. no checkpointer mid-config); don't
         # block COMPLETE — fall through.
+        pass
+
+    # End-of-turn files snapshot. Catches FilesystemMiddleware's automatic
+    # large-tool-result evictions, which don't go through write_file/edit_file
+    # so they aren't covered by the per-tool FILES_UPDATE above.
+    try:
+        end_files = await _snapshot_virtual_files(graph, cfg)
+        prev_files = FILES_SNAPSHOTS.get(conversation_id, {})
+        if end_files != prev_files:
+            FILES_SNAPSHOTS[conversation_id] = end_files
+            yield {
+                "event": "FILES_UPDATE",
+                "conversation_id": conversation_id,
+                "message_id": str(uuid.uuid4()),
+                "payload": {"changed_path": "", "files": end_files},
+            }
+    except Exception:
         pass
 
     if not interrupted:

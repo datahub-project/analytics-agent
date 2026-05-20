@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
-import type { ConversationSummary, Engine, UIMessage, UsagePayload, TurnUsage } from "@/types";
+import type { ConversationSummary, Engine, UIMessage, UsagePayload, TurnUsage, TodoItem } from "@/types";
 
 export interface UsageTotals {
   input_tokens: number;
@@ -59,6 +59,15 @@ interface ConversationsState {
   // Reset to false when the active conversation changes.
   sessionAutoApprove: boolean;
   setSessionAutoApprove: (v: boolean) => void;
+
+  // Deepagents primitives surfaced in the right-rail panel:
+  // - todos: latest snapshot from the `write_todos` tool
+  // - files: virtual filesystem snapshot (path → content)
+  // Reset when activeId changes.
+  todos: TodoItem[];
+  setTodos: (todos: TodoItem[]) => void;
+  files: Record<string, string>;
+  setFiles: (files: Record<string, string>) => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set) => ({
@@ -71,6 +80,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
   usageTotals: { ...EMPTY_USAGE },
   pendingInterruptId: null,
   sessionAutoApprove: false,
+  todos: [],
+  files: {},
 
   setConversations: (list) => set({ conversations: list }),
   addConversation: (conv) =>
@@ -88,6 +99,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
       usageTotals: { ...EMPTY_USAGE },
       pendingInterruptId: null,
       sessionAutoApprove: false,
+      todos: [],
+      files: {},
     }),
   setMessages: (msgs) => set({ messages: msgs }),
   appendMessage: (msg) =>
@@ -167,6 +180,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
     })),
   setPendingInterruptId: (id) => set({ pendingInterruptId: id }),
   setSessionAutoApprove: (v) => set({ sessionAutoApprove: v }),
+  setTodos: (todos) => set({ todos }),
+  setFiles: (files) => set({ files }),
   addUsage: (usage) =>
     set((s) => ({
       usageTotals: {

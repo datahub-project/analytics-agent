@@ -89,6 +89,12 @@ class ConnectorSpec:
             "command": command,
             "args": args,
             "env": env,
+            "_auth_env": {
+                "pat_token": self.env_map.get("pat_token"),
+                "private_key": self.env_map.get("private_key"),
+                "password": self.env_map.get("password"),
+                "user": self.env_map.get("user"),
+            },
         }
 
 

@@ -3,6 +3,7 @@ import { Settings2, ChevronDown, ChevronRight } from "lucide-react";
 import type { UIMessage, TurnUsage } from "@/types";
 import { ThinkingMessage } from "./ThinkingMessage";
 import { ToolCallMessage, ToolResultMessage } from "./ToolCallMessage";
+import { SubagentCallMessage, SubagentResultMessage } from "./SubagentMessage";
 import { InterruptCard } from "./InterruptCard";
 import type { InterruptDecision, InterruptPayload } from "@/types";
 import { SqlMessage } from "./SqlMessage";
@@ -195,6 +196,12 @@ export function AgentWorkBlock({
                 )}
                 {msg.event_type === "TOOL_RESULT" && (
                   <ToolResultMessage payload={msg.payload as never} />
+                )}
+                {msg.event_type === "SUBAGENT_CALL" && (
+                  <SubagentCallMessage payload={msg.payload as never} />
+                )}
+                {msg.event_type === "SUBAGENT_RESULT" && (
+                  <SubagentResultMessage payload={msg.payload as never} />
                 )}
                 {msg.event_type === "SQL" && (
                   <SqlMessage payload={msg.payload as never} />

@@ -15,7 +15,7 @@ _pending_charts: dict[str, dict] = {}
 
 @tool
 async def create_chart(
-    data: list[dict] | None = None,
+    data: list[dict] = [],
     question: str = "",
     title: str = "",
     color_scheme: str = "",

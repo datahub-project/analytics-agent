@@ -25,6 +25,7 @@ export function SubagentsSection() {
   const [builtins, setBuiltins] = useState<BuiltinRowState[]>([]);
   const [custom, setCustom] = useState<CustomSubagent[]>([]);
   const [availableTools, setAvailableTools] = useState<string[]>([]);
+  const [forceSubagentDataAccess, setForceSubagentDataAccess] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +45,7 @@ export function SubagentsSection() {
         );
         setCustom(cfg.custom);
         setAvailableTools(cfg.available_tools);
+        setForceSubagentDataAccess(cfg.force_subagent_data_access);
       })
       .catch((e) => !cancelled && setError(String(e)));
     return () => {
@@ -78,7 +80,12 @@ export function SubagentsSection() {
       const safeCustom = custom.filter(
         (c) => c.name.trim() && c.description.trim() && c.system_prompt.trim() && c.tool_names.length,
       );
-      await saveSubagentsConfig({ disabled_builtins, builtin_overrides, custom: safeCustom });
+      await saveSubagentsConfig({
+        disabled_builtins,
+        builtin_overrides,
+        custom: safeCustom,
+        force_subagent_data_access: forceSubagentDataAccess,
+      });
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch (e) {
@@ -95,6 +102,28 @@ export function SubagentsSection() {
         prompt, or tool list. Add custom sub-agents below — each runs in an
         isolated context window and only its summary returns to the parent.
       </div>
+
+      <section className="rounded-xl border border-border px-4 py-3">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={forceSubagentDataAccess}
+            onChange={(e) => setForceSubagentDataAccess(e.target.checked)}
+          />
+          <div className="flex-1">
+            <div className="text-sm font-medium">Force data access through sub-agents</div>
+            <div className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              Strip DataHub catalog (MCP) and engine/SQL tools from the main
+              agent. It must delegate via <code className="font-mono">task</code> to
+              a sub-agent for any data read or query. Keeps large entity blobs
+              and result sets out of the parent's context. Skills, chart, and
+              ask_user remain on the main agent. Enable at least one sub-agent
+              below that owns the data tools you need.
+            </div>
+          </div>
+        </label>
+      </section>
 
       <section className="space-y-3">
         <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">

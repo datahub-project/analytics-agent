@@ -1,4 +1,4 @@
-import type { MessageRecord, UIMessage, UsagePayload, TurnUsage } from "@/types";
+import type { MessageRecord, TodoItem, TodosPayload, UIMessage, UsagePayload, TurnUsage } from "@/types";
 
 export function buildUiMessages(records: MessageRecord[]): {
   messages: UIMessage[];
@@ -12,6 +12,7 @@ export function buildUiMessages(records: MessageRecord[]): {
     model?: string;
     provider?: string;
   };
+  lastTodos: TodoItem[];
 } {
   const result: UIMessage[] = [];
   const totals: {
@@ -36,6 +37,10 @@ export function buildUiMessages(records: MessageRecord[]): {
   let completeText = "";
   let seenToolCallAfterText = false;
   let turnUsages: UsagePayload[] = [];
+  // Latest plan snapshot (write_todos output). TODOS events aren't part of
+  // chat history but the right-rail plan panel needs the last value on
+  // conversation reload — otherwise the plan disappears on switch.
+  let lastTodos: TodoItem[] = [];
   // USAGE arrives at on_chat_model_end — BEFORE the next TOOL_CALL or COMPLETE
   // flushes the pending text. Stash it here and attach to the message pushed by
   // the next flushText() call (the thinking/response from the same LLM call).
@@ -117,7 +122,22 @@ export function buildUiMessages(records: MessageRecord[]): {
       case "INTERRUPT":
       case "INTERRUPT_DECISION":
       case "FOLLOW_UPS":
+      case "SUBAGENT_CALL":
+      case "SUBAGENT_RESULT":
         result.push({ id: m.id, event_type: m.event_type, role: m.role, payload: m.payload, created_at: m.created_at });
+        break;
+
+      case "TODOS": {
+        // Side-band: not appended to chat history, but the latest snapshot
+        // is returned so the loader can restore the plan panel.
+        const payload = m.payload as unknown as TodosPayload;
+        if (payload && Array.isArray(payload.todos)) {
+          lastTodos = payload.todos;
+        }
+        break;
+      }
+      case "FILES_UPDATE":
+        // Side-band event for the right-rail panel; not part of chat history.
         break;
 
       case "USAGE": {
@@ -166,5 +186,5 @@ export function buildUiMessages(records: MessageRecord[]): {
   }
 
   flushText(seenToolCallAfterText);
-  return { messages: result, totals };
+  return { messages: result, totals, lastTodos };
 }

@@ -236,6 +236,14 @@ async def get_context_quality(conversation_id: str, session: AsyncSession = Depe
     }
 
 
+@router.delete("", status_code=200)
+async def delete_all_conversations(session: AsyncSession = Depends(get_session)):
+    """Clear all conversations and their messages. Settings/connections untouched."""
+    repo = ConversationRepo(session)
+    deleted = await repo.delete_all()
+    return {"deleted": deleted}
+
+
 @router.delete("/{conversation_id}", status_code=204)
 async def delete_conversation(conversation_id: str, session: AsyncSession = Depends(get_session)):
     repo = ConversationRepo(session)

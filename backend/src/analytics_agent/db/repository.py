@@ -54,6 +54,23 @@ class ConversationRepo:
         await self._session.commit()
         return True
 
+    async def delete_all(self) -> int:
+        """Delete every conversation. Returns the number removed.
+
+        SQLite doesn't enable FK constraints by default (see db/base.py), so
+        we can't rely on the `ondelete="CASCADE"` clause to clean messages
+        via a bulk DELETE — delete messages first, then conversations.
+        Settings, connections, and credentials are untouched.
+        """
+        from sqlalchemy import delete as sa_delete
+
+        from analytics_agent.db.models import Message
+
+        await self._session.execute(sa_delete(Message))
+        result = await self._session.execute(sa_delete(Conversation))
+        await self._session.commit()
+        return int(result.rowcount or 0)
+
     async def update_quality(
         self, conversation_id: str, score: int, label: str, reason: str
     ) -> None:

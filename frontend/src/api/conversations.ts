@@ -27,9 +27,22 @@ export async function getConversation(id: string): Promise<ConversationDetail> {
   return res.json();
 }
 
+export async function getVirtualFiles(id: string): Promise<Record<string, string>> {
+  const res = await fetch(`${BASE}/conversations/${id}/files`);
+  if (!res.ok) return {};
+  const data = await res.json();
+  return data.files ?? {};
+}
+
 export async function deleteConversation(id: string): Promise<void> {
   const res = await fetch(`${BASE}/conversations/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Failed to delete conversation");
+}
+
+export async function deleteAllConversations(): Promise<{ deleted: number }> {
+  const res = await fetch(`${BASE}/conversations`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Failed to clear conversations");
+  return res.json();
 }
 
 export async function generateTitle(

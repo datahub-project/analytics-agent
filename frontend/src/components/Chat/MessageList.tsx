@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef } from "react";
+import { Loader2 } from "lucide-react";
 import type { InterruptDecision, UIMessage } from "@/types";
 import { TextMessage } from "./messages/TextMessage";
 import { AgentWorkBlock } from "./messages/AgentWorkBlock";
@@ -113,6 +114,16 @@ export function MessageList({
           )}
         </Fragment>
       ))}
+      {isStreaming && (
+        <div
+          className="flex items-center gap-2 pl-1 text-xs text-muted-foreground"
+          data-print-hide
+          aria-live="polite"
+        >
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>Thinking…</span>
+        </div>
+      )}
       <div ref={bottomRef} />
     </div>
   );

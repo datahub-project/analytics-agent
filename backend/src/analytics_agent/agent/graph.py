@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 from typing import Any, Literal
 
 import orjson
@@ -21,13 +22,55 @@ from analytics_agent.prompts.system import build_system_prompt
 from analytics_agent.skills.loader import build_skill_sources
 
 
+# --- Per-request override for deepagents' FilesystemMiddleware eviction
+# threshold ----------------------------------------------------------------
+#
+# `tool_token_limit_before_evict` is not exposed by `create_deep_agent`;
+# deepagents auto-instantiates `FilesystemMiddleware(backend=...)` with
+# the default. We patch the class in `deepagents.graph` once at import
+# time with a wrapper that reads the per-request value from a
+# ContextVar. `build_graph` sets it before calling `create_deep_agent`.
+# ContextVar is per-asyncio-task so concurrent requests don't race.
+_tool_token_limit_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "_analytics_tool_token_limit", default=None
+)
+
+
+def _install_filesystem_middleware_patch() -> None:
+    import deepagents.graph as _dg_graph
+    from deepagents.middleware.filesystem import FilesystemMiddleware as _Orig
+
+    if getattr(_dg_graph.FilesystemMiddleware, "_analytics_patched", False):
+        return
+
+    class _AnalyticsFilesystemMiddleware(_Orig):  # type: ignore[valid-type, misc]
+        _analytics_patched = True
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            if "tool_token_limit_before_evict" not in kwargs:
+                override = _tool_token_limit_var.get()
+                if override is not None:
+                    # 0 (or any non-positive) means "disable eviction".
+                    kwargs["tool_token_limit_before_evict"] = (
+                        override if override > 0 else None
+                    )
+            super().__init__(*args, **kwargs)
+
+    _dg_graph.FilesystemMiddleware = _AnalyticsFilesystemMiddleware
+
+
+_install_filesystem_middleware_patch()
+
+
 def get_last_sql_result(state: AgentState) -> dict | None:
     """Scan message history for the last execute_sql ToolMessage and parse its content."""
     for msg in reversed(state["messages"]):
         if isinstance(msg, ToolMessage) and getattr(msg, "name", None) == "execute_sql":
             try:
                 if isinstance(msg.content, str):
-                    return orjson.loads(msg.content)
+                    parsed = orjson.loads(msg.content)
+                    if isinstance(parsed, dict):
+                        return parsed
             except Exception:
                 pass
     return None
@@ -51,6 +94,7 @@ def build_graph(
     hitl_policy_override: list[str] | None = None,  # operator-set list of tools to intercept
     subagents_config: SubagentsConfig | None = None,  # operator-set sub-agent overlay
     conversation_id: str | None = None,  # per-conversation Python sandbox cwd
+    large_tool_results_token_limit: int | None = None,  # operator override; None = use settings default
 ):
     """Build the agent graph backed by `deepagents.create_deep_agent`.
 
@@ -104,7 +148,29 @@ def build_graph(
     from analytics_agent.agent.ask_user import ask_user
 
     ask_user_tools = [] if "ask_user" in disabled else [ask_user]
-    all_tools = datahub_tools + skill_tools + engine_tools + chart_tools + ask_user_tools
+
+    # When `force_subagent_data_access` is on, the parent loses direct access
+    # to data-fetching tools (DataHub catalog + engine/SQL). It must route
+    # those calls through `task` → sub-agent, which keeps large entity blobs
+    # and result sets out of the parent context. Skills/chart/ask_user stay.
+    force_subagent_data = bool(subagents_config and subagents_config.force_subagent_data_access)
+    parent_datahub_tools = [] if force_subagent_data else datahub_tools
+    parent_engine_tools = [] if force_subagent_data else engine_tools
+
+    # Bedrock Converse caps combined tool schemas on two dimensions:
+    # ~16 union/array/anyOf params total, and a compiled-grammar byte
+    # budget. The DataHub MCP tools are heavy on both. Drop the
+    # niche/sub-agent-owned ones from the parent — they remain
+    # reachable via `task` → lineage-tracer / datahub-explorer.
+    # See scripts/diagnose_bedrock_unions.py.
+    if settings.llm_provider == "bedrock":
+        from analytics_agent.agent.subagents import _PARENT_BEDROCK_DROP
+
+        parent_datahub_tools = [
+            t for t in parent_datahub_tools if t.name not in _PARENT_BEDROCK_DROP
+        ]
+
+    all_tools = parent_datahub_tools + skill_tools + parent_engine_tools + chart_tools + ask_user_tools
 
     if system_prompt_override:
         # See prompts/system.py — str.replace, not str.format, so embedded
@@ -227,7 +293,20 @@ def build_graph(
             pass
     if extra_middleware:
         deep_agent_kwargs["middleware"] = extra_middleware
-    deep_agent = create_deep_agent(**deep_agent_kwargs)
+
+    # Push the per-request eviction threshold into the contextvar the
+    # patched FilesystemMiddleware reads. Falls back to the env/config
+    # default when no operator override was supplied.
+    effective_token_limit = (
+        large_tool_results_token_limit
+        if large_tool_results_token_limit is not None
+        else settings.large_tool_results_token_limit
+    )
+    _token_limit_token = _tool_token_limit_var.set(effective_token_limit)
+    try:
+        deep_agent = create_deep_agent(**deep_agent_kwargs)
+    finally:
+        _tool_token_limit_var.reset(_token_limit_token)
 
     graph = StateGraph(AgentState)
     graph.add_node("agent", deep_agent)

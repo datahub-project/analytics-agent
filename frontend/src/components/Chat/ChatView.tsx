@@ -1,9 +1,9 @@
 import { useEffect, useCallback, useState, useRef } from "react";
-import type { MessageRecord, UsagePayload, TurnUsage } from "@/types";
+import type { MessageRecord, UsagePayload, TurnUsage, TodosPayload } from "@/types";
 import { streamMessage, reattachStream, resumeStream } from "@/api/stream";
 import type { InterruptDecision, InterruptPayload } from "@/types";
-import { generateTitle, getConversation, createConversation } from "@/api/conversations";
-import { Download, X } from "lucide-react";
+import { generateTitle, getConversation, createConversation, getVirtualFiles } from "@/api/conversations";
+import { Download, PanelRight, X } from "lucide-react";
 import { useConversationsStore } from "@/store/conversations";
 import { useDisplayStore } from "@/store/display";
 import { MessageList } from "./MessageList";
@@ -11,6 +11,7 @@ import { MessageInput } from "./MessageInput";
 import { EngineSelector } from "./EngineSelector";
 import { WelcomeView } from "./WelcomeView";
 import { ContextStatusBar } from "./ContextStatusBar";
+import { DeepAgentsPanel } from "./DeepAgentsPanel";
 import type { UIMessage } from "@/types";
 import { buildUiMessages } from "@/lib/buildUiMessages";
 import { v4 as uuidv4 } from "uuid";
@@ -40,12 +41,72 @@ export function ChatView() {
     pendingInterruptId,
     setPendingInterruptId,
     setSessionAutoApprove,
+    setTodos,
+    setFiles,
   } = useConversationsStore();
 
   const activeConv = conversations.find((c) => c.id === activeId);
   const pendingFirstMessage = useRef<string | null>(null);
   const chartErrorRetried = useRef(false);
   const streamAbortRef = useRef<AbortController | null>(null);
+  // Debounce timer for refreshing the virtual filesystem snapshot. Coalesces
+  // bursts of TOOL_RESULT events into a single fetch so the panel reflects
+  // deepagents' auto-eviction of large tool outputs without per-tool churn.
+  const filesRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleFilesRefresh = useCallback((convId: string) => {
+    if (filesRefreshTimer.current) clearTimeout(filesRefreshTimer.current);
+    filesRefreshTimer.current = setTimeout(() => {
+      filesRefreshTimer.current = null;
+      getVirtualFiles(convId).then(setFiles).catch(() => {});
+    }, 400);
+  }, [setFiles]);
+
+  /**
+   * Handle deepagents side-band events: TODOS (planning tool), FILES_UPDATE
+   * (write_file/edit_file), SUBAGENT_CALL/RESULT (task tool). Returns true
+   * if the event was consumed so the per-loop branches can short-circuit.
+   */
+  const handleDeepAgentsEvent = useCallback(
+    (event: { event: string; message_id: string; payload: Record<string, unknown> }, convId: string): boolean => {
+      if (event.event === "TODOS") {
+        setTodos(((event.payload as unknown) as TodosPayload).todos || []);
+        return true;
+      }
+      if (event.event === "FILES_UPDATE") {
+        // Backend ships the full files map inline so we can apply it directly
+        // without a follow-up HTTP fetch. Fall back to refetch only if the
+        // payload didn't include it (older backend / partial payloads).
+        const filesPayload = (event.payload as { files?: Record<string, string> }).files;
+        if (filesPayload && typeof filesPayload === "object") {
+          setFiles(filesPayload);
+        } else {
+          scheduleFilesRefresh(convId);
+        }
+        return true;
+      }
+      if (event.event === "TOOL_RESULT") {
+        // Deepagents' FilesystemMiddleware auto-evicts large tool outputs to
+        // /large_tool_results/<id> inside the FS middleware (no explicit
+        // write_file call), so we refresh on every tool result to surface
+        // those evictions. Returning false lets the default branch still
+        // append the TOOL_RESULT to the message stream.
+        scheduleFilesRefresh(convId);
+        return false;
+      }
+      if (event.event === "SUBAGENT_CALL" || event.event === "SUBAGENT_RESULT") {
+        markCurrentAsThinking();
+        appendMessage({
+          id: event.message_id,
+          event_type: event.event as "SUBAGENT_CALL" | "SUBAGENT_RESULT",
+          role: "assistant",
+          payload: event.payload,
+        });
+        return true;
+      }
+      return false;
+    },
+    [setTodos, scheduleFilesRefresh, markCurrentAsThinking, appendMessage],
+  );
 
   // Load conversation history when activeId changes; fire pending first message
   useEffect(() => {
@@ -72,9 +133,10 @@ export function ChatView() {
       if (activeId !== snapId) return;
 
       if (!detail.is_streaming) {
-        const { messages: uiMsgs, totals } = buildUiMessages(detail.messages);
+        const { messages: uiMsgs, totals, lastTodos } = buildUiMessages(detail.messages);
         setMessages(uiMsgs);
         setUsageTotals(totals);
+        setTodos(lastTodos);
         return;
       }
 
@@ -88,9 +150,10 @@ export function ChatView() {
       const previousMessages = lastUserIdx >= 0
         ? detail.messages.slice(0, lastUserIdx + 1)
         : detail.messages;
-      const { messages: prevUiMsgs, totals: prevTotals } = buildUiMessages(previousMessages);
+      const { messages: prevUiMsgs, totals: prevTotals, lastTodos: prevTodos } = buildUiMessages(previousMessages);
       setMessages(prevUiMsgs);
       setUsageTotals(prevTotals);
+      setTodos(prevTodos);
 
       setStreaming(true);
       resetStreamingText();
@@ -138,6 +201,8 @@ export function ChatView() {
             if (targetId) attachUsageToMessage(targetId, usage);
           } else if (event.event === "COMPLETE") {
             if (reattachTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...reattachTurnUsage });
+          } else if (handleDeepAgentsEvent(event, snapId)) {
+            // handled by helper (TODOS / FILES_UPDATE / SUBAGENT_*)
           } else if (event.event === "INTERRUPT") {
             const p = event.payload as unknown as InterruptPayload;
             setPendingInterruptId(p.interrupt_id);
@@ -187,9 +252,10 @@ export function ChatView() {
           // initial fetch, then generate/update the title.
           getConversation(snapId).then((refreshed) => {
             if (activeId !== snapId) return;
-            const { messages: uiMsgs, totals } = buildUiMessages(refreshed.messages);
+            const { messages: uiMsgs, totals, lastTodos } = buildUiMessages(refreshed.messages);
             setMessages(uiMsgs);
             setUsageTotals(totals);
+            setTodos(lastTodos);
           }).catch(() => {});
           generateTitle(snapId).then((r) => {
             if (r.updated) updateConversationTitle(snapId, r.title);
@@ -205,6 +271,15 @@ export function ChatView() {
   const [showReasoning, setShowReasoning] = useState(true);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [exportIncludeReasoning, setExportIncludeReasoning] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+
+  // Refresh the virtual filesystem snapshot whenever we open the panel or
+  // switch conversations — covers the case where the user opens the panel
+  // after a turn has already produced files.
+  useEffect(() => {
+    if (!activeId) return;
+    getVirtualFiles(activeId).then(setFiles).catch(() => {});
+  }, [activeId, setFiles]);
 
   const handleExport = useCallback(() => {
     document.querySelectorAll("[data-print-expand]").forEach((el) => {
@@ -285,6 +360,8 @@ export function ChatView() {
           if (targetId) attachUsageToMessage(targetId, usage);
         } else if (event.event === "COMPLETE") {
           if (sendTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...sendTurnUsage });
+        } else if (handleDeepAgentsEvent(event, conversationId)) {
+          // handled by helper (TODOS / FILES_UPDATE / SUBAGENT_*)
         } else if (event.event === "INTERRUPT") {
           const p = event.payload as unknown as InterruptPayload;
           setPendingInterruptId(p.interrupt_id);
@@ -382,6 +459,8 @@ export function ChatView() {
           if (targetId) attachUsageToMessage(targetId, usage);
         } else if (event.event === "COMPLETE") {
           if (turnUsage.calls > 0) setFinalMsgTurnUsage({ ...turnUsage });
+        } else if (handleDeepAgentsEvent(event, conversationId)) {
+          // handled by helper (TODOS / FILES_UPDATE / SUBAGENT_*)
         } else if (event.event === "INTERRUPT") {
           const p = event.payload as unknown as InterruptPayload;
           setPendingInterruptId(p.interrupt_id);
@@ -421,7 +500,8 @@ export function ChatView() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden" data-print-chat>
+    <div className="flex-1 flex h-full overflow-hidden" data-print-chat>
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Hidden print header — visible only when printing */}
       <div id="print-header" style={{ display: "none" }}>
         <h1 style={{ fontSize: "18px", fontWeight: 700, margin: 0 }}>
@@ -468,6 +548,20 @@ export function ChatView() {
             }}
             disabled={isStreaming}
           />
+          <button
+            onClick={() => {
+              setPanelOpen((v) => !v);
+              if (activeId) getVirtualFiles(activeId).then(setFiles).catch(() => {});
+            }}
+            className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors
+              ${panelOpen
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"}`}
+            title="Toggle plan & files panel"
+          >
+            <PanelRight className="w-3.5 h-3.5" />
+            Plan & Files
+          </button>
         </div>
       </div>
 
@@ -545,6 +639,8 @@ export function ChatView() {
           </div>
         </div>
       )}
+      </div>
+      <DeepAgentsPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
     </div>
   );
 }

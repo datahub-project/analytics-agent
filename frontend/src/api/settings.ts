@@ -513,6 +513,7 @@ export interface SubagentsConfig {
   builtin_overrides: Record<string, BuiltinOverride>;
   custom: CustomSubagent[];
   available_tools: string[];
+  force_subagent_data_access: boolean;
 }
 
 export async function getSubagentsConfig(): Promise<SubagentsConfig> {
@@ -525,11 +526,34 @@ export async function saveSubagentsConfig(body: {
   disabled_builtins: string[];
   builtin_overrides: Record<string, BuiltinOverride>;
   custom: CustomSubagent[];
+  force_subagent_data_access: boolean;
 }): Promise<void> {
   const res = await fetch("/api/settings/subagents", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("Save failed");
+}
+
+// --- Advanced: large-tool-results eviction threshold ---
+
+export interface LargeToolResultsSettings {
+  token_limit: number;
+  default_token_limit: number;
+}
+
+export async function getLargeToolResults(): Promise<LargeToolResultsSettings> {
+  const res = await fetch("/api/settings/large-tool-results");
+  if (!res.ok) throw new Error("Failed to fetch eviction settings");
+  return res.json();
+}
+
+export async function saveLargeToolResults(token_limit: number): Promise<void> {
+  const res = await fetch("/api/settings/large-tool-results", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token_limit }),
   });
   if (!res.ok) throw new Error("Save failed");
 }

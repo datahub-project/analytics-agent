@@ -77,8 +77,9 @@ import { ModelSection } from "./ModelSection";
 import { AboutSection } from "./AboutSection";
 import { HitlSection } from "./HitlSection";
 import { SubagentsSection } from "./SubagentsSection";
+import { AdvancedSection } from "./AdvancedSection";
 
-type Section = "connections" | "model" | "prompt" | "display" | "approvals" | "subagents" | "about";
+type Section = "connections" | "model" | "prompt" | "display" | "approvals" | "subagents" | "advanced" | "about";
 
 interface Props {
   onClose: () => void;
@@ -1375,6 +1376,7 @@ const SECTION_LABELS: Record<Section, string> = {
   approvals: "Approvals",
   subagents: "Sub-agents",
   display: "Display Settings",
+  advanced: "Advanced",
   about: "About",
 };
 
@@ -1385,6 +1387,7 @@ const SECTION_DESCRIPTIONS: Record<Section, string> = {
   approvals: "Choose which tools require human approval before the agent can run them.",
   subagents: "Enable / disable built-in sub-agents or define custom ones with their own tools.",
   display: "Customize the app name and logo.",
+  advanced: "Performance and context-management knobs for the agent runtime.",
   about: "Current version, release notes, and update status.",
 };
 
@@ -1457,6 +1460,12 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
               active={section === "display"}
               onClick={() => setSection("display")}
             />
+            <NavItem
+              label="Advanced"
+              icon={<Settings2 className="w-4 h-4" />}
+              active={section === "advanced"}
+              onClick={() => setSection("advanced")}
+            />
           </div>
           <div className="px-3 py-3 border-t border-border flex items-center justify-between">
             <DataHubBadge />
@@ -1479,6 +1488,7 @@ export function SettingsModal({ onClose, updateAvailable }: Props) {
           <div className={section !== "approvals"   ? "hidden" : ""}><HitlSection /></div>
           <div className={section !== "subagents"   ? "hidden" : ""}><SubagentsSection /></div>
           <div className={section !== "display"     ? "hidden" : ""}><DisplaySection /></div>
+          {section === "advanced" && <AdvancedSection />}
           {section === "about" && <AboutSection />}
         </div>
       </div>

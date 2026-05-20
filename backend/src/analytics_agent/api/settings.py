@@ -53,6 +53,7 @@ _KEY_HITL_INTERRUPT_TOOLS = "hitl_interrupt_tools"  # list[str] override; empty 
 _KEY_DISABLED_CONNECTIONS = "disabled_connections"
 _KEY_DYNAMIC_CONNECTIONS = "dynamic_connections"
 _KEY_SUBAGENTS = "subagents_config"
+_KEY_TOOL_EVICT_LIMIT = "large_tool_results_token_limit"
 
 # Write-back skills are opt-in (disabled unless explicitly enabled)
 _SKILL_TOOL_NAMES: set[str] = {
@@ -596,6 +597,11 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
             conn_cfg = orjson.loads(intg.config)
 
         is_sso_connected = cred is not None and cred.auth_type == "sso_externalbrowser"
+        has_db_credential = cred is not None and cred.auth_type in (
+            "pat",
+            "private_key",
+            "sso_externalbrowser",
+        )
 
         if intg.type == "snowflake":
             from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
@@ -604,7 +610,9 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
             user = conn_cfg.get("user", "")
             status_str = (
                 "connected"
-                if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected)
+                if _CM["snowflake"].is_configured(
+                    conn_cfg, sso_connected=is_sso_connected or has_db_credential
+                )
                 else "unconfigured"
             )
             # Detect active auth method so the frontend can pre-select the right tab.
@@ -2400,12 +2408,14 @@ class SubagentsConfigResponse(BaseModel):
     builtin_overrides: dict[str, BuiltinOverride]
     custom: list[CustomSubagent]
     available_tools: list[str]
+    force_subagent_data_access: bool = False
 
 
 class UpdateSubagentsRequest(BaseModel):
     disabled_builtins: list[str] = []
     builtin_overrides: dict[str, BuiltinOverride] = {}
     custom: list[CustomSubagent] = []
+    force_subagent_data_access: bool = False
 
 
 async def _enumerate_tools_with_metadata(session: AsyncSession) -> list[HitlToolInfo]:
@@ -2634,6 +2644,7 @@ async def get_subagents_config(
         disabled_builtins = list(BUILTINS.keys())
         overrides: dict[str, BuiltinOverride] = {}
         custom_records: list[CustomSubagent] = []
+        force_subagent_data_access = False
     else:
         blob = _load_subagents_blob(raw)
         disabled_builtins = [str(n) for n in (blob.get("disabled_builtins") or [])]
@@ -2647,6 +2658,7 @@ async def get_subagents_config(
             for c in (blob.get("custom") or [])
             if isinstance(c, dict)
         ]
+        force_subagent_data_access = bool(blob.get("force_subagent_data_access") or False)
 
     return SubagentsConfigResponse(
         builtins=[BuiltinSubagent(**b) for b in list_builtins()],
@@ -2654,6 +2666,7 @@ async def get_subagents_config(
         builtin_overrides=overrides,
         custom=custom_records,
         available_tools=await _available_tool_names(session),
+        force_subagent_data_access=force_subagent_data_access,
     )
 
 
@@ -2695,7 +2708,65 @@ async def update_subagents_config(
         "disabled_builtins": disabled,
         "builtin_overrides": overrides,
         "custom": custom,
+        "force_subagent_data_access": bool(body.force_subagent_data_access),
     }
     repo = SettingsRepo(session)
     await repo.set(_KEY_SUBAGENTS, orjson.dumps(payload).decode())
     return {"success": True, **payload}
+
+
+# --- Advanced: large-tool-results eviction threshold ---
+
+
+class LargeToolResultsSettings(BaseModel):
+    token_limit: int  # 0 disables eviction
+    default_token_limit: int  # what's in config.py (env var override applied)
+
+
+class UpdateLargeToolResultsRequest(BaseModel):
+    token_limit: int
+
+
+async def _get_tool_evict_limit(repo: SettingsRepo) -> int | None:
+    raw = await repo.get(_KEY_TOOL_EVICT_LIMIT)
+    if not raw:
+        return None
+    try:
+        data = orjson.loads(raw)
+        if isinstance(data, dict) and "token_limit" in data:
+            return int(data["token_limit"])
+        if isinstance(data, int):
+            return int(data)
+    except Exception:
+        return None
+    return None
+
+
+@router.get("/large-tool-results", response_model=LargeToolResultsSettings)
+async def get_large_tool_results(
+    session: AsyncSession = Depends(get_session),
+) -> LargeToolResultsSettings:
+    from analytics_agent.config import settings as _app_settings
+
+    repo = SettingsRepo(session)
+    operator = await _get_tool_evict_limit(repo)
+    effective = operator if operator is not None else _app_settings.large_tool_results_token_limit
+    return LargeToolResultsSettings(
+        token_limit=int(effective),
+        default_token_limit=int(_app_settings.large_tool_results_token_limit),
+    )
+
+
+@router.put("/large-tool-results")
+async def update_large_tool_results(
+    body: UpdateLargeToolResultsRequest,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    if body.token_limit < 0:
+        raise HTTPException(status_code=400, detail="token_limit must be >= 0 (0 disables eviction)")
+    repo = SettingsRepo(session)
+    await repo.set(
+        _KEY_TOOL_EVICT_LIMIT,
+        orjson.dumps({"token_limit": int(body.token_limit)}).decode(),
+    )
+    return {"success": True, "token_limit": int(body.token_limit)}

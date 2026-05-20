@@ -55,6 +55,61 @@ _LINEAGE_TOOL_NAMES: frozenset[str] = frozenset(
 )
 
 
+# Bedrock Converse caps combined tool schemas at 16 union/array/anyOf
+# params. The DataHub MCP tools are union-heavy (every Optional param
+# becomes anyOf:[T,null]), so each sub-agent gets a narrow allow-list
+# rather than the full datahub_reads bucket. See
+# scripts/diagnose_bedrock_unions.py.
+_SQL_AUTHOR_DATAHUB_TOOLS: frozenset[str] = frozenset(
+    {
+        # Schema introspection only — the engine tools do the SQL work.
+        # `search`/`search_documents` schemas are ~25 KB combined; the
+        # parent already passed the relevant URN/table name.
+        "get_entities",
+        "list_schema_fields",
+    }
+)
+
+_EXPLORER_DATAHUB_DROP: frozenset[str] = frozenset(
+    {
+        # Niche or sub-agent-owned tools dropped to keep the explorer's
+        # compiled grammar under Bedrock's cap. Each is reachable via
+        # another sub-agent (lineage-tracer) or via raw catalog UI.
+        "get_lineage_paths_between",
+        "get_dataset_assertions",
+        "get_dataset_queries",
+        "grep_documents",
+        # `search_documents` has a 12 KB schema; `search_business_context`
+        # (from research_tools, ~640 bytes) covers the explorer's needs.
+        "search_documents",
+    }
+)
+
+# Lineage-tracer drops the heavy `search_documents` (12 KB schema)
+# and `get_dataset_queries` (8 KB) — lineage walks only need the
+# lineage/entity tools.
+_LINEAGE_TRACER_DROP: frozenset[str] = frozenset(
+    {
+        "search_documents",
+        "get_dataset_queries",
+    }
+)
+
+# What to drop from the PARENT on Bedrock. Less aggressive than the
+# explorer drop set — the parent keeps `search_documents` because
+# documentation-first is a core part of the workflow. The dropped tools
+# are reachable via sub-agents (`task` → lineage-tracer / datahub-explorer).
+_PARENT_BEDROCK_DROP: frozenset[str] = frozenset(
+    {
+        "get_lineage",
+        "get_lineage_paths_between",
+        "get_dataset_assertions",
+        "get_dataset_queries",
+        "grep_documents",
+    }
+)
+
+
 # Selector receives a `ToolPool` and returns the list of tools that
 # sub-agent should receive when no operator override is in effect.
 ToolSelector = Callable[["ToolPool"], list[BaseTool]]
@@ -137,7 +192,10 @@ BUILTINS: dict[str, BuiltinSpec] = {
             "context, and any documentation that bears on the parent's "
             "question. Do NOT execute SQL or generate charts — only research."
         ),
-        default_tools=lambda p: p.datahub_reads + p.research_tools,
+        default_tools=lambda p: (
+            [t for t in p.datahub_reads if t.name not in _EXPLORER_DATAHUB_DROP]
+            + p.research_tools
+        ),
     ),
     "datahub-editor": BuiltinSpec(
         name="datahub-editor",
@@ -181,7 +239,10 @@ BUILTINS: dict[str, BuiltinSpec] = {
             "`row_count`, and a 1–2 sentence `summary`. If you cannot produce "
             "a working query, set `error` and leave rows empty."
         ),
-        default_tools=lambda p: p.engine_tools + p.datahub_reads,
+        default_tools=lambda p: (
+            p.engine_tools
+            + [t for t in p.datahub_reads if t.name in _SQL_AUTHOR_DATAHUB_TOOLS]
+        ),
         response_format=SqlAuthorResult,
     ),
     "lineage-tracer": BuiltinSpec(
@@ -204,7 +265,11 @@ BUILTINS: dict[str, BuiltinSpec] = {
             "Do NOT execute SQL or generate charts."
         ),
         default_tools=lambda p: (
-            [t for t in p.datahub_reads if t.name in _LINEAGE_TOOL_NAMES]
+            [
+                t
+                for t in p.datahub_reads
+                if t.name in _LINEAGE_TOOL_NAMES and t.name not in _LINEAGE_TRACER_DROP
+            ]
             or p.datahub_reads
         ),
     ),
@@ -247,6 +312,11 @@ class SubagentsConfig:
     # Custom user-defined sub-agents. `tool_names` is resolved by name
     # against the request-time pool; unresolved names are dropped with a warning.
     custom: list[dict[str, Any]] = field(default_factory=list)
+    # When True, strip data-fetching tools (DataHub MCP + engine/SQL tools)
+    # from the parent agent so it must delegate via `task` to a sub-agent.
+    # Keeps high-volume tool outputs out of the parent's context window.
+    # Skill/chart/ask_user tools remain on the parent.
+    force_subagent_data_access: bool = False
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any] | None) -> SubagentsConfig:
@@ -256,6 +326,7 @@ class SubagentsConfig:
             disabled_builtins=list(raw.get("disabled_builtins") or []),
             builtin_overrides=dict(raw.get("builtin_overrides") or {}),
             custom=list(raw.get("custom") or []),
+            force_subagent_data_access=bool(raw.get("force_subagent_data_access") or False),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -263,6 +334,7 @@ class SubagentsConfig:
             "disabled_builtins": list(self.disabled_builtins),
             "builtin_overrides": dict(self.builtin_overrides),
             "custom": list(self.custom),
+            "force_subagent_data_access": bool(self.force_subagent_data_access),
         }
 
 

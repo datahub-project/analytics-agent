@@ -10,6 +10,7 @@ Usage in chat.py:
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from typing import TYPE_CHECKING, Any
@@ -89,3 +90,38 @@ class MCPQueryEngine(QueryEngine):
     async def aclose(self) -> None:
         self._client = None
         self._tools = None
+
+    def _clone_with_env(self, env_overrides: dict[str, str]) -> "MCPQueryEngine":
+        new_mcp = copy.deepcopy(self._mcp_cfg)
+        env = dict(new_mcp.get("env") or {})
+        env.update({k: v for k, v in env_overrides.items() if k and v})
+        new_mcp["env"] = env
+        return MCPQueryEngine({"_mcp": new_mcp})
+
+    def with_pat_token(
+        self, token: str, pat_user: str | None = None
+    ) -> "MCPQueryEngine":
+        auth_env = (self._mcp_cfg.get("_auth_env") or {}) if isinstance(self._mcp_cfg, dict) else {}
+        pat_env = auth_env.get("pat_token")
+        if not pat_env:
+            logger.warning("MCPQueryEngine: no pat_token env mapping; PAT not applied")
+            return self
+        overrides = {pat_env: token}
+        if pat_user:
+            user_env = auth_env.get("user")
+            if user_env:
+                overrides[user_env] = pat_user
+        return self._clone_with_env(overrides)
+
+    def with_private_key(self, pem: str, user: str | None = None) -> "MCPQueryEngine":
+        auth_env = (self._mcp_cfg.get("_auth_env") or {}) if isinstance(self._mcp_cfg, dict) else {}
+        pk_env = auth_env.get("private_key")
+        if not pk_env:
+            logger.warning("MCPQueryEngine: no private_key env mapping; key not applied")
+            return self
+        overrides = {pk_env: pem}
+        if user:
+            user_env = auth_env.get("user")
+            if user_env:
+                overrides[user_env] = user
+        return self._clone_with_env(overrides)

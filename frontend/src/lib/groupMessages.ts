@@ -8,6 +8,8 @@ const WORK_TYPES = new Set([
   "THINKING",
   "INTERRUPT",
   "INTERRUPT_DECISION",
+  "SUBAGENT_CALL",
+  "SUBAGENT_RESULT",
 ]);
 
 export interface TurnGroup {

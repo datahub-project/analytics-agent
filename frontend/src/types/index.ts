@@ -10,7 +10,11 @@ export type SSEEventType =
   | "ERROR"
   | "INTERRUPT"
   | "INTERRUPT_DECISION"
-  | "FOLLOW_UPS";
+  | "FOLLOW_UPS"
+  | "TODOS"
+  | "SUBAGENT_CALL"
+  | "SUBAGENT_RESULT"
+  | "FILES_UPDATE";
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -73,6 +77,31 @@ export interface InterruptDecisionPayload {
 
 export interface FollowUpsPayload {
   questions: string[];
+}
+
+export type TodoStatus = "pending" | "in_progress" | "completed";
+
+export interface TodoItem {
+  content: string;
+  status: TodoStatus;
+  activeForm?: string;
+}
+
+export interface TodosPayload {
+  todos: TodoItem[];
+}
+
+export interface SubagentCallPayload {
+  subagent_type: string;
+  description: string;
+}
+
+export interface SubagentResultPayload {
+  result: string;
+}
+
+export interface FilesUpdatePayload {
+  changed_path: string;
 }
 
 export interface UsagePayload {

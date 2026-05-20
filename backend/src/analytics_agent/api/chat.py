@@ -292,6 +292,18 @@ async def _run_and_broadcast(
             subagents_raw = await settings_repo.get(_SUBAGENTS_KEY)
             subagents_cfg = _parse_subagents(subagents_raw)
 
+            # Operator-set eviction threshold for large tool results.
+            # Falls back to config.py when unset.
+            tool_evict_raw = await settings_repo.get("large_tool_results_token_limit")
+            large_tool_results_limit: int | None = None
+            if tool_evict_raw:
+                with contextlib.suppress(Exception):
+                    parsed_evict = orjson.loads(tool_evict_raw)
+                    if isinstance(parsed_evict, dict) and "token_limit" in parsed_evict:
+                        large_tool_results_limit = int(parsed_evict["token_limit"])
+                    elif isinstance(parsed_evict, int):
+                        large_tool_results_limit = int(parsed_evict)
+
             disabled_conns_raw = await settings_repo.get("disabled_connections")
             disabled_connections: set[str] = set()
             if disabled_conns_raw:
@@ -337,6 +349,7 @@ async def _run_and_broadcast(
                     hitl_policy_override=hitl_policy_override,
                     subagents_config=subagents_cfg,
                     conversation_id=conversation_id,
+                    large_tool_results_token_limit=large_tool_results_limit,
                 )
             except Exception as exc:
                 for _evt in cast(
@@ -616,3 +629,35 @@ async def reattach_stream(conversation_id: str):
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+@router.get("/{conversation_id}/files")
+async def get_virtual_files(conversation_id: str) -> dict[str, Any]:
+    """Return the deepagents virtual filesystem snapshot for this conversation.
+
+    Reads the latest checkpoint and extracts the `files` field that deepagents
+    populates via its `write_file` / `edit_file` tools. Surface for the UI's
+    Files panel.
+    """
+    # Prefer the live in-memory snapshot maintained by the streaming layer —
+    # it covers DeltaChannel subgraph state that doesn't reliably propagate to
+    # the outer-graph checkpoint. Fall back to the raw checkpoint for cold
+    # conversations the current process never streamed (e.g. after restart).
+    from analytics_agent.agent.hitl import get_checkpointer, thread_config
+    from analytics_agent.agent.streaming import FILES_SNAPSHOTS, _normalize_files
+
+    cached = FILES_SNAPSHOTS.get(conversation_id)
+    if cached is not None:
+        return {"files": cached}
+
+    checkpointer = get_checkpointer()
+    cfg = thread_config(conversation_id)
+    try:
+        ckpt = await checkpointer.aget(cfg)
+    except Exception as exc:
+        logger.warning("files snapshot: checkpoint read failed: %s", exc)
+        return {"files": {}}
+    if not ckpt:
+        return {"files": {}}
+    channel_values = ckpt.get("channel_values", {}) if isinstance(ckpt, dict) else {}
+    return {"files": _normalize_files(channel_values.get("files"))}
