@@ -97,15 +97,15 @@ def _run_query(sql: str, limit: int | None = None) -> dict:
 
     effective_sql = _apply_limit(sql, effective_limit)
     try:
-        cursor = conn.cursor()
-        cursor.execute(effective_sql)
-        columns = [desc[0] for desc in cursor.description] if cursor.description else []
-        rows = cursor.fetchall()
-        truncated = len(rows) >= effective_limit
-        coerced = [
-            {c: _coerce(v) for c, v in zip(columns, row, strict=False)} for row in rows
-        ]
-        return {"columns": columns, "rows": coerced, "truncated": truncated}
+        with conn.cursor() as cursor:
+            cursor.execute(effective_sql)
+            columns = [desc[0] for desc in cursor.description] if cursor.description else []
+            rows = cursor.fetchall()
+            truncated = len(rows) >= effective_limit
+            coerced = [
+                {c: _coerce(v) for c, v in zip(columns, row, strict=False)} for row in rows
+            ]
+            return {"columns": columns, "rows": coerced, "truncated": truncated}
     except Exception as e:
         return {"error": str(e), "columns": [], "rows": [], "truncated": False}
 
@@ -124,21 +124,21 @@ def list_tables(schema: str | None = None) -> str:
     schema = schema or ""
     try:
         conn = _get_connection()
-        cursor = conn.cursor()
-        if schema:
-            cursor.execute(f"SHOW TABLES IN {schema}")
-        else:
-            cursor.execute("SHOW TABLES")
-        rows = cursor.fetchall()
-        # pyhive SHOW TABLES returns (database, tableName, isTemporary) in some versions
-        # and just (tableName,) in others — normalise both.
-        tables = []
-        for row in rows:
-            if len(row) >= 2:
-                tables.append({"schema": row[0], "name": row[1]})
+        with conn.cursor() as cursor:
+            if schema:
+                cursor.execute(f"SHOW TABLES IN {schema}")
             else:
-                tables.append({"name": row[0]})
-        return orjson.dumps(tables).decode()
+                cursor.execute("SHOW TABLES")
+            rows = cursor.fetchall()
+            # pyhive SHOW TABLES returns (database, tableName, isTemporary) in some versions
+            # and just (tableName,) in others — normalise both.
+            tables = []
+            for row in rows:
+                if len(row) >= 2:
+                    tables.append({"schema": row[0], "name": row[1]})
+                else:
+                    tables.append({"name": row[0]})
+            return orjson.dumps(tables).decode()
     except Exception as e:
         return orjson.dumps({"error": str(e)}).decode()
 
@@ -148,16 +148,16 @@ def get_schema(table: str) -> str:
     """Get the column schema for a Hive table. Use db.table notation for cross-database lookup."""
     try:
         conn = _get_connection()
-        cursor = conn.cursor()
-        cursor.execute(f"DESCRIBE {table}")
-        rows = cursor.fetchall()
-        # DESCRIBE returns (col_name, data_type, comment)
-        columns = [
-            {"name": row[0], "type": row[1], "comment": row[2] if len(row) > 2 else ""}
-            for row in rows
-            if row[0] and not row[0].startswith("#")  # skip partition/detail sections
-        ]
-        return orjson.dumps(columns).decode()
+        with conn.cursor() as cursor:
+            cursor.execute(f"DESCRIBE {table}")
+            rows = cursor.fetchall()
+            # DESCRIBE returns (col_name, data_type, comment)
+            columns = [
+                {"name": row[0], "type": row[1], "comment": row[2] if len(row) > 2 else ""}
+                for row in rows
+                if row[0] and not row[0].startswith("#")  # skip partition/detail sections
+            ]
+            return orjson.dumps(columns).decode()
     except Exception as e:
         return orjson.dumps({"error": str(e)}).decode()
 
