@@ -463,6 +463,52 @@ async def test_list_connections_hive_configured_masks_password_and_shows_values(
 
 
 @pytest.mark.asyncio
+async def test_list_connections_hive_kerberos_is_configured() -> None:
+    """Kerberos-authenticated Hive (no user/password) must register as configured."""
+    intg = _hive_integration(
+        config={
+            "host": "kyuubi.internal",
+            "auth": "KERBEROS",
+            "kerberos_service_name": "hive",
+        }
+    )
+    session = AsyncMock()
+
+    mock_intg_repo = AsyncMock()
+    mock_intg_repo.list_all = AsyncMock(return_value=[intg])
+    mock_cred_repo = AsyncMock()
+    mock_cred_repo.get = AsyncMock(return_value=None)
+    mock_settings_repo = AsyncMock()
+
+    with (
+        patch("analytics_agent.db.repository.IntegrationRepo", return_value=mock_intg_repo),
+        patch("analytics_agent.db.repository.CredentialRepo", return_value=mock_cred_repo),
+        patch("analytics_agent.api.settings.SettingsRepo", return_value=mock_settings_repo),
+        patch(
+            "analytics_agent.api.settings._get_datahub_connections",
+            AsyncMock(return_value=[]),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_tools",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_enabled_mutations",
+            AsyncMock(return_value=set()),
+        ),
+        patch(
+            "analytics_agent.api.settings._get_disabled_connections",
+            AsyncMock(return_value=set()),
+        ),
+        patch.dict("analytics_agent.api.settings.os.environ", {}, clear=True),
+    ):
+        conns = await list_connections(session)
+
+    hive = next(c for c in conns if c.type == "hive")
+    assert hive.status == "connected"
+
+
+@pytest.mark.asyncio
 async def test_list_connections_unknown_type_falls_through_to_empty() -> None:
     """A type with no spec and no display_fields still gets handled gracefully."""
     intg = MagicMock()

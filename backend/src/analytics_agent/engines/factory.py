@@ -129,7 +129,9 @@ _CONNECTOR_MAP: dict[str, ConnectorSpec] = {
             "password": "HIVE_PASSWORD",
         },
         required_keys=["host"],
-        credential_keys=["user", "password"],
+        # Kerberos auth doesn't use user/password — presence of a service name
+        # is the credential signal in that case (reported by @wForget on #54).
+        credential_keys=["user", "password", "kerberos_service_name"],
         display_fields=[
             DisplayField(key="host", label="Host", placeholder="kyuubi-host or localhost"),
             DisplayField(key="port", label="Port", placeholder="10000"),
