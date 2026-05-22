@@ -114,7 +114,14 @@ function Step1Name({ value, onChange, onSubmit }: { value: string; onChange: (v:
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                onSubmit();
+              } else if (e.key === "Tab" && !value) {
+                e.preventDefault();
+                onChange(SAMPLE_NAMES[nameIdx]);
+              }
+            }}
             placeholder=""
             style={{ width: inputWidth, height: "1.15em", lineHeight: 1, padding: 0 }}
             className="inline bg-transparent outline-none border-b-2 border-primary/40
