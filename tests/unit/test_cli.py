@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import analytics_agent.cli as cli_module
 import orjson
 import pytest
 from analytics_agent.cli import cli
@@ -79,6 +80,30 @@ def test_cli_bootstrap_fails_fast_on_migration_error(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(cli, ["bootstrap"], catch_exceptions=True)
     assert result.exit_code != 0
+
+
+def test_cli_logs_tails_file_without_external_tail(monkeypatch, tmp_path):
+    log_file = tmp_path / "agent.log"
+    log_file.write_text("first\nsecond\nthird\n", encoding="utf-8")
+
+    from analytics_agent import quickstart
+
+    monkeypatch.setattr(quickstart, "_log_file", lambda: log_file)
+    monkeypatch.setattr(
+        cli_module.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("logs command should not shell out to tail"),
+    )
+
+    def stop_following(_poll_interval):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_module.time, "sleep", stop_following)
+
+    result = CliRunner().invoke(cli, ["logs", "--lines", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output == "second\nthird\n"
 
 
 def test_cli_module_invocable_via_dash_m(sqlite_db, monkeypatch, tmp_path):
