@@ -7,6 +7,8 @@ import logging
 import os
 import subprocess
 import sys
+import time
+from collections import deque
 
 import click
 
@@ -172,9 +174,28 @@ def logs(lines: int) -> None:
         sys.exit(1)
 
     try:
-        subprocess.run(["tail", "-n", str(lines), "-f", str(log_path)])
+        _tail_log_file(log_path, lines)
     except KeyboardInterrupt:
         pass
+
+
+def _tail_log_file(log_path, lines: int, *, poll_interval: float = 0.5) -> None:
+    """Print the last ``lines`` log lines, then stream appended lines.
+
+    This intentionally avoids shelling out to ``tail -f`` so the command works
+    on Windows as well as Unix-like systems.
+    """
+
+    with log_path.open("r", encoding="utf-8", errors="replace") as file:
+        for line in deque(file, maxlen=max(lines, 0)):
+            click.echo(line, nl=False)
+
+        while True:
+            line = file.readline()
+            if line:
+                click.echo(line, nl=False)
+            else:
+                time.sleep(poll_interval)
 
 
 @cli.command("config")
