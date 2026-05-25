@@ -13,7 +13,7 @@ export function GenericMcpForm({
   onDone: (payload: NewConnectionPayload) => void;
   onCancel: () => void;
 }) {
-  const [transport, setTransport] = useState<"stdio" | "sse">("stdio");
+  const [transport, setTransport] = useState<"stdio" | "sse" | "streamable_http">("stdio");
   const [name, setName] = useState("");
   const [label, setLabel] = useState("");
 
@@ -33,6 +33,8 @@ export function GenericMcpForm({
     name.trim().length > 0 &&
     (transport === "stdio" ? command.trim().length > 0 : url.trim().length > 0);
 
+  const isRemote = transport === "sse" || transport === "streamable_http";
+
   const handleSave = async () => {
     if (!canSave) return;
     setSaving(true);
@@ -46,13 +48,21 @@ export function GenericMcpForm({
               args: args.filter(Boolean),
               env: Object.fromEntries(env.filter((p) => p.key).map((p) => [p.key, p.value])),
             }
-          : {
-              transport: "sse" as const,
-              url: url.trim(),
-              headers: Object.fromEntries(
-                headers.filter((p) => p.key).map((p) => [p.key, p.value])
-              ),
-            };
+          : transport === "streamable_http"
+            ? {
+                transport: "streamable_http" as const,
+                url: url.trim(),
+                headers: Object.fromEntries(
+                  headers.filter((p) => p.key).map((p) => [p.key, p.value])
+                ),
+              }
+            : {
+                transport: "sse" as const,
+                url: url.trim(),
+                headers: Object.fromEntries(
+                  headers.filter((p) => p.key).map((p) => [p.key, p.value])
+                ),
+              };
       await onDone({
         name: name.trim(),
         label: label.trim() || undefined,
@@ -69,8 +79,8 @@ export function GenericMcpForm({
   return (
     <div className="space-y-4">
       {/* Transport selector */}
-      <div className="flex gap-2">
-        {(["stdio", "sse"] as const).map((t) => (
+      <div className="flex gap-2 flex-wrap">
+        {(["stdio", "sse", "streamable_http"] as const).map((t) => (
           <button
             key={t}
             type="button"
@@ -81,7 +91,11 @@ export function GenericMcpForm({
                 : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
             }`}
           >
-            {t === "stdio" ? "Local process (stdio)" : "Remote server (SSE)"}
+            {t === "stdio"
+              ? "Local process (stdio)"
+              : t === "sse"
+                ? "Remote server (SSE)"
+                : "Remote server (Streamable HTTP)"}
           </button>
         ))}
       </div>
@@ -118,8 +132,8 @@ export function GenericMcpForm({
         </div>
       )}
 
-      {/* sse config */}
-      {transport === "sse" && (
+      {/* sse / streamable_http config */}
+      {isRemote && (
         <div className="space-y-3">
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">
@@ -129,7 +143,11 @@ export function GenericMcpForm({
               type="text"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://mcp.example.com/sse"
+              placeholder={
+                transport === "streamable_http"
+                  ? "https://mcp.example.com/mcp"
+                  : "https://mcp.example.com/sse"
+              }
               className="w-full text-xs bg-background border border-border rounded px-2.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
           </div>

@@ -36,9 +36,9 @@ class MCPQueryEngine(QueryEngine):
         self._tools: list[BaseTool] | None = None
 
     def _build_conn(self) -> dict[str, Any]:
-        transport = self._mcp_cfg.get("transport", "sse")
+        transport = self._mcp_cfg.get("transport") or self._mcp_cfg.get("type", "sse")
 
-        if transport in ("http", "streamable_http"):
+        if transport in ("http", "streamable_http", "streamable"):
             return {
                 "transport": "http",
                 "url": self._mcp_cfg.get("url", ""),

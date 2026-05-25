@@ -108,7 +108,7 @@ class ConnectionStatus(BaseModel):
 
 
 class McpConfigRequest(BaseModel):
-    transport: Literal["http", "sse", "stdio"] = "http"
+    transport: Literal["http", "streamable_http", "sse", "stdio"] = "http"
     command: str = ""
     args: list[str] = []
     env: dict[str, str] = {}

@@ -15,6 +15,7 @@ import orjson
 import pytest
 from analytics_agent.api.settings import (
     CreateConnectionRequest,
+    McpConfigRequest,
     UpdateConnectionRequest,
     _resolve_secrets,
     _upsert_env_vars,
@@ -23,6 +24,28 @@ from analytics_agent.api.settings import (
     update_connection,
 )
 from fastapi import HTTPException
+
+# ---------------------------------------------------------------------------
+# McpConfigRequest transport validation
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_config_request_accepts_streamable_http() -> None:
+    cfg = McpConfigRequest(transport="streamable_http", url="https://mcp.example.com/mcp")
+    assert cfg.transport == "streamable_http"
+
+
+def test_mcp_config_request_accepts_sse() -> None:
+    cfg = McpConfigRequest(transport="sse", url="https://mcp.example.com/sse")
+    assert cfg.transport == "sse"
+
+
+def test_mcp_config_request_rejects_unknown_transport() -> None:
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        McpConfigRequest(transport="unknown")
+
 
 # ---------------------------------------------------------------------------
 # _upsert_env_vars round-trip tests
