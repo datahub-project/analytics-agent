@@ -356,6 +356,33 @@ def _save_correction_impl(
 # ---------------------------------------------------------------------------
 
 
+_EMPTY_FOLLOWUP_HINT = (
+    "No business context found across documentation, glossary terms, domains, "
+    "or data products. As a fallback, this skill also queried the catalog for "
+    "matching datasets — see `catalog_fallback` above. If it returned URNs, "
+    "call `get_entities` on them to read full metadata before answering. "
+    "Only conclude that the entity is absent from the catalog when "
+    "`catalog_fallback` is also empty."
+)
+
+
+def _all_results_empty(results: dict) -> bool:
+    """True iff every sub-search in `results` returned no hits.
+
+    A sub-search counts as 'no hits' if it errored, has no searchResults list,
+    or returned a list of length zero.
+    """
+    for value in results.values():
+        if not isinstance(value, dict):
+            continue
+        if "error" in value:
+            continue
+        items = value.get("searchResults")
+        if isinstance(items, list) and len(items) > 0:
+            return False
+    return True
+
+
 def _search_business_context_impl(topic: str) -> dict:
     """Fan out to DataHub docs, glossary terms, domains, and data products for a topic."""
     from analytics_agent.context.datahub import get_datahub_client
@@ -393,6 +420,21 @@ def _search_business_context_impl(topic: str) -> dict:
                 results[label] = fn(**kwargs)  # type: ignore[operator]
             except Exception as e:
                 results[label] = {"error": str(e)}
+
+        # When all four business-context sub-searches return empty, the user's topic
+        # may still name a real entity that simply lacks governance metadata. Fire a
+        # dataset search by name so the agent doesn't conflate "no docs" with
+        # "doesn't exist" — see SKILL.md fall-through guidance.
+        if _all_results_empty(results):
+            try:
+                results["catalog_fallback"] = search(
+                    query=topic,
+                    filter="entity_type = dataset",
+                    num_results=10,
+                )
+            except Exception as e:
+                results["catalog_fallback"] = {"error": str(e)}
+            results["_followup_hint"] = _EMPTY_FOLLOWUP_HINT
 
     return results
 

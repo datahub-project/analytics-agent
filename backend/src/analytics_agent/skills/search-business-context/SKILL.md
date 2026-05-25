@@ -103,7 +103,25 @@ the doc, glossary term, or data product that led you there. If documentation
 and catalog results disagree, state the conflict explicitly and resolve it
 before proceeding.
 
-**If nothing is found**, note the gap and proceed with catalog search
-(`search` + `get_entities`), but flag to the user that no governed definition
-exists. After answering, suggest using `/improve-context` to capture what you
-learned.
+---
+
+### When all sub-searches return empty
+
+`search_business_context` covers documentation, glossary terms, domains, and
+data products — **not raw entities like datasets or dashboards**. An empty
+result therefore means *no governed definition or documentation* for the
+topic; it does **not** mean the entity is absent from the catalog.
+
+When this happens, the skill automatically fires a catalog dataset search
+by name and returns the results under a `catalog_fallback` key. Inspect it
+before concluding non-existence:
+
+- If `catalog_fallback.searchResults` is non-empty, call `get_entities` on
+  the returned URNs to read schema, ownership, and other metadata. Report
+  what you find and flag that no governed definition exists — then suggest
+  `/improve-context` to capture what you learn.
+- If `catalog_fallback` is also empty, the entity is likely absent from the
+  catalog; you may tell the user so.
+
+Do **not** call the SQL engine's `list_tables` to look for the entity — it
+searches the connected query database, not the DataHub catalog.
