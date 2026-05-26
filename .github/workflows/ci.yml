@@ -48,6 +48,23 @@ jobs:
       - name: Run unit tests
         run: uv run pytest tests/unit -v
 
+  backend-integration:
+    name: Backend — MCP transport integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run MCP transport integration tests
+        run: uv run pytest tests/integration/test_mcp_transports.py -v
+
   # ── Playwright e2e ──────────────────────────────────────────────────────────
   e2e:
     name: E2E — Playwright
