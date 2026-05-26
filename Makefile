@@ -9,7 +9,7 @@ export
 .DEFAULT_GOAL := help
 
 .PHONY: help install build typecheck serve dev start frontend dev-full stop \
-        restart logs test test-integration test-e2e start-remote check lint fix nuke
+        restart logs test test-integration test-e2e start-remote check lint fix mypy nuke
 
 # ── Help ───────────────────────────────────────────────────────────────────────
 
@@ -91,9 +91,13 @@ test-e2e: ## Run Playwright e2e tests (real backend + mock MCP tools)
 check: ## Quick syntax check of the backend
 	uv run python -c "import analytics_agent.main"
 
-lint: ## Lint + format check (mirrors CI)
+lint: ## Lint + format + mypy check (mirrors CI)
 	uv run ruff check backend/src tests
 	uv run ruff format --check backend/src tests
+	uv run mypy backend/src/analytics_agent
+
+mypy: ## Type-check backend only
+	uv run mypy backend/src/analytics_agent
 
 fix: ## Auto-fix lint and format issues
 	uv run ruff check --fix backend/src tests

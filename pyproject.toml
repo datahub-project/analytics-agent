@@ -115,6 +115,7 @@ python_version = "3.11"
 strict = false
 ignore_missing_imports = true
 check_untyped_defs = true
+disable_error_code = ["import-untyped"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
