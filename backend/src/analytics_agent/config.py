@@ -49,7 +49,7 @@ class DataHubMCPConfig(BaseModel):
     type: Literal["datahub-mcp"] = "datahub-mcp"
     name: str = "default"
     label: str = ""
-    transport: Literal["http", "sse", "stdio"] = "http"
+    transport: Literal["http", "streamable_http", "sse", "stdio"] = "http"
     url: str = ""
     headers: dict[str, str] = Field(default_factory=dict)
     command: str = ""
