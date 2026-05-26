@@ -16,7 +16,13 @@ def _make(cfg: dict) -> MCPQueryEngine:
 
 
 def test_build_conn_streamable_http() -> None:
-    eng = _make({"transport": "streamable_http", "url": "https://mcp.example.com/mcp", "headers": {"Auth": "x"}})
+    eng = _make(
+        {
+            "transport": "streamable_http",
+            "url": "https://mcp.example.com/mcp",
+            "headers": {"Auth": "x"},
+        }
+    )
     conn = eng._build_conn()
     assert conn["transport"] == "http"
     assert conn["url"] == "https://mcp.example.com/mcp"
