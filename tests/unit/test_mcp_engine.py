@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 from analytics_agent.engines.mcp.engine import MCPQueryEngine
 
 

@@ -17,8 +17,6 @@ import time
 from pathlib import Path
 
 import pytest
-import pytest_asyncio
-
 from analytics_agent.engines.mcp.engine import MCPQueryEngine
 
 ECHO_SERVER = Path(__file__).parent.parent / "fixtures" / "echo_mcp_server.py"
