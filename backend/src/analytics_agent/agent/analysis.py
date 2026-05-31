@@ -34,11 +34,18 @@ substantially and the answer depended heavily on undocumented choices.
 1 Very Poor — No useful context; agent expressed significant uncertainty, made \
 conflicting assumptions, or produced an answer that contradicts available definitions.
 
+**Important:** A `search_business_context` result that contains a `catalog_search` key \
+means ALL governance searches (documentation, glossary, domains, data products) returned \
+empty — the catalog search is a last-resort fallback to confirm entity existence only. \
+Treat this the same as empty results: it does NOT raise the score. Only documentation, \
+glossary definitions, domain membership, or data-product entries count as useful context.
+
 Key signals that push the score DOWN:
 - Agent says "the definition doesn't cover this" or "I'll interpret this as…"
 - Agent switches columns, tables, or date anchors not mentioned in the definition
 - Agent produces a result that varies based on an undocumented assumption
 - Agent asks the user to clarify something the glossary/docs should have defined
+- `search_business_context` result contains `catalog_search` (all governance searches empty)
 
 --- CONTEXT TOOL CALLS AND RESULTS ---
 {context_calls}
