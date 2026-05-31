@@ -93,8 +93,11 @@ class SQLAlchemyQueryEngine(QueryEngine):
 
             with engine.connect() as conn:
                 cursor = conn.execute(text(effective_sql))
-                columns = list(cursor.keys()) if cursor.returns_rows else []
-                rows = cursor.fetchall() if cursor.returns_rows else []
+                if not cursor.returns_rows:
+                    conn.commit()
+                    return {"columns": [], "rows": [], "truncated": False}
+                rows = cursor.fetchall()
+                columns = list(cursor.keys())
                 truncated = len(rows) >= (limit or settings.sql_row_limit)
                 coerced = [
                     {c: self._coerce_value(v) for c, v in zip(columns, row, strict=False)}
