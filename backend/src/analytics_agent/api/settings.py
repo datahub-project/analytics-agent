@@ -226,6 +226,12 @@ _KNOWN_TOOLS: dict[str, list[dict]] = {
         {"name": "preview_table", "label": "Preview data"},
         {"name": "execute_sql", "label": "Execute SQL"},
     ],
+    "duckdb": [
+        {"name": "list_tables", "label": "List tables"},
+        {"name": "get_schema", "label": "Table schema"},
+        {"name": "preview_table", "label": "Preview data"},
+        {"name": "execute_sql", "label": "Execute SQL"},
+    ],
     "chart": [
         {"name": "create_chart", "label": "Create visualizations"},
     ],
@@ -690,13 +696,19 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                     placeholder='{"type":"service_account",...}',
                 ),
             ]
-        elif intg.type in ("mysql", "sqlalchemy", "postgresql", "sqlite"):
+        elif intg.type in ("mysql", "sqlalchemy", "postgresql", "sqlite", "duckdb"):
             host = conn_cfg.get("host", "")
             database = conn_cfg.get("database", conn_cfg.get("db", ""))
             port = str(conn_cfg.get("port", ""))
             user = conn_cfg.get("user", conn_cfg.get("username", ""))
             has_url = bool(conn_cfg.get("url"))
-            status_str = "connected" if (has_url or (host and database)) else "unconfigured"
+            # File-based engines (sqlite, duckdb) only need database; server engines need host too.
+            file_based = intg.type in ("sqlite", "duckdb")
+            status_str = (
+                "connected"
+                if (has_url or (file_based and bool(database)) or (host and database))
+                else "unconfigured"
+            )
             if has_url:
                 fields = [
                     ConnectionField(
