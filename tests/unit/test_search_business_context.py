@@ -13,7 +13,6 @@ from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from analytics_agent.skills.datahub_skills import (
     _is_empty_search_result,
     _search_business_context_impl,
@@ -48,9 +47,7 @@ def test_is_empty_search_result(result, expected):
 _EMPTY = {"total": 0, "entities": []}
 _HIT = {
     "total": 1,
-    "entities": [
-        {"urn": "urn:li:dataset:(urn:li:dataPlatform:hive,SampleHiveDataset,PROD)"}
-    ],
+    "entities": [{"urn": "urn:li:dataset:(urn:li:dataPlatform:hive,SampleHiveDataset,PROD)"}],
 }
 
 
