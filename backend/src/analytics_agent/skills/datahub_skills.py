@@ -356,6 +356,25 @@ def _save_correction_impl(
 # ---------------------------------------------------------------------------
 
 
+def _is_empty_search_result(result: object) -> bool:
+    """Return True when a search/search_documents result contains no hits."""
+    if result is None:
+        return True
+    if isinstance(result, dict):
+        if "error" in result:
+            return True
+        # datahub_agent_context search returns {"total": N, "entities": [...]}
+        # or {"results": [...]} depending on the tool
+        total = result.get("total", None)
+        if total is not None:
+            return int(total) == 0
+        entities = result.get("entities") or result.get("results") or []
+        return len(entities) == 0
+    if isinstance(result, list):
+        return len(result) == 0
+    return False
+
+
 def _search_business_context_impl(topic: str) -> dict:
     """Fan out to DataHub docs, glossary terms, domains, and data products for a topic."""
     from analytics_agent.context.datahub import get_datahub_client
@@ -393,6 +412,20 @@ def _search_business_context_impl(topic: str) -> dict:
                 results[label] = fn(**kwargs)  # type: ignore[operator]
             except Exception as e:
                 results[label] = {"error": str(e)}
+
+        # When no business documentation exists, fall back to a general catalog search so
+        # the agent can confirm the entity is present before telling the user it's missing.
+        if all(_is_empty_search_result(v) for v in results.values()):
+            try:
+                results["catalog_search"] = search(query=topic, num_results=10)
+                results["note"] = (
+                    "No governed documentation, glossary terms, domains, or data products "
+                    "were found for this topic. Catalog search results are included above — "
+                    "the entity may still exist in DataHub without governance metadata. "
+                    "Use get_entities on any matching URN to confirm existence and fetch schema."
+                )
+            except Exception as e:
+                results["catalog_search"] = {"error": str(e)}
 
     return results
 
