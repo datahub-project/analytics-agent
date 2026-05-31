@@ -214,19 +214,37 @@ _KNOWN_TOOLS: dict[str, list[dict]] = {
         {"name": "preview_table", "label": "Preview data"},
         {"name": "execute_sql", "label": "Execute SQL"},
     ],
+    "hive": [
+        {"name": "list_tables", "label": "List tables"},
+        {"name": "get_schema", "label": "Table schema"},
+        {"name": "preview_table", "label": "Preview data"},
+        {"name": "execute_sql", "label": "Execute SQL"},
+    ],
     "mysql": [
         {"name": "list_tables", "label": "List tables"},
         {"name": "get_schema", "label": "Table schema"},
         {"name": "preview_table", "label": "Preview data"},
         {"name": "execute_sql", "label": "Execute SQL"},
     ],
-    "sqlalchemy": [
+    "postgresql": [
+        {"name": "list_tables", "label": "List tables"},
+        {"name": "get_schema", "label": "Table schema"},
+        {"name": "preview_table", "label": "Preview data"},
+        {"name": "execute_sql", "label": "Execute SQL"},
+    ],
+    "sqlite": [
         {"name": "list_tables", "label": "List tables"},
         {"name": "get_schema", "label": "Table schema"},
         {"name": "preview_table", "label": "Preview data"},
         {"name": "execute_sql", "label": "Execute SQL"},
     ],
     "duckdb": [
+        {"name": "list_tables", "label": "List tables"},
+        {"name": "get_schema", "label": "Table schema"},
+        {"name": "preview_table", "label": "Preview data"},
+        {"name": "execute_sql", "label": "Execute SQL"},
+    ],
+    "sqlalchemy": [
         {"name": "list_tables", "label": "List tables"},
         {"name": "get_schema", "label": "Table schema"},
         {"name": "preview_table", "label": "Preview data"},
@@ -253,6 +271,30 @@ def _build_tool_toggles(
             is_enabled = name not in disabled
         result.append(ToolToggle(name=name, label=t["label"], enabled=is_enabled))
     return result
+
+
+def _compute_engine_status(engine_type: str, conn_cfg: dict, sso_connected: bool = False) -> str:
+    """Return 'connected' or 'unconfigured' for an engine connection."""
+    from analytics_agent.engines.factory import _CONNECTOR_MAP
+
+    spec = _CONNECTOR_MAP.get(engine_type)
+    if spec is not None:
+        return (
+            "connected"
+            if spec.is_configured(conn_cfg, sso_connected=sso_connected)
+            else "unconfigured"
+        )
+
+    if engine_type in ("mysql", "sqlalchemy", "postgresql", "sqlite", "duckdb"):
+        host = conn_cfg.get("host", "")
+        database = conn_cfg.get("database", conn_cfg.get("db", ""))
+        has_url = bool(conn_cfg.get("url"))
+        # File-based engines need only `database`; server engines need host too.
+        file_based = engine_type in ("sqlite", "duckdb")
+        if has_url or (file_based and bool(database)) or (host and database):
+            return "connected"
+
+    return "unconfigured"
 
 
 # --- Connection helpers ---
@@ -602,15 +644,9 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
         is_sso_connected = cred is not None and cred.auth_type == "sso_externalbrowser"
 
         if intg.type == "snowflake":
-            from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
-
             account = conn_cfg.get("account", "")
             user = conn_cfg.get("user", "")
-            status_str = (
-                "connected"
-                if _CM["snowflake"].is_configured(conn_cfg, sso_connected=is_sso_connected)
-                else "unconfigured"
-            )
+            status_str = _compute_engine_status(intg.type, conn_cfg, sso_connected=is_sso_connected)
             # Detect active auth method so the frontend can pre-select the right tab.
             if is_sso_connected:
                 active_auth_method = "sso"
@@ -673,7 +709,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                 conn_cfg.get(k) or os.environ.get(_CM["bigquery"].env_map.get(k, ""), "")
                 for k in _CM["bigquery"].credential_keys
             )
-            status_str = "connected" if _CM["bigquery"].is_configured(conn_cfg) else "unconfigured"
+            status_str = _compute_engine_status(intg.type, conn_cfg)
             fields = [
                 ConnectionField(
                     key="project",
@@ -702,13 +738,7 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
             port = str(conn_cfg.get("port", ""))
             user = conn_cfg.get("user", conn_cfg.get("username", ""))
             has_url = bool(conn_cfg.get("url"))
-            # File-based engines (sqlite, duckdb) only need database; server engines need host too.
-            file_based = intg.type in ("sqlite", "duckdb")
-            status_str = (
-                "connected"
-                if (has_url or (file_based and bool(database)) or (host and database))
-                else "unconfigured"
-            )
+            status_str = _compute_engine_status(intg.type, conn_cfg)
             if has_url:
                 fields = [
                     ConnectionField(
@@ -748,8 +778,8 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
             from analytics_agent.engines.factory import _CONNECTOR_MAP as _CM
 
             spec = _CM.get(intg.type)
+            status_str = _compute_engine_status(intg.type, conn_cfg)
             if spec is not None and spec.display_fields:
-                status_str = "connected" if spec.is_configured(conn_cfg) else "unconfigured"
                 fields = []
                 for df in spec.display_fields:
                     raw = conn_cfg.get(df.key, "") or os.environ.get(
@@ -767,7 +797,6 @@ async def list_connections(session: AsyncSession = Depends(get_session)):
                         )
                     )
             else:
-                status_str = "unconfigured"
                 fields = []
 
         oauth_status = (
