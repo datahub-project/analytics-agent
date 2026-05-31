@@ -187,6 +187,7 @@ def get_secret_env_vars(engine_type: str) -> dict[str, str]:
         "mysql": SQLAlchemyQueryEngine,
         "sqlite": SQLAlchemyQueryEngine,
         "postgresql": SQLAlchemyQueryEngine,
+        "duckdb": SQLAlchemyQueryEngine,
         "sqlalchemy": SQLAlchemyQueryEngine,
     }.get(engine_type)
     return getattr(cls, "secret_env_vars", {}) if cls else {}
@@ -208,6 +209,7 @@ def _engine_cls(engine_type: str):
         "mysql": SQLAlchemyQueryEngine,
         "sqlite": SQLAlchemyQueryEngine,
         "postgresql": SQLAlchemyQueryEngine,
+        "duckdb": SQLAlchemyQueryEngine,
         "sqlalchemy": SQLAlchemyQueryEngine,
         "mcp": MCPQueryEngine,
         "mcp-stdio": MCPQueryEngine,

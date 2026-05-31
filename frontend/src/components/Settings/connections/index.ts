@@ -8,6 +8,7 @@ import { hivePlugin } from "./plugins/hive";
 import { mysqlPlugin } from "./plugins/mysql";
 import { postgresqlPlugin } from "./plugins/postgresql";
 import { sqlitePlugin } from "./plugins/sqlite";
+import { duckdbPlugin } from "./plugins/duckdb";
 import { datahubPlugin } from "./plugins/datahub";
 import { datahubMcpPlugin } from "./plugins/datahub-mcp";
 import { customMcpEnginePlugin, customMcpContextPlugin } from "./plugins/custom-mcp";
@@ -24,6 +25,7 @@ export const CONNECTION_PLUGINS: ConnectionPlugin[] = [
   mysqlPlugin,
   postgresqlPlugin,
   sqlitePlugin,
+  duckdbPlugin,
   customMcpEnginePlugin,
 
   // Context platforms
