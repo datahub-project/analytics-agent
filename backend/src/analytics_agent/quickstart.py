@@ -309,6 +309,31 @@ def _check_prereqs(port: int) -> None:
     click.echo(f"  ✓ Port {port} available")
 
 
+def _is_stale_demo_db_failure(db_url: str, stderr: str) -> bool:
+    """True when bootstrap failed because the demo-written MySQL DATABASE_URL is unreachable."""
+    # Matches the URL written by _write_demo_config() on both Mac (host.docker.internal)
+    # and Linux (172.17.0.1). The literal datahub:datahub@…/talkster combo is
+    # demo-specific, so a match means we can safely strip the var.
+    if "mysql+aiomysql://datahub:datahub@" not in db_url or "/talkster" not in db_url:
+        return False
+    return "Can't connect" in stderr or "nodename nor servname" in stderr
+
+
+def _strip_env_vars(env_path: Path, keys: set[str]) -> None:
+    """Remove KEY=VALUE lines for the given keys from a .env file."""
+    if not env_path.exists():
+        return
+    kept: list[str] = []
+    for line in env_path.read_text().splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            k, _, _ = stripped.partition("=")
+            if k.strip() in keys:
+                continue
+        kept.append(line)
+    env_path.write_text("\n".join(kept) + ("\n" if kept else ""))
+
+
 def _bootstrap_and_launch(config_dir: Path, port: int, *, open_setup: bool = False) -> None:
     """Run bootstrap (migrations + seeds) then start the server."""
     import subprocess as _sp
@@ -331,24 +356,24 @@ def _bootstrap_and_launch(config_dir: Path, port: int, *, open_setup: bool = Fal
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0 and _is_stale_demo_db_failure(
+        env.get("DATABASE_URL", ""), result.stderr
+    ):
+        click.echo(
+            "  ! Stale demo DATABASE_URL detected (MySQL unreachable). "
+            "Clearing it and falling back to the default SQLite database…",
+            err=True,
+        )
+        _strip_env_vars(env_path, {"DATABASE_URL"})
+        env.pop("DATABASE_URL", None)
+        result = _sp.run(
+            [sys.executable, "-m", "analytics_agent.cli", "bootstrap"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
     if result.returncode != 0:
-        db_url = env.get("DATABASE_URL", "")
-        if (
-            db_url
-            and "mysql" in db_url
-            and ("Can't connect" in result.stderr or "nodename nor servname" in result.stderr)
-        ):
-            click.echo(
-                f"\n  ✗ Cannot connect to the MySQL database configured in {config_dir}/.env\n"
-                f"    DATABASE_URL: {db_url}\n\n"
-                "  This is likely a leftover from a previous demo run.\n"
-                "  To start fresh with a local SQLite database, reset your config:\n\n"
-                f"    rm -rf {config_dir}\n\n"
-                "  Then re-run:  uvx datahub-analytics-agent quickstart",
-                err=True,
-            )
-        else:
-            click.echo(result.stderr, err=True)
+        click.echo(result.stderr, err=True)
         sys.exit(result.returncode)
     click.echo("  ✓ Database initialised")
 
