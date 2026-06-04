@@ -438,6 +438,8 @@ DATABASE_URL=mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@host.docker.intern
 # acryl stack sets this, causing it to enable cloud-only ES fields that fail.
 # Force OSS mode so GraphQL queries use the correct field set.
 DISABLE_NEWER_GMS_FIELD_DETECTION=true
+# Point the agent at the config.yaml mounted into the container.
+ENGINES_CONFIG=/app/config.yaml
 EOF
 
 # Append LLM key if one was found in the environment — otherwise the wizard handles it
