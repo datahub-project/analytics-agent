@@ -3,8 +3,9 @@ from __future__ import annotations
 from typing import Literal
 
 import orjson
-from langchain.agents import create_agent
+from deepagents import create_deep_agent
 from langchain_core.messages import SystemMessage, ToolMessage
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from analytics_agent.agent.llm import get_llm
@@ -45,13 +46,20 @@ def build_graph(
     context_tools: list | None = None,  # pre-built from DB context platforms at request time
     engine_tools: list | None = None,  # pre-built for MCP data sources (bypasses QueryEngine)
 ):
+    """Build the agent graph backed by `deepagents.create_deep_agent`.
+
+    The inner agent gains a planning tool (`write_todos`) and a virtual
+    filesystem (`ls`/`read_file`/`write_file`/`edit_file`) — keeping
+    high-volume turns out of the parent's context window.
+
+    The outer `StateGraph` keeps the conditional `chart_node` post-step.
+    """
     from analytics_agent.agent.chart_generator import chart_node
+    from analytics_agent.agent.chart_tool import create_chart
     from analytics_agent.engines.factory import get_registry
 
     disabled = disabled_tools or set()
     llm = get_llm(streaming=True)
-
-    from analytics_agent.agent.chart_tool import create_chart
 
     # Context platform tools — built dynamically from DB at request time.
     # Falls back to env-var based build only when caller doesn't provide them.
@@ -77,6 +85,7 @@ def build_graph(
             if not engine:
                 raise ValueError(f"Engine '{engine_name}' not found.")
         engine_tools = [t for t in engine.get_tools() if t.name not in disabled]
+
     chart_tools = [] if "create_chart" in disabled else [create_chart]
     all_tools = datahub_tools + skill_tools + engine_tools + chart_tools
 
@@ -127,15 +136,14 @@ def build_graph(
                 ]
             )
 
-    react_agent = create_agent(
+    deep_agent = create_deep_agent(
         model=llm,
         tools=all_tools,
-        state_schema=AgentState,
         system_prompt=system_for_agent,
     )
 
     graph = StateGraph(AgentState)
-    graph.add_node("agent", react_agent)
+    graph.add_node("agent", deep_agent)
     graph.add_node("chart", chart_node)
     graph.add_edge(START, "agent")
     graph.add_conditional_edges(
@@ -145,4 +153,9 @@ def build_graph(
     )
     graph.add_edge("chart", END)
 
-    return graph.compile()
+    # An InMemorySaver lets the streaming layer call `aget_state(subgraphs=True)`
+    # to snapshot the deepagents virtual filesystem (the `files` DeltaChannel
+    # doesn't reliably propagate to the outer graph mid-step). `build_graph` is
+    # called fresh per request, so this checkpointer is per-turn — no state
+    # leaks across turns and history is still replayed from the DB each time.
+    return graph.compile(checkpointer=InMemorySaver())

@@ -12,6 +12,59 @@ _CHART_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 
+# Per-conversation snapshot of the deepagents virtual filesystem. Populated
+# during streaming whenever write_file/edit_file fires (and at end-of-turn).
+# The `/files` HTTP endpoint reads this so the Files panel can survive a reload
+# without depending on outer-graph checkpoint propagation, which is unreliable
+# for the `files` DeltaChannel.
+FILES_SNAPSHOTS: dict[str, dict[str, str]] = {}
+
+
+def _normalize_files(raw: Any) -> dict[str, str]:
+    """Coerce a deepagents `files` channel value into {path: content_str}.
+
+    deepagents stores entries as `FileData` dicts (`{content, encoding, ...}`)
+    in v2 format and plain strings in v1. We surface only the content for the
+    UI panel — encoding/mtime aren't displayed.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, str] = {}
+    for path, data in raw.items():
+        if isinstance(data, str):
+            out[path] = data
+        elif isinstance(data, dict):
+            content = data.get("content")
+            if isinstance(content, str):
+                out[path] = content
+            elif isinstance(content, list):
+                # v1 stored content as list[str] (lines)
+                out[path] = "\n".join(str(line) for line in content)
+    return out
+
+
+async def _snapshot_virtual_files(graph: Any, cfg: dict) -> dict[str, str]:
+    """Read the current virtual-filesystem snapshot from the live graph.
+
+    `aget_state(subgraphs=True)` walks into the deepagents subgraph so we pick
+    up files even when the outer state's `files` channel hasn't received the
+    subgraph's delta yet (DeltaChannel propagation across StateGraph nodes is
+    not guaranteed to be synchronous within a single agent step).
+    """
+    try:
+        snap = await graph.aget_state(cfg, subgraphs=True)
+    except Exception:
+        return {}
+    files = _normalize_files((snap.values or {}).get("files"))
+    # Walk pending subgraph tasks; deepagents writes files inside the inner
+    # agent's state and we want those even mid-step.
+    for task in getattr(snap, "tasks", ()) or ():
+        sub = getattr(task, "state", None)
+        sub_values = getattr(sub, "values", None) if sub is not None else None
+        if isinstance(sub_values, dict):
+            files.update(_normalize_files(sub_values.get("files")))
+    return files
+
 
 def _extract_chart_from_text(text: str) -> dict | None:
     """Extract a Vega-Lite chart spec if the model output it as a JSON code block."""
@@ -68,12 +121,28 @@ async def stream_graph_events(
     final_state: dict[str, Any] = {}
     chart_emitted = False  # guard against double-emitting CHART
 
+    # A per-turn thread id so the (per-request) InMemorySaver checkpoints this
+    # run's state, letting us snapshot the deepagents virtual filesystem via
+    # `aget_state`. The graph is rebuilt per request, so this never leaks state.
+    cfg: dict[str, Any] = {"configurable": {"thread_id": conversation_id}}
+
+    def _emit_files(files: dict[str, str]) -> dict | None:
+        """Cache + build a FILES_UPDATE event, or None if nothing changed."""
+        if FILES_SNAPSHOTS.get(conversation_id) == files:
+            return None
+        FILES_SNAPSHOTS[conversation_id] = files
+        return {
+            "event": "FILES_UPDATE",
+            "conversation_id": conversation_id,
+            "message_id": str(uuid.uuid4()),
+            "payload": {"files": files},
+        }
+
     try:
         from analytics_agent.config import settings as _settings
 
-        async for event in graph.astream_events(
-            inputs, version="v2", config={"recursion_limit": _settings.agent_recursion_limit}
-        ):
+        cfg["recursion_limit"] = _settings.agent_recursion_limit
+        async for event in graph.astream_events(inputs, version="v2", config=cfg):
             event_type: str = event.get("event", "")
             data: dict[str, Any] = event.get("data", {})
             name: str = event.get("name", "")
@@ -117,6 +186,16 @@ async def stream_graph_events(
                 # create_chart renders as a CHART event — don't show a tool call bubble
                 if name == "create_chart":
                     continue
+                # `write_todos` is the deepagents planning tool — surface as a
+                # dedicated TODOS event so the UI plan panel can subscribe.
+                if name == "write_todos":
+                    yield {
+                        "event": "TODOS",
+                        "conversation_id": conversation_id,
+                        "message_id": str(uuid.uuid4()),
+                        "payload": {"todos": tool_input.get("todos", [])},
+                    }
+                    continue
                 yield {
                     "event": "TOOL_CALL",
                     "conversation_id": conversation_id,
@@ -141,6 +220,18 @@ async def stream_graph_events(
 
             # ── SQL / TOOL_RESULT / CHART ──
             elif event_type == "on_tool_end":
+                # File-mutating deepagents tools — re-snapshot the virtual FS so
+                # the Files panel updates live as the agent writes scratch files.
+                if name in ("write_file", "edit_file"):
+                    files_evt = _emit_files(await _snapshot_virtual_files(graph, cfg))
+                    if files_evt is not None:
+                        yield files_evt
+
+                if name == "write_todos":
+                    # The TODOS event was already emitted at tool_start with the
+                    # full planned list; the tool_end output is just an ack.
+                    continue
+
                 output = data.get("output", "")
                 if hasattr(output, "content"):
                     output = output.content
@@ -310,6 +401,13 @@ async def stream_graph_events(
         clean_text = _strip_chart_json_blocks(full_text)
         if clean_text != full_text:
             final_text_parts[:] = [clean_text]
+
+    # End-of-turn filesystem snapshot — catches files the FilesystemMiddleware
+    # offloaded large tool results into (e.g. /large_tool_results/<id>) that no
+    # write_file/edit_file event covered.
+    files_evt = _emit_files(await _snapshot_virtual_files(graph, cfg))
+    if files_evt is not None:
+        yield files_evt
 
     yield {
         "event": "COMPLETE",
