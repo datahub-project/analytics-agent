@@ -70,7 +70,7 @@ cd analytics-agent
 bash quickstart.sh
 ```
 
-The script starts a local DataHub instance, loads the Olist e-commerce sample dataset and catalog metadata, then builds and launches Analytics Agent at **http://localhost:8100**. Postgres data is persisted to `~/.datahub/analytics-agent/postgres-data/` so it survives container restarts.
+The script starts a local DataHub instance, loads the Fiction Retail sample dataset and catalog metadata, then builds and launches Analytics Agent at **http://localhost:8100**. Postgres data is persisted to `~/.datahub/analytics-agent/postgres-data/` so it survives container restarts.
 
 **Using AWS Bedrock?** Export `LLM_PROVIDER=bedrock` before running the script. The script will verify your AWS credentials and Bedrock access before starting the container, and mount `~/.aws` read-only so boto3 picks up your profiles and SSO cache automatically.
 

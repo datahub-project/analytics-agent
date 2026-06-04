@@ -85,7 +85,7 @@ def bootstrap_cmd() -> None:
     "--demo",
     is_flag=True,
     default=False,
-    help="Full demo: start DataHub, load Olist sample data, and launch the agent.",
+    help="Full demo: start DataHub, load Fiction Retail sample data, and launch the agent.",
 )
 @click.option(
     "--reconfigure",

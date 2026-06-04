@@ -404,7 +404,7 @@ def _bootstrap_and_launch(config_dir: Path, port: int, *, open_setup: bool = Fal
         sys.exit(1)
 
 
-# ── Demo mode (full DataHub + Olist sample data) ───────────────────────────────
+# ── Demo mode (full DataHub + Fiction Retail sample data) ──────────────────────
 
 # On Linux, host.docker.internal doesn't resolve — use Docker's default bridge gateway.
 _HOST_INTERNAL = "host.docker.internal" if sys.platform == "darwin" else "172.17.0.1"
@@ -501,7 +501,7 @@ def _provision_datahub_token() -> str:
         return ""
 
 
-def _load_olist_data() -> None:
+def _load_fiction_retail_data() -> None:
     """Run load_sample_data.py from the bundled demo package."""
     from analytics_agent.demo import load_sample_data  # noqa: F401
 
@@ -524,9 +524,9 @@ def _load_olist_data() -> None:
         check=False,
     )
     if result.returncode != 0:
-        click.echo("  ✗ Olist data loading failed.", err=True)
+        click.echo("  ✗ Fiction Retail data loading failed.", err=True)
         sys.exit(1)
-    click.echo("  ✓ Olist sample data loaded")
+    click.echo("  ✓ Fiction Retail sample data loaded")
 
 
 def _ingest_metadata(gms_token: str) -> None:
@@ -556,11 +556,11 @@ def _ingest_metadata(gms_token: str) -> None:
     if result.returncode != 0:
         click.echo("  ✗ Metadata ingestion failed.", err=True)
         sys.exit(1)
-    click.echo("  ✓ Olist metadata ingested into DataHub")
+    click.echo("  ✓ Fiction Retail metadata ingested into DataHub")
 
 
 def _write_demo_config(config_dir: Path, gms_token: str, llm_env: dict[str, str]) -> None:
-    """Write .env and config.yaml for the demo (DataHub + Olist MySQL)."""
+    """Write .env and config.yaml for the demo (DataHub + Fiction Retail MySQL)."""
     import shutil
 
     # .env
@@ -589,7 +589,7 @@ def _write_demo_config(config_dir: Path, gms_token: str, llm_env: dict[str, str]
 
 
 def run_demo(port: int = 8100) -> None:
-    """Full demo: DataHub quickstart + Olist data + analytics agent."""
+    """Full demo: DataHub quickstart + Fiction Retail data + analytics agent."""
     click.echo(
         textwrap.dedent("""
         ╔══════════════════════════════════════════╗
@@ -628,8 +628,8 @@ def run_demo(port: int = 8100) -> None:
     click.echo("\n→ Starting DataHub…")
     _start_datahub()
 
-    click.echo("\n→ Loading Olist sample data…")
-    _load_olist_data()
+    click.echo("\n→ Loading Fiction Retail sample data…")
+    _load_fiction_retail_data()
 
     click.echo("\n→ Ingesting metadata into DataHub…")
     gms_token = _provision_datahub_token()

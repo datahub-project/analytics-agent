@@ -39,7 +39,7 @@ engines: []
 
 # MySQL example:
 #   - type: mysql
-#     name: olist_ecommerce
+#     name: fiction_retail
 #     connection:
 #       dialect: mysql+pymysql
 #       host: "${MYSQL_HOST}"
