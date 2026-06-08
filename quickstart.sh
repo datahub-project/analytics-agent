@@ -436,19 +436,28 @@ DATABASE_URL=mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@host.docker.intern
 DISABLE_NEWER_GMS_FIELD_DETECTION=true
 EOF
 
-# Append LLM key if one was found in the environment — otherwise the wizard handles it
-if [[ "$_LLM_KEY_SOURCE" == "anthropic" ]]; then
-    printf '\nLLM_PROVIDER=anthropic\nANTHROPIC_API_KEY=%s\n' "${ANTHROPIC_API_KEY}" >> .env.quickstart
-elif [[ "$_LLM_KEY_SOURCE" == "openai" ]]; then
-    printf '\nLLM_PROVIDER=openai\nOPENAI_API_KEY=%s\n' "${OPENAI_API_KEY}" >> .env.quickstart
-elif [[ "$_LLM_KEY_SOURCE" == "google" ]]; then
-    printf '\nLLM_PROVIDER=google\nGOOGLE_API_KEY=%s\n' "${GOOGLE_API_KEY}" >> .env.quickstart
-elif [[ "$_LLM_KEY_SOURCE" == "bedrock" ]]; then
-    {
-        printf '\nLLM_PROVIDER=bedrock\n'
-        printf 'AWS_REGION=%s\n' "${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}"
-        [[ -n "${AWS_PROFILE:-}" ]] && printf 'AWS_PROFILE=%s\n' "$AWS_PROFILE"
-    } >> .env.quickstart
+# Pick the initial LLM_PROVIDER from what triggered the wizard, but always
+# pass through every credential source the host has set. That way the user
+# can switch providers from the Settings UI without re-running quickstart.
+case "$_LLM_KEY_SOURCE" in
+    anthropic) printf '\nLLM_PROVIDER=anthropic\n' >> .env.quickstart ;;
+    openai)    printf '\nLLM_PROVIDER=openai\n'    >> .env.quickstart ;;
+    google)    printf '\nLLM_PROVIDER=google\n'    >> .env.quickstart ;;
+    bedrock)   printf '\nLLM_PROVIDER=bedrock\n'   >> .env.quickstart ;;
+esac
+
+# Pass every API key the host has set, regardless of which provider was
+# selected at quickstart time. Lets the operator switch providers later
+# without restarting the container.
+[[ -n "${ANTHROPIC_API_KEY:-}" ]] && printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY" >> .env.quickstart
+[[ -n "${OPENAI_API_KEY:-}"    ]] && printf 'OPENAI_API_KEY=%s\n'    "$OPENAI_API_KEY"    >> .env.quickstart
+[[ -n "${GOOGLE_API_KEY:-}"    ]] && printf 'GOOGLE_API_KEY=%s\n'    "$GOOGLE_API_KEY"    >> .env.quickstart
+
+# AWS region/profile — emit whenever Bedrock is even *available* on the
+# host so a later switch to Bedrock in the UI works without restart.
+if [[ -d "$HOME/.aws" ]]; then
+    printf 'AWS_REGION=%s\n' "${AWS_REGION:-${AWS_DEFAULT_REGION:-us-west-2}}" >> .env.quickstart
+    [[ -n "${AWS_PROFILE:-}" ]] && printf 'AWS_PROFILE=%s\n' "$AWS_PROFILE" >> .env.quickstart
 fi
 
 ok ".env.quickstart written (uses host.docker.internal — your .env is untouched)"
@@ -477,17 +486,23 @@ cd "$REPO_ROOT"
 # Stop and remove any previous quickstart container
 docker rm -f analytics-agent-quickstart 2>/dev/null && warn "Removed previous analytics-agent-quickstart container" || true
 
-# Mount ~/.aws read-only when using Bedrock so boto3 can pick up profiles / SSO cache.
-_AWS_MOUNT=()
-if [[ "$_LLM_KEY_SOURCE" == "bedrock" ]]; then
-    _AWS_MOUNT=(-v "$HOME/.aws:/root/.aws:ro")
+# Mount every credential source the host has set up — read-only — so the
+# operator can switch LLM providers via the Settings UI without
+# re-running quickstart. boto3 / gcloud / etc. will find their configs
+# at the standard paths inside the container.
+_CRED_MOUNTS=()
+if [[ -d "$HOME/.aws" ]]; then
+    _CRED_MOUNTS+=(-v "$HOME/.aws:/root/.aws:ro")
+fi
+if [[ -d "$HOME/.config/gcloud" ]]; then
+    _CRED_MOUNTS+=(-v "$HOME/.config/gcloud:/root/.config/gcloud:ro")
 fi
 
 docker run -d \
     --name analytics-agent-quickstart \
     --env-file .env.quickstart \
     -v "${REPO_ROOT}/config.yaml:/app/config.yaml:ro" \
-    ${_AWS_MOUNT:+"${_AWS_MOUNT[@]}"} \
+    ${_CRED_MOUNTS:+"${_CRED_MOUNTS[@]}"} \
     -p 8100:8100 \
     analytics-agent-quickstart
 
