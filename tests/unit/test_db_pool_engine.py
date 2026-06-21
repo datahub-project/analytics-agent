@@ -23,7 +23,7 @@ _POOL_KWARGS = {
 }
 
 
-def _fake_settings(database_url: str) -> SimpleNamespace:
+def _fake_settings(database_url: str, command_timeout: int = 30) -> SimpleNamespace:
     return SimpleNamespace(
         database_url=database_url,
         log_level="INFO",
@@ -32,15 +32,16 @@ def _fake_settings(database_url: str) -> SimpleNamespace:
         db_pool_recycle=1800,
         db_pool_pre_ping=True,
         db_pool_timeout=10,
+        db_command_timeout=command_timeout,
     )
 
 
-def _call_get_engine(database_url: str):
+def _call_get_engine(database_url: str, command_timeout: int = 30):
     """Reset the module singletons and capture the create_async_engine call."""
     with (
         patch.object(db_base, "_engine", None),
         patch.object(db_base, "_AsyncSessionFactory", None),
-        patch.object(db_base, "settings", _fake_settings(database_url)),
+        patch.object(db_base, "settings", _fake_settings(database_url, command_timeout)),
         patch.object(db_base, "create_async_engine", MagicMock()) as mock_create,
         patch.object(db_base, "async_sessionmaker", MagicMock()),
     ):
@@ -55,17 +56,25 @@ def test_sqlite_engine_omits_pool_kwargs():
     assert kwargs["connect_args"] == {"check_same_thread": False}
 
 
-def test_postgres_engine_applies_pool_kwargs():
+def test_postgres_engine_applies_pool_kwargs_and_command_timeout():
     args, kwargs = _call_get_engine("postgresql+asyncpg://u:p@host/db")
     assert kwargs["pool_size"] == 10
     assert kwargs["max_overflow"] == 20
     assert kwargs["pool_recycle"] == 1800
     assert kwargs["pool_pre_ping"] is True
     assert kwargs["pool_timeout"] == 10
+    # asyncpg gets a per-statement timeout so a wedged pre-ping fails fast.
+    assert kwargs["connect_args"] == {"command_timeout": 30}
+
+
+def test_postgres_command_timeout_disabled_when_zero():
+    args, kwargs = _call_get_engine("postgresql+asyncpg://u:p@host/db", command_timeout=0)
     assert kwargs["connect_args"] == {}
+    assert _POOL_KWARGS.issubset(kwargs)
 
 
-def test_mysql_engine_applies_pool_kwargs():
+def test_mysql_engine_applies_pool_kwargs_without_command_timeout():
+    """command_timeout is asyncpg-specific; MySQL must not receive it."""
     args, kwargs = _call_get_engine("mysql+asyncmy://u:p@host/db")
     assert _POOL_KWARGS.issubset(kwargs)
     assert kwargs["connect_args"] == {}

@@ -163,6 +163,7 @@ def _clear_pool_env(monkeypatch):
         "DB_POOL_RECYCLE",
         "DB_POOL_PRE_PING",
         "DB_POOL_TIMEOUT",
+        "DB_COMMAND_TIMEOUT",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -175,6 +176,7 @@ def test_db_pool_settings_defaults(monkeypatch):
     assert settings.db_pool_recycle == 1800
     assert settings.db_pool_pre_ping is True
     assert settings.db_pool_timeout == 10
+    assert settings.db_command_timeout == 30
 
 
 def test_db_pool_settings_env_override(monkeypatch):
@@ -185,9 +187,11 @@ def test_db_pool_settings_env_override(monkeypatch):
     monkeypatch.setenv("DB_POOL_RECYCLE", "900")
     monkeypatch.setenv("DB_POOL_PRE_PING", "false")
     monkeypatch.setenv("DB_POOL_TIMEOUT", "5")
+    monkeypatch.setenv("DB_COMMAND_TIMEOUT", "15")
     settings = Settings(_env_file=None)
     assert settings.db_pool_size == 25
     assert settings.db_max_overflow == 50
     assert settings.db_pool_recycle == 900
     assert settings.db_pool_pre_ping is False
     assert settings.db_pool_timeout == 5
+    assert settings.db_command_timeout == 15

@@ -253,6 +253,10 @@ class Settings(BaseSettings):
     db_pool_recycle: int = 1800
     db_pool_pre_ping: bool = True
     db_pool_timeout: int = 10
+    # asyncpg only: per-statement timeout (seconds) applied via connect_args so
+    # pool_pre_ping's SELECT 1 on a wedged connection fails fast instead of
+    # blocking forever. 0 disables. Ignored for SQLite / MySQL.
+    db_command_timeout: int = 30
 
     # Engine config — defaults to the user config dir; override via ENGINES_CONFIG env var
     engines_config: str = str(_CONFIG_DIR / "config.yaml")
