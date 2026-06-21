@@ -149,3 +149,45 @@ def test_load_engines_config_substitutes_env_vars(tmp_path, monkeypatch):
     assert len(engines) == 1
     assert engines[0].connection["account"] == "xy12345"
     assert engines[0].connection["user"] == "test_user"
+
+
+# ---------------------------------------------------------------------------
+# Connection pool settings (PR #72)
+# ---------------------------------------------------------------------------
+
+
+def _clear_pool_env(monkeypatch):
+    for var in (
+        "DB_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_POOL_RECYCLE",
+        "DB_POOL_PRE_PING",
+        "DB_POOL_TIMEOUT",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_db_pool_settings_defaults(monkeypatch):
+    _clear_pool_env(monkeypatch)
+    settings = Settings(_env_file=None)
+    assert settings.db_pool_size == 10
+    assert settings.db_max_overflow == 20
+    assert settings.db_pool_recycle == 1800
+    assert settings.db_pool_pre_ping is True
+    assert settings.db_pool_timeout == 10
+
+
+def test_db_pool_settings_env_override(monkeypatch):
+    """Ints and the bool flag coerce correctly from env-var strings."""
+    _clear_pool_env(monkeypatch)
+    monkeypatch.setenv("DB_POOL_SIZE", "25")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "50")
+    monkeypatch.setenv("DB_POOL_RECYCLE", "900")
+    monkeypatch.setenv("DB_POOL_PRE_PING", "false")
+    monkeypatch.setenv("DB_POOL_TIMEOUT", "5")
+    settings = Settings(_env_file=None)
+    assert settings.db_pool_size == 25
+    assert settings.db_max_overflow == 50
+    assert settings.db_pool_recycle == 900
+    assert settings.db_pool_pre_ping is False
+    assert settings.db_pool_timeout == 5
