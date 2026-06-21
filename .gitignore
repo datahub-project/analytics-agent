@@ -42,3 +42,6 @@ tests/e2e/*.local.config.ts
 
 # Claude Code session state (local-only)
 .claude/
+
+# Git credentials (written by DataHub agent tooling for auth; never commit)
+.git-credentials
