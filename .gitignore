@@ -32,6 +32,13 @@ backend/src/analytics_agent/static/
 *.log
 nohup.out
 
-# Playwright MCP test artifacts
+# Playwright test artifacts
 .playwright-mcp/
 *.png
+# Playwright default output dir (traces, .last-run.json)
+test-results/
+# Personal dev configs pointing at an already-running server
+tests/e2e/*.local.config.ts
+
+# Claude Code session state (local-only)
+.claude/
