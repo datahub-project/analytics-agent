@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Download the Olist e-commerce SQLite dataset and load it into MySQL.
+Download the Fiction Retail SQLite dataset and load it into MySQL.
 
 Usage (from repo root):
     uv run python scripts/load_sample_data.py [options]
@@ -15,31 +15,23 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-OLIST_URL = (
-    "https://github.com/datahub-project/static-assets/raw/main/datasets/olist-ecommerce/olist.db"
-)
+FICTION_RETAIL_URL = "https://github.com/datahub-project/static-assets/raw/main/datasets/fiction-retail/fiction-retail.db"
 
 TABLES = [
-    "olist_customers",
-    "olist_orders",
-    "olist_order_items",
-    "olist_order_payments",
-    "olist_order_reviews",
-    "olist_products",
-    "olist_sellers",
-    "product_category_name_translation",
+    "customers",
+    "orders",
+    "order_items",
+    "products",
+    "suppliers",
+    "inventory",
+    "warehouses",
+    "shipments",
+    "returns",
+    "promotions",
 ]
 
 # Fields whose content is long free-text — map to MySQL TEXT instead of VARCHAR(255).
-# NOTE: product_category_name and product_category_name_english are kept as VARCHAR(255)
-# because they are join keys between tables; TEXT columns cannot be indexed without a
-# prefix length in MySQL.
-LONG_TEXT_FIELDS = {
-    "review_comment_message",
-    "review_comment_title",
-    "product_description_lenght",  # intentional Olist typo
-    "product_description_length",
-}
+LONG_TEXT_FIELDS: set[str] = set()
 
 BATCH_SIZE = 500
 
@@ -105,7 +97,7 @@ def _build_create_table(table: str, columns: list[tuple]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Load Olist sample data into MySQL")
+    parser = argparse.ArgumentParser(description="Load Fiction Retail sample data into MySQL")
     parser.add_argument("--host", default="localhost", help="MySQL host (default: localhost)")
     parser.add_argument("--port", type=int, default=3306, help="MySQL port (default: 3306)")
     parser.add_argument(
@@ -136,12 +128,12 @@ def main() -> None:
         sys.exit(1)
 
     # --- 1. Download SQLite file ---
-    print("[→] Downloading Olist dataset from GitHub...")
+    print("[→] Downloading Fiction Retail dataset from GitHub...")
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         tmp_path = Path(tmp.name)
 
     try:
-        _download(OLIST_URL, tmp_path)
+        _download(FICTION_RETAIL_URL, tmp_path)
         print(f"[✓] Downloaded to {tmp_path} ({tmp_path.stat().st_size:,} bytes)")
 
         # --- 2. Open SQLite ---

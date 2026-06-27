@@ -2,8 +2,8 @@
 Integration test: DuckDB query engine + DataHub metadata, end-to-end.
 
 Setup:
-  - Creates a temporary DuckDB file with three Olist-like tables
-    (olist_orders, olist_order_items, olist_products — ~50 rows total).
+  - Creates a temporary DuckDB file with three tables
+    (orders, order_items, products — ~50 rows total).
   - Pushes table descriptions to the configured DataHub instance under
     platform=duckdb, env=DEV so the agent can discover them via search.
 
@@ -113,16 +113,16 @@ _ENV = "DEV"
 
 # Tables we create + their descriptions for DataHub.
 _TABLES: dict[str, str] = {
-    "olist_orders": (
+    "orders": (
         "Order lifecycle records. Columns: order_id (PK), customer_id, "
         "order_status ('delivered' or 'canceled'), order_purchase_timestamp."
     ),
-    "olist_order_items": (
+    "order_items": (
         "Line items inside each order. Columns: order_id (FK), product_id (FK), "
-        "price (item price in BRL), freight_value (shipping cost in BRL). "
+        "price (item price), freight_value (shipping cost). "
         "Revenue = SUM(price + freight_value) for delivered orders."
     ),
-    "olist_products": (
+    "products": (
         "Product catalog. Columns: product_id (PK), product_category_name "
         "(e.g. 'electronics', 'furniture', 'clothing', 'books', 'toys')."
     ),
@@ -138,15 +138,15 @@ def _dataset_urn(table: str) -> str:
 
 @pytest.fixture(scope="module")
 def duckdb_path(tmp_path_factory):
-    """Build a temp DuckDB file with three Olist-like tables."""
+    """Build a temp DuckDB file with three test tables."""
     import duckdb
 
     db_file = tmp_path_factory.mktemp("duckdb") / "test.duckdb"
     con = duckdb.connect(str(db_file))
 
-    # olist_orders — 50 rows, 5 canceled (i % 10 == 0)
+    # orders — 50 rows, 5 canceled (i % 10 == 0)
     con.execute("""
-        CREATE TABLE olist_orders (
+        CREATE TABLE orders (
             order_id                   VARCHAR PRIMARY KEY,
             customer_id                VARCHAR,
             order_status               VARCHAR,
@@ -154,7 +154,7 @@ def duckdb_path(tmp_path_factory):
         )
     """)
     con.execute("""
-        INSERT INTO olist_orders
+        INSERT INTO orders
         SELECT
             'order_' || i::VARCHAR,
             'customer_' || (i % 20)::VARCHAR,
@@ -163,10 +163,10 @@ def duckdb_path(tmp_path_factory):
         FROM range(1, 51) t(i)
     """)
 
-    # olist_order_items — 2 items per order (100 rows)
+    # order_items — 2 items per order (100 rows)
     # product_id cycles through 0-9 so each maps to a distinct category
     con.execute("""
-        CREATE TABLE olist_order_items (
+        CREATE TABLE order_items (
             order_id       VARCHAR,
             product_id     VARCHAR,
             price          DOUBLE,
@@ -174,7 +174,7 @@ def duckdb_path(tmp_path_factory):
         )
     """)
     con.execute("""
-        INSERT INTO olist_order_items
+        INSERT INTO order_items
         SELECT
             'order_' || (i % 50 + 1)::VARCHAR,
             'product_' || (i % 10)::VARCHAR,
@@ -183,15 +183,15 @@ def duckdb_path(tmp_path_factory):
         FROM range(0, 100) t(i)
     """)
 
-    # olist_products — 10 products across 5 categories (2 products each)
+    # products — 10 products across 5 categories (2 products each)
     con.execute("""
-        CREATE TABLE olist_products (
+        CREATE TABLE products (
             product_id             VARCHAR PRIMARY KEY,
             product_category_name  VARCHAR
         )
     """)
     con.executemany(
-        "INSERT INTO olist_products VALUES (?, ?)",
+        "INSERT INTO products VALUES (?, ?)",
         [
             ("product_0", "electronics"),
             ("product_1", "furniture"),
@@ -326,7 +326,7 @@ async def test_delivered_vs_canceled_order_count(agent_graph):
 
     event_types = {e["event"] for e in events}
     assert "COMPLETE" in event_types
-    assert "SQL" in event_types, "Agent should query olist_orders for status counts"
+    assert "SQL" in event_types, "Agent should query orders for status counts"
 
     complete_text = next(e["payload"].get("text", "") for e in events if e["event"] == "COMPLETE")
     # Dataset has 45 delivered (i % 10 != 0) and 5 canceled (i % 10 == 0)
@@ -348,9 +348,7 @@ async def test_engine_list_tables(duckdb_engine):
     result = tools["list_tables"].invoke({"schema": ""})
     tables = orjson.loads(result)
     table_names = {t["name"] for t in tables}
-    assert {"olist_orders", "olist_order_items", "olist_products"} == table_names, (
-        f"Unexpected tables: {table_names}"
-    )
+    assert {"orders", "order_items", "products"} == table_names, f"Unexpected tables: {table_names}"
 
 
 @pytest.mark.asyncio
@@ -361,7 +359,7 @@ async def test_engine_execute_sql(duckdb_engine):
     tools = {t.name: t for t in duckdb_engine.get_tools()}
     result = tools["execute_sql"].invoke(
         {
-            "sql": "SELECT order_status, COUNT(*) AS cnt FROM olist_orders GROUP BY order_status ORDER BY cnt DESC"
+            "sql": "SELECT order_status, COUNT(*) AS cnt FROM orders GROUP BY order_status ORDER BY cnt DESC"
         }
     )
     parsed = orjson.loads(result)

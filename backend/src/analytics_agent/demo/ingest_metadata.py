@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Register the Olist MySQL tables in DataHub via GraphQL:
+Register the Fiction Retail MySQL tables in DataHub via GraphQL:
   1. createIngestionSource — upsert a MySQL ingestion recipe
   2. createIngestionExecutionRequest — run it inside DataHub's executor
   3. Poll until SUCCESS, then patch in human-readable descriptions
@@ -21,14 +21,16 @@ import time
 import urllib.request
 
 TABLE_DESCRIPTIONS: dict[str, str] = {
-    "olist_customers": "Brazilian e-commerce customers with city and state information",
-    "olist_orders": "Order lifecycle records including status, purchase timestamp, and delivery timestamps",
-    "olist_order_items": "Line items in each order, linking orders to products and sellers with price and freight",
-    "olist_order_payments": "Payment method and installment details for each order",
-    "olist_order_reviews": "Customer satisfaction reviews with scores and comments per order",
-    "olist_products": "Product catalog with category, dimensions, and weight",
-    "olist_sellers": "Marketplace sellers with city and state location",
-    "product_category_name_translation": "Portuguese to English category name translations",
+    "customers": "Retail customers with contact details, location, and segment classification",
+    "orders": "Order records including status, payment method, and total amount",
+    "order_items": "Line items linking orders to products with quantity, unit price, and discount",
+    "products": "Product catalog with category, brand, price, and physical dimensions",
+    "suppliers": "Supplier directory with country and contract information",
+    "inventory": "Stock levels per product and warehouse with reorder thresholds",
+    "warehouses": "Warehouse locations with capacity and operational details",
+    "shipments": "Shipment tracking records with carrier, dates, and delivery state",
+    "returns": "Return and refund records with reason codes",
+    "promotions": "Promotional campaigns with discount rules, validity windows, and category scope",
 }
 
 
@@ -95,7 +97,7 @@ def _upsert_ingestion_source(
     input_fields = {
         "name": "Analytics Agent Demo — MySQL",
         "type": "mysql",
-        "description": f"Olist e-commerce sample data in {database}",
+        "description": f"Fiction Retail sample data in {database}",
         "config": {
             "recipe": recipe,
             "executorId": "default",
@@ -196,7 +198,7 @@ def _patch_descriptions(gms_url: str, token: str, database: str) -> None:
 
 
 def _seed_demo_context(gms_url: str, token: str, database: str) -> None:
-    """Seed demo-ready tags, glossary terms, and table ownership for Olist tables."""
+    """Seed demo-ready tags, glossary terms, and table ownership for Fiction Retail tables."""
     from datahub.emitter.rest_emitter import DatahubRestEmitter
     from datahub.metadata.schema_classes import (
         AuditStampClass,
@@ -224,9 +226,10 @@ def _seed_demo_context(gms_url: str, token: str, database: str) -> None:
 
     # ── 1. Create tag entities ──────────────────────────────────────────────
     TAGS: dict[str, str] = {
-        "pii": "Contains personally identifiable information (customer IDs, locations, free-text review comments)",
-        "identifier": "Primary or foreign key columns used for joining tables",
-        "financial": "Contains monetary values (prices, payments, freight costs)",
+        "pii": "Contains personally identifiable information",
+        "financial": "Contains monetary values",
+        "transactional": "Records individual business transactions",
+        "reference_data": "Lookup or configuration data that changes infrequently",
     }
     for tag_name, description in TAGS.items():
         try:
@@ -244,32 +247,46 @@ def _seed_demo_context(gms_url: str, token: str, database: str) -> None:
 
     # ── 2. Create glossary term entities ────────────────────────────────────
     TERMS: dict[str, dict[str, str]] = {
-        "revenue": {
-            "name": "Revenue",
+        "order_status": {
+            "name": "Order Status",
             "definition": (
-                "Total sales value from delivered orders. Calculated as SUM(price + freight_value) "
-                "from olist_order_items, filtered to orders where olist_orders.order_status = 'delivered'. "
-                "Non-delivered orders (canceled, unavailable) are excluded. For per-seller revenue, group by "
-                "olist_order_items.seller_id. For per-category revenue, join via product_id to olist_products "
-                "and then to product_category_name_translation for English category names."
+                "Lifecycle state of an order. Values: pending, processing, shipped, delivered, "
+                "cancelled, returned."
             ),
         },
-        "delivery_sla": {
-            "name": "Delivery SLA",
+        "customer_segment": {
+            "name": "Customer Segment",
             "definition": (
-                "Delivery performance metric. An order meets SLA if order_delivered_customer_date <= "
-                "order_estimated_delivery_date. SLA breach = actual delivery later than estimated. "
-                "Per-seller SLA breach rate = count(breached orders) / count(delivered orders) for orders "
-                "shipped by that seller. Only computed for delivered orders; canceled and undelivered orders "
-                "are excluded from the denominator."
+                "Classification of a customer based on purchase behavior or profile. "
+                "Used to target promotions and personalize recommendations."
             ),
         },
-        "active_seller": {
-            "name": "Active Seller",
+        "discount_pct": {
+            "name": "Discount Percentage",
             "definition": (
-                "A seller with at least one delivered order in the trailing 30 days, measured from the most "
-                "recent order_purchase_timestamp in the dataset. For historical Olist data (2016-2018), "
-                "'trailing 30 days' is computed relative to MAX(order_purchase_timestamp), not today's date."
+                "Percentage reduction applied to the unit price of an order item. "
+                "Sourced from the applied promotion or negotiated directly."
+            ),
+        },
+        "reorder_threshold": {
+            "name": "Reorder Threshold",
+            "definition": (
+                "Minimum quantity_on_hand below which a restock should be triggered "
+                "for a given product at a warehouse."
+            ),
+        },
+        "return_reason_code": {
+            "name": "Return Reason Code",
+            "definition": (
+                "Standardized code classifying why an item was returned. "
+                "Used for quality tracking and supplier performance analysis."
+            ),
+        },
+        "shipment_state": {
+            "name": "Shipment State",
+            "definition": (
+                "Current status of a shipment in the fulfillment pipeline. "
+                "Values: pending, in_transit, delivered, failed."
             ),
         },
     }
@@ -298,28 +315,35 @@ def _seed_demo_context(gms_url: str, token: str, database: str) -> None:
     # so GlobalTagsClass and GlossaryTermsClass are each written exactly once —
     # a second emit of either aspect would replace the first (overwrite bug).
     TAG_MAP: dict[str, list[str]] = {
-        "olist_customers": ["pii", "identifier"],
-        "olist_orders": ["identifier"],
-        "olist_order_items": ["identifier", "financial"],
-        "olist_order_payments": ["financial"],
-        "olist_order_reviews": ["pii"],
-        "olist_products": ["identifier"],
-        "olist_sellers": ["pii", "identifier"],
+        "customers": ["pii"],
+        "orders": ["financial", "transactional"],
+        "order_items": ["financial", "transactional"],
+        "shipments": ["transactional"],
+        "returns": ["financial", "transactional"],
+        "products": ["reference_data"],
+        "suppliers": ["reference_data"],
+        "warehouses": ["reference_data"],
+        "promotions": ["reference_data"],
     }
     TERM_MAP: dict[str, list[str]] = {
-        "olist_order_items": ["revenue"],
-        "olist_orders": ["revenue", "delivery_sla"],
-        "olist_sellers": ["delivery_sla", "active_seller"],
+        "orders": ["order_status"],
+        "customers": ["customer_segment"],
+        "order_items": ["discount_pct"],
+        "inventory": ["reorder_threshold"],
+        "returns": ["return_reason_code"],
+        "shipments": ["shipment_state"],
     }
     OWNER_MAP: dict[str, str] = {
-        "olist_sellers": "logistics_team",
-        "olist_order_items": "logistics_team",
-        "olist_order_payments": "finance_team",
-        "olist_order_reviews": "customer_experience_team",
-        "olist_customers": "customer_experience_team",
-        "olist_products": "product_team",
-        "product_category_name_translation": "product_team",
-        "olist_orders": "data_platform_team",
+        "customers": "customer_team",
+        "orders": "commerce_team",
+        "order_items": "commerce_team",
+        "products": "catalog_team",
+        "suppliers": "catalog_team",
+        "inventory": "logistics_team",
+        "warehouses": "logistics_team",
+        "shipments": "logistics_team",
+        "returns": "finance_team",
+        "promotions": "marketing_team",
     }
     for table in sorted(set(TAG_MAP) | set(TERM_MAP) | set(OWNER_MAP)):
         aspects: list = []
@@ -367,7 +391,9 @@ def _seed_demo_context(gms_url: str, token: str, database: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Ingest Olist metadata into DataHub via GraphQL")
+    parser = argparse.ArgumentParser(
+        description="Ingest Fiction Retail metadata into DataHub via GraphQL"
+    )
     parser.add_argument("--gms-url", default="http://localhost:8080")
     parser.add_argument("--token", default="")
     parser.add_argument("--database", default="analytics_agent_demo")
@@ -414,7 +440,7 @@ def main() -> None:
         print()
         print("[→] Seeding demo context (tags, glossary terms, ownership)...")
         _seed_demo_context(args.gms_url, args.token, args.database)
-        print("[✓] Demo context seeded — 3 tags, 3 glossary terms, 8 table owners")
+        print("[✓] Demo context seeded — 4 tags, 6 glossary terms, 10 table owners")
 
     print()
     print(f"[✓] Done — {len(TABLE_DESCRIPTIONS)} tables indexed and described in DataHub.")

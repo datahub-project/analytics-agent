@@ -7,7 +7,7 @@ context_platforms:
 
 engines:
   - type: mysql
-    name: olist_ecommerce
+    name: fiction_retail
     connection:
       dialect: mysql+pymysql
       host: "${MYSQL_HOST}"
