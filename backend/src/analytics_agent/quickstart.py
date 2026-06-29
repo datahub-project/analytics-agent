@@ -563,13 +563,17 @@ def _write_demo_config(config_dir: Path, gms_token: str, llm_env: dict[str, str]
     """Write .env and config.yaml for the demo (DataHub + Fiction Retail MySQL)."""
     import shutil
 
+    # The agent runs natively on the host, so MySQL and DataHub GMS are
+    # reachable via localhost even though they run inside Docker containers.
+    _demo_host = "localhost"
+
     # .env
     env_updates: dict[str, str] = {
-        "DATAHUB_GMS_URL": f"http://{_HOST_INTERNAL}:8080",
+        "DATAHUB_GMS_URL": f"http://{_demo_host}:8080",
         "DATAHUB_GMS_TOKEN": gms_token,
         "DATABASE_URL": (
             f"mysql+aiomysql://{_DEMO_MYSQL_USER}:{_DEMO_MYSQL_PASS}"
-            f"@{_HOST_INTERNAL}:{_DEMO_MYSQL_PORT}/talkster"
+            f"@{_demo_host}:{_DEMO_MYSQL_PORT}/talkster"
         ),
         "DISABLE_NEWER_GMS_FIELD_DETECTION": "true",
     }
@@ -582,7 +586,7 @@ def _write_demo_config(config_dir: Path, gms_token: str, llm_env: dict[str, str]
     shutil.copy(src, dest)
     # Patch host references in the copied config
     text = dest.read_text()
-    text = text.replace("${MYSQL_HOST}", _HOST_INTERNAL)
+    text = text.replace("${MYSQL_HOST}", _demo_host)
     dest.write_text(text)
 
     click.echo(f"  ✓ Demo config written to {config_dir}/")

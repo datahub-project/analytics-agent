@@ -57,6 +57,7 @@ check_cmd docker       "Install Docker Desktop: https://www.docker.com/products/
 check_cmd datahub      "Install DataHub CLI: pip install acryl-datahub"
 check_cmd uv           "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
 check_cmd python3      "Install Python 3.11+: https://python.org"
+check_cmd openssl      "Install OpenSSL: https://openssl.org (needed to generate DataHub signing keys)"
 # pnpm not required — the Docker image builds the frontend internally
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -264,6 +265,10 @@ if _gms_healthy; then
 else
     go "No DataHub GMS found at ${DATAHUB_GMS_URL} — starting DataHub OSS quickstart..."
 
+    # DataHub v1.5+ requires these to be non-empty; auto-generate if not set.
+    export DATAHUB_TOKEN_SERVICE_SIGNING_KEY="${DATAHUB_TOKEN_SERVICE_SIGNING_KEY:-$(openssl rand -hex 32)}"
+    export DATAHUB_TOKEN_SERVICE_SALT="${DATAHUB_TOKEN_SERVICE_SALT:-$(openssl rand -hex 16)}"
+
     # ── Optional: enable semantic search if OPENAI_API_KEY is available ───────
     # Semantic search requires GMS to receive extra env vars that the default
     # quickstart compose does not include. We inject them via a compose override
@@ -434,6 +439,8 @@ DATABASE_URL=mysql+aiomysql://${MYSQL_USER}:${MYSQL_PASSWORD}@host.docker.intern
 # acryl stack sets this, causing it to enable cloud-only ES fields that fail.
 # Force OSS mode so GraphQL queries use the correct field set.
 DISABLE_NEWER_GMS_FIELD_DETECTION=true
+# Point the agent at the config.yaml mounted into the container.
+ENGINES_CONFIG=/app/config.yaml
 EOF
 
 # Pick the initial LLM_PROVIDER from what triggered the wizard, but always
