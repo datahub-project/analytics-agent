@@ -16,6 +16,8 @@ def _make_anthropic(model: str, streaming: bool) -> BaseChatModel:
     kwargs: dict = {"model_name": model, "streaming": streaming}
     if settings.anthropic_api_key:
         kwargs["api_key"] = SecretStr(settings.anthropic_api_key)
+    if settings.anthropic_base_url:
+        kwargs["anthropic_api_url"] = settings.anthropic_base_url
     return ChatAnthropic(**kwargs)  # type: ignore[call-arg]
 
 
