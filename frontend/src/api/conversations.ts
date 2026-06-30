@@ -42,6 +42,13 @@ export async function generateTitle(
   return res.json();
 }
 
+export async function getVirtualFiles(id: string): Promise<Record<string, string>> {
+  const res = await fetch(`${BASE}/conversations/${id}/files`);
+  if (!res.ok) throw new Error("Failed to fetch virtual files");
+  const data = await res.json();
+  return data.files ?? {};
+}
+
 export async function listEngines(): Promise<Engine[]> {
   const res = await fetch(`${BASE}/engines`);
   if (!res.ok) throw new Error("Failed to fetch engines");

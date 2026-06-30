@@ -1,8 +1,8 @@
 import { useEffect, useCallback, useState, useRef } from "react";
-import type { MessageRecord, UsagePayload, TurnUsage } from "@/types";
+import type { MessageRecord, UsagePayload, TurnUsage, TodosPayload } from "@/types";
 import { streamMessage, reattachStream } from "@/api/stream";
-import { generateTitle, getConversation, createConversation } from "@/api/conversations";
-import { Download, X } from "lucide-react";
+import { generateTitle, getConversation, createConversation, getVirtualFiles } from "@/api/conversations";
+import { Download, PanelRight, X } from "lucide-react";
 import { useConversationsStore } from "@/store/conversations";
 import { useDisplayStore } from "@/store/display";
 import { MessageList } from "./MessageList";
@@ -10,6 +10,7 @@ import { MessageInput } from "./MessageInput";
 import { EngineSelector } from "./EngineSelector";
 import { WelcomeView } from "./WelcomeView";
 import { ContextStatusBar } from "./ContextStatusBar";
+import { DeepAgentsPanel } from "./DeepAgentsPanel";
 import type { UIMessage } from "@/types";
 import { buildUiMessages } from "@/lib/buildUiMessages";
 import { v4 as uuidv4 } from "uuid";
@@ -36,7 +37,12 @@ export function ChatView() {
     attachUsageToMessage,
     setFinalMsgTurnUsage,
     finalizeStreaming,
+    todos,
+    setTodos,
+    setFiles,
   } = useConversationsStore();
+
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const activeConv = conversations.find((c) => c.id === activeId);
   const pendingFirstMessage = useRef<string | null>(null);
@@ -68,9 +74,11 @@ export function ChatView() {
       if (activeId !== snapId) return;
 
       if (!detail.is_streaming) {
-        const { messages: uiMsgs, totals } = buildUiMessages(detail.messages);
+        const { messages: uiMsgs, totals, lastTodos } = buildUiMessages(detail.messages);
         setMessages(uiMsgs);
         setUsageTotals(totals);
+        setTodos(lastTodos);
+        getVirtualFiles(snapId).then(setFiles).catch(() => {});
         return;
       }
 
@@ -84,9 +92,11 @@ export function ChatView() {
       const previousMessages = lastUserIdx >= 0
         ? detail.messages.slice(0, lastUserIdx + 1)
         : detail.messages;
-      const { messages: prevUiMsgs, totals: prevTotals } = buildUiMessages(previousMessages);
+      const { messages: prevUiMsgs, totals: prevTotals, lastTodos } = buildUiMessages(previousMessages);
       setMessages(prevUiMsgs);
       setUsageTotals(prevTotals);
+      setTodos(lastTodos);
+      getVirtualFiles(snapId).then(setFiles).catch(() => {});
 
       setStreaming(true);
       resetStreamingText();
@@ -132,6 +142,11 @@ export function ChatView() {
               [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
               [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
             if (targetId) attachUsageToMessage(targetId, usage);
+          } else if (event.event === "TODOS") {
+            setTodos(((event.payload as unknown) as TodosPayload).todos || []);
+            setPanelOpen(true);
+          } else if (event.event === "FILES_UPDATE") {
+            setFiles((event.payload as { files?: Record<string, string> }).files ?? {});
           } else if (event.event === "COMPLETE") {
             if (reattachTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...reattachTurnUsage });
           } else {
@@ -258,6 +273,11 @@ export function ChatView() {
             [...state.messages].reverse().find((m) => m.role === "assistant" && m.event_type === "TOOL_CALL")?.id ??
             [...state.messages].reverse().find((m) => m.role === "assistant")?.id;
           if (targetId) attachUsageToMessage(targetId, usage);
+        } else if (event.event === "TODOS") {
+          setTodos(((event.payload as unknown) as TodosPayload).todos || []);
+          setPanelOpen(true);
+        } else if (event.event === "FILES_UPDATE") {
+          setFiles((event.payload as { files?: Record<string, string> }).files ?? {});
         } else if (event.event === "COMPLETE") {
           if (sendTurnUsage.calls > 0) setFinalMsgTurnUsage({ ...sendTurnUsage });
         } else {
@@ -306,7 +326,8 @@ export function ChatView() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden" data-print-chat>
+    <div className="flex-1 flex h-full overflow-hidden">
+    <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0" data-print-chat>
       {/* Hidden print header — visible only when printing */}
       <div id="print-header" style={{ display: "none" }}>
         <h1 style={{ fontSize: "18px", fontWeight: 700, margin: 0 }}>
@@ -334,6 +355,23 @@ export function ChatView() {
               Export PDF
             </button>
           )}
+          <button
+            onClick={() => setPanelOpen((v) => !v)}
+            className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded transition-colors
+              ${panelOpen
+                ? "text-primary bg-primary/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"}`}
+            title="Toggle plan & files panel"
+            data-print-hide
+          >
+            <PanelRight className="w-3.5 h-3.5" />
+            Plan
+            {todos.length > 0 && (
+              <span className="ml-0.5 px-1.5 rounded-full bg-muted text-[10px]">
+                {todos.filter((t) => t.status === "completed").length}/{todos.length}
+              </span>
+            )}
+          </button>
           <EngineSelector
             engines={engines}
             selected={activeConv?.engine_name ?? ""}
@@ -426,6 +464,8 @@ export function ChatView() {
           </div>
         </div>
       )}
+    </div>
+      <DeepAgentsPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
     </div>
   );
 }
