@@ -389,3 +389,39 @@ def test_upgrade_pip_install_specific_version(monkeypatch):
 
     assert result.exit_code == 0
     assert any("datahub-analytics-agent==0.2.1" in " ".join(cmd) for cmd in calls)
+
+
+# ── FastAPI app version (constructor no longer hardcoded) ─────────────────────
+
+
+def test_app_version_from_package_metadata(monkeypatch):
+    """create_app() reads its version from package metadata, not the old '0.1.0'."""
+    from analytics_agent.main import create_app
+
+    monkeypatch.delenv("ANALYTICS_AGENT_OVERRIDE_VERSION", raising=False)
+    with patch("importlib.metadata.version", return_value="9.9.9"):
+        app = create_app()
+
+    assert app.version == "9.9.9"
+    assert app.version != "0.1.0"
+
+
+def test_app_version_respects_override_env(monkeypatch):
+    """ANALYTICS_AGENT_OVERRIDE_VERSION wins over installed metadata."""
+    from analytics_agent.main import create_app
+
+    monkeypatch.setenv("ANALYTICS_AGENT_OVERRIDE_VERSION", "1.2.3.dev0")
+    app = create_app()
+
+    assert app.version == "1.2.3.dev0"
+
+
+def test_app_version_falls_back_when_uninstalled(monkeypatch):
+    """Package metadata missing (source checkout) → 'unknown', no crash."""
+    from analytics_agent.main import create_app
+
+    monkeypatch.delenv("ANALYTICS_AGENT_OVERRIDE_VERSION", raising=False)
+    with patch("importlib.metadata.version", side_effect=Exception("not found")):
+        app = create_app()
+
+    assert app.version == "unknown"

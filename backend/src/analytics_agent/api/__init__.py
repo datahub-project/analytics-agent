@@ -50,15 +50,9 @@ async def _fetch_releases(limit: int = 10) -> list[dict]:
 @api_router.get("/api/version", tags=["system"])
 async def get_version():
     """Return the running version and whether a newer GitHub release is available."""
-    import importlib.metadata
-    import os
+    from analytics_agent._version import get_package_version
 
-    try:
-        current = os.environ.get("ANALYTICS_AGENT_OVERRIDE_VERSION") or importlib.metadata.version(
-            "datahub-analytics-agent"
-        )
-    except Exception:
-        current = "unknown"
+    current = get_package_version()
 
     releases = await _fetch_releases(limit=1)
     latest_version: str | None = None
