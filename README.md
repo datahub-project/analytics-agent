@@ -408,6 +408,7 @@ uv run uvicorn analytics_agent.main:app --host 0.0.0.0 --port 8100
 <p align="center">
   <img src="docs/analytics-agent.png" alt="DataHub architecture diagram" width="900">
 </p>
+
 ```
 analytics-agent/
 ├── backend/src/analytics_agent/
