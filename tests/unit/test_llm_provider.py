@@ -333,3 +333,37 @@ def test_new_env_var_takes_priority_over_legacy(monkeypatch, old_name, new_name,
     monkeypatch.setenv(old_name, "should-not-appear")
     s = _make_settings(monkeypatch)
     assert getattr(s, field) == value
+
+
+# ─── _make_anthropic base_url wiring (PR #80) ────────────────────────────────
+
+
+@patch("langchain_anthropic.ChatAnthropic")
+@patch("analytics_agent.agent.llm.settings")
+def test_make_anthropic_passes_base_url_when_set(mock_settings, mock_chat):
+    """ANTHROPIC_BASE_URL is forwarded to ChatAnthropic as anthropic_api_url."""
+    from analytics_agent.agent.llm import _make_anthropic
+
+    mock_settings.anthropic_api_key = "sk-ant-test"
+    mock_settings.anthropic_base_url = "https://proxy.example.com"
+
+    _make_anthropic("claude-sonnet-4-6", streaming=False)
+
+    _, kwargs = mock_chat.call_args
+    assert kwargs["anthropic_api_url"] == "https://proxy.example.com"
+    assert kwargs["model_name"] == "claude-sonnet-4-6"
+
+
+@patch("langchain_anthropic.ChatAnthropic")
+@patch("analytics_agent.agent.llm.settings")
+def test_make_anthropic_omits_base_url_when_unset(mock_settings, mock_chat):
+    """Unset base URL means no anthropic_api_url kwarg — default endpoint is used."""
+    from analytics_agent.agent.llm import _make_anthropic
+
+    mock_settings.anthropic_api_key = "sk-ant-test"
+    mock_settings.anthropic_base_url = ""
+
+    _make_anthropic("claude-sonnet-4-6", streaming=False)
+
+    _, kwargs = mock_chat.call_args
+    assert "anthropic_api_url" not in kwargs
