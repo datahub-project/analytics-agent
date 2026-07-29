@@ -379,9 +379,11 @@ def create_app() -> FastAPI:
         )
     logger = logging.getLogger(__name__)
 
+    from analytics_agent._version import get_package_version
+
     app = FastAPI(
         title="DataHub Talk to Data",
-        version="0.1.0",
+        version=get_package_version(),
         lifespan=lifespan,
     )
 

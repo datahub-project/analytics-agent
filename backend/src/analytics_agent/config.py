@@ -175,6 +175,7 @@ class Settings(BaseSettings):
     llm_provider: str = "openai"
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    anthropic_base_url: str = ""
     google_api_key: str = ""
     # Bedrock — uses the standard AWS credential chain by default (env vars,
     # ~/.aws/credentials, IAM role). Set the explicit *_key_id/*_access_key

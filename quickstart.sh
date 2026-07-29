@@ -3,6 +3,14 @@
 # Idempotent: safe to re-run at any point.
 set -euo pipefail
 
+# Force UTF-8 stdout for any Python subprocess we invoke (datahub CLI, uv run
+# scripts). Without this, Python defaults to the OS locale encoding on
+# Windows (cp1252), which can't render the Unicode checkmarks the datahub
+# CLI prints (e.g. "✔ DataHub is now running"), crashing the command
+# after the underlying action already succeeded.
+export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
+export PYTHONUTF8="${PYTHONUTF8:-1}"
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -171,7 +179,7 @@ _provision_local_token() {
     # 2) Reuse ~/.datahubenv if it already points at the same GMS host.
     if [[ -f "$HOME/.datahubenv" ]]; then
         local existing_host existing_token
-        read -r existing_host existing_token < <(uv run python3 -c "
+        read -r existing_host existing_token < <(uv run python -c "
 import yaml
 with open('$HOME/.datahubenv') as f:
     cfg = yaml.safe_load(f) or {}
@@ -210,7 +218,7 @@ print(gms.get('server',''), gms.get('token',''))
         --host "$DATAHUB_GMS_URL" 2>/dev/null || true
 
     local token
-    token=$(uv run python3 -c "
+    token=$(uv run python -c "
 import yaml, sys
 with open('${tmp_home}/.datahubenv') as f:
     cfg = yaml.safe_load(f)
@@ -407,7 +415,7 @@ cd "$REPO_ROOT"
 
 # Ensure the 'talkster' schema exists in MySQL (uses admin credentials)
 go "Ensuring 'talkster' schema exists in MySQL..."
-uv run python3 - <<PYEOF
+uv run python - <<PYEOF
 import pymysql, sys
 try:
     conn = pymysql.connect(host='localhost', port=3306,
