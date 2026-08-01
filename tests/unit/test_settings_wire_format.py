@@ -8,6 +8,7 @@ Tests for the secrets-to-credentials Step 1 wire format:
 
 from __future__ import annotations
 
+import os
 import pathlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -576,3 +577,75 @@ async def test_list_connections_unknown_type_falls_through_to_empty() -> None:
     mystery = next(c for c in conns if c.type == "totally-unknown-engine")
     assert mystery.status == "unconfigured"
     assert mystery.fields == []
+
+
+# --- PUT on the synthesized "default" DataHub connection (#91) ---
+
+
+@pytest.mark.asyncio
+async def test_put_default_datahub_connection_creates_when_absent() -> None:
+    """Saving the pre-populated 'default' DataHub card must CREATE its row,
+    not 404, when no context_platform rows exist yet (#91)."""
+    session = AsyncMock()
+    session.commit = AsyncMock()
+
+    mock_cp_repo = AsyncMock()
+    mock_cp_repo.get = AsyncMock(return_value=None)
+    mock_cp_repo.list_all = AsyncMock(return_value=[])  # synthesized default, unpersisted
+    mock_cp_repo.upsert = AsyncMock()
+
+    mock_intg_repo = AsyncMock()
+    mock_intg_repo.get = AsyncMock(return_value=None)
+
+    body = UpdateConnectionRequest(
+        config={"url": "http://gms.example.com:8080", "token": "tok-123"}, secrets={}
+    )
+
+    with (
+        patch("analytics_agent.api.settings.ContextPlatformRepo", return_value=mock_cp_repo),
+        patch("analytics_agent.db.repository.IntegrationRepo", return_value=mock_intg_repo),
+        patch.dict("analytics_agent.api.settings.os.environ", {}, clear=False),
+    ):
+        result = await update_connection("default", body, session)
+        # Credentials propagated to env for immediate effect (capture inside the
+        # patch.dict scope — it restores os.environ on exit).
+        env_url = os.environ.get("DATAHUB_GMS_URL")
+        env_token = os.environ.get("DATAHUB_GMS_TOKEN")
+
+    assert result["success"] is True
+    mock_cp_repo.upsert.assert_awaited_once()
+    kwargs = mock_cp_repo.upsert.await_args.kwargs
+    assert kwargs["type"] == "datahub"
+    assert kwargs["name"] == "default"
+    saved = orjson.loads(kwargs["config"])
+    assert saved["url"] == "http://gms.example.com:8080"
+    assert saved["token"] == "tok-123"
+    assert env_url == "http://gms.example.com:8080"
+    assert env_token == "tok-123"
+
+
+@pytest.mark.asyncio
+async def test_put_unknown_connection_still_404s() -> None:
+    """A genuinely unknown connection (not the synthesized default, no engine
+    row) must still 404 — the upsert path is scoped to 'default' only."""
+    session = AsyncMock()
+
+    mock_cp_repo = AsyncMock()
+    mock_cp_repo.get = AsyncMock(return_value=None)
+    mock_cp_repo.list_all = AsyncMock(return_value=[])
+    mock_cp_repo.upsert = AsyncMock()
+
+    mock_intg_repo = AsyncMock()
+    mock_intg_repo.get = AsyncMock(return_value=None)
+
+    body = UpdateConnectionRequest(config={"warehouse": "WH"}, secrets={})
+
+    with (
+        patch("analytics_agent.api.settings.ContextPlatformRepo", return_value=mock_cp_repo),
+        patch("analytics_agent.db.repository.IntegrationRepo", return_value=mock_intg_repo),
+        pytest.raises(HTTPException) as exc,
+    ):
+        await update_connection("mystery-conn", body, session)
+
+    assert exc.value.status_code == 404
+    mock_cp_repo.upsert.assert_not_awaited()

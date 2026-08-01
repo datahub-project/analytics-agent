@@ -1623,6 +1623,30 @@ async def update_connection(
                 os.environ["DATAHUB_GMS_TOKEN"] = existing_cfg["token"]
         return {"success": True, "message": "Connection settings saved."}
 
+    # The DataHub "default" connection is synthesized from config.yaml / env when
+    # no context_platform rows exist yet (see _get_datahub_connections). The UI
+    # shows it as an editable card, so a Save must CREATE that row rather than
+    # 404 — otherwise the pre-populated default can never be persisted (#91).
+    if name == "default" and not await cp_repo.list_all():
+        import uuid
+
+        new_cfg = {k: v for k, v in body.config.items() if v and "•" not in v}
+        await cp_repo.upsert(
+            id=str(uuid.uuid4()),
+            type="datahub",
+            name=name,
+            label="DataHub",
+            config=orjson.dumps(new_cfg).decode(),
+            source="ui",
+        )
+        await session.commit()
+        # Propagate to env so the agent picks it up immediately (no restart needed)
+        if new_cfg.get("url"):
+            os.environ["DATAHUB_GMS_URL"] = new_cfg["url"]
+        if new_cfg.get("token"):
+            os.environ["DATAHUB_GMS_TOKEN"] = new_cfg["token"]
+        return {"success": True, "message": "Connection settings saved."}
+
     # Engine connection: body.config → integrations.config (DB),
     # body.secrets → translated via the engine's secret_env_vars allow-list
     # → .env + os.environ.  Hot-reload the engine with the merged config after
