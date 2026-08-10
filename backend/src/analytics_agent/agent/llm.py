@@ -27,6 +27,13 @@ def _make_openai(model: str, streaming: bool) -> BaseChatModel:
     kwargs: dict = {"model": model, "temperature": 0, "streaming": streaming}
     if settings.openai_api_key:
         kwargs["api_key"] = SecretStr(settings.openai_api_key)
+    if settings.openai_reasoning_effort:
+        # Reasoning models refuse function tools on /v1/chat/completions unless
+        # reasoning_effort is "none", and they reject a non-default temperature.
+        # The Responses API supports tools and reasoning together.
+        kwargs["use_responses_api"] = True
+        kwargs["reasoning_effort"] = settings.openai_reasoning_effort
+        kwargs.pop("temperature")
     return ChatOpenAI(**kwargs)
 
 
