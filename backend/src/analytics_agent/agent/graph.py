@@ -82,6 +82,7 @@ def build_graph(
 
     if system_prompt_override:
         from analytics_agent.skills.loader import (
+            get_check_data_quality_prompt_section,
             get_improve_context_prompt_section,
             get_search_business_context_section,
             get_skill_system_prompt_section,
@@ -89,6 +90,7 @@ def build_graph(
 
         system_prompt = system_prompt_override.format(engine_name=engine_name)
         system_prompt += get_search_business_context_section()
+        system_prompt += get_check_data_quality_prompt_section()
         system_prompt += get_improve_context_prompt_section()
         if enabled_mutations:
             system_prompt += get_skill_system_prompt_section(enabled_mutations)

@@ -130,6 +130,20 @@ def get_search_business_context_section() -> str:
     return f"\n\n## Skill: search_business_context\n\n{body}"
 
 
+def get_check_data_quality_prompt_section() -> str:
+    """Return the always-on check-data-quality skill section for the system prompt.
+
+    Instructs the agent to read DataHub assertions (via the native
+    get_dataset_assertions tool) before querying a table that may be stale or
+    known-broken.
+    """
+    parsed = _load_skill_md("check-data-quality")
+    if parsed is None:
+        return ""
+    _fm, body = parsed
+    return f"\n\n## Skill: check_data_quality\n\n{body}"
+
+
 def get_skill_system_prompt_section(enabled_skills: set[str]) -> str:
     """
     Return a markdown section to inject into the system prompt containing
