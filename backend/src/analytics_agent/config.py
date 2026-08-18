@@ -178,9 +178,8 @@ class Settings(BaseSettings):
     # /v1/chat/completions unless reasoning_effort is "none". Setting this routes
     # them through the Responses API, which supports tools and reasoning together.
     # One of: minimal, low, medium, high. Leave empty for non-reasoning models.
-    # Applies to every OpenAI tier, so set the *_LLM_MODEL overrides below to
-    # reasoning models as well — the tier defaults are gpt-4o-mini, which rejects
-    # the parameter.
+    # Applied only to reasoning models (per _make_openai), so a single value is
+    # safe across tiers: it's ignored for non-reasoning tiers like gpt-4o-mini.
     openai_reasoning_effort: str = ""
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""

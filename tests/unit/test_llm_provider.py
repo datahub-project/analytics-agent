@@ -423,3 +423,40 @@ def test_make_openai_unchanged_when_reasoning_effort_unset(mock_settings, mock_c
     assert kwargs["temperature"] == 0
     assert "use_responses_api" not in kwargs
     assert "reasoning_effort" not in kwargs
+
+
+@patch("langchain_openai.ChatOpenAI")
+@patch("analytics_agent.agent.llm.settings")
+def test_make_openai_skips_reasoning_effort_for_non_reasoning_model(mock_settings, mock_chat):
+    """A global effort must NOT be applied to non-reasoning models (e.g. the
+    chart/quality/delight tiers on gpt-4o-mini), which 400 on reasoning.effort."""
+    from analytics_agent.agent.llm import _make_openai
+
+    mock_settings.openai_api_key = "sk-oai-test"
+    mock_settings.openai_reasoning_effort = "low"  # set globally...
+
+    _make_openai("gpt-4o-mini", streaming=False)  # ...but this tier isn't a reasoning model
+
+    _, kwargs = mock_chat.call_args
+    assert kwargs["temperature"] == 0
+    assert "use_responses_api" not in kwargs
+    assert "reasoning_effort" not in kwargs
+
+
+@pytest.mark.parametrize(
+    "model,expected",
+    [
+        ("gpt-5.1", True),
+        ("gpt-5", True),
+        ("o1", True),
+        ("o3-mini", True),
+        ("o4-mini", True),
+        ("gpt-4o", False),
+        ("gpt-4o-mini", False),
+        ("gpt-3.5-turbo", False),
+    ],
+)
+def test_is_openai_reasoning_model(model, expected):
+    from analytics_agent.agent.llm import _is_openai_reasoning_model
+
+    assert _is_openai_reasoning_model(model) is expected

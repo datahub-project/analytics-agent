@@ -21,16 +21,26 @@ def _make_anthropic(model: str, streaming: bool) -> BaseChatModel:
     return ChatAnthropic(**kwargs)  # type: ignore[call-arg]
 
 
+def _is_openai_reasoning_model(model: str) -> bool:
+    """True for OpenAI reasoning families (gpt-5*, o-series) that require the
+    Responses API for function tools and reject a non-default temperature."""
+    m = model.lower()
+    return m.startswith(("gpt-5", "o1", "o3", "o4"))
+
+
 def _make_openai(model: str, streaming: bool) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     kwargs: dict = {"model": model, "temperature": 0, "streaming": streaming}
     if settings.openai_api_key:
         kwargs["api_key"] = SecretStr(settings.openai_api_key)
-    if settings.openai_reasoning_effort:
+    if settings.openai_reasoning_effort and _is_openai_reasoning_model(model):
         # Reasoning models refuse function tools on /v1/chat/completions unless
         # reasoning_effort is "none", and they reject a non-default temperature.
-        # The Responses API supports tools and reasoning together.
+        # The Responses API supports tools and reasoning together. Gate on the
+        # model so a single global setting only touches reasoning models — the
+        # cheaper non-reasoning tiers (e.g. gpt-4o-mini) keep the standard path
+        # and don't 400 on an unsupported reasoning.effort parameter.
         kwargs["use_responses_api"] = True
         kwargs["reasoning_effort"] = settings.openai_reasoning_effort
         kwargs.pop("temperature")
