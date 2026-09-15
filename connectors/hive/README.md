@@ -28,3 +28,20 @@ All configuration is read from environment variables set by the analytics-agent 
 - **NONE / NOSASL** — no credentials needed; typical for local or trusted-network deployments
 - **LDAP / PLAIN** — username + password
 - **KERBEROS** — requires `kerberos` system library (`brew install krb5` / `apt-get install libkrb5-dev`)
+
+## Codex integration
+
+To use the connector directly from Codex, add the following to `~/.codex/config.toml`.
+
+```toml
+[mcp_servers.kyuubi]
+command = "uv"
+args = ["run", "--project", "/path/to/analytics-agent/connectors/hive", "analytics-agent-connector-hive"]
+
+[mcp_servers.kyuubi.env]
+HIVE_DATABASE = "default"
+HIVE_HOST = "127.0.0.1"
+HIVE_PORT = "10000"
+HIVE_AUTH = "KERBEROS"
+HIVE_KERBEROS_SERVICE_NAME = "hive"
+```
