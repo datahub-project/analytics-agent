@@ -1,5 +1,5 @@
 ---
-name: publish_analysis
+name: publish-analysis
 description: >
   Use this skill when the user wants to publish, share, save, or preserve a
   completed data analysis so others in the org can find it. Saves as a versioned

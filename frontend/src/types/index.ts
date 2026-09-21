@@ -6,6 +6,8 @@ export type SSEEventType =
   | "SQL"
   | "CHART"
   | "USAGE"
+  | "TODOS"
+  | "FILES_UPDATE"
   | "COMPLETE"
   | "ERROR";
 
@@ -53,6 +55,24 @@ export interface UsagePayload {
   node: string;
   model?: string;
   provider?: string;
+}
+
+// deepagents planning tool (`write_todos`) — surfaced in the Plan panel.
+export type TodoStatus = "pending" | "in_progress" | "completed";
+
+export interface TodoItem {
+  content: string;
+  status: TodoStatus;
+  activeForm?: string;
+}
+
+export interface TodosPayload {
+  todos: TodoItem[];
+}
+
+// deepagents virtual filesystem snapshot (path → content).
+export interface FilesPayload {
+  files: Record<string, string>;
 }
 
 export interface Engine {

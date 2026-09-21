@@ -1,5 +1,5 @@
 ---
-name: search_business_context
+name: search-business-context
 description: >
   Call this FIRST whenever the user's question names a business concept, metric,
   or domain (e.g. revenue, churn, active seller, delivery SLA, marketing,

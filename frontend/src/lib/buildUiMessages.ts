@@ -1,4 +1,4 @@
-import type { MessageRecord, UIMessage, UsagePayload, TurnUsage } from "@/types";
+import type { MessageRecord, UIMessage, UsagePayload, TurnUsage, TodoItem } from "@/types";
 
 export function buildUiMessages(records: MessageRecord[]): {
   messages: UIMessage[];
@@ -12,6 +12,8 @@ export function buildUiMessages(records: MessageRecord[]): {
     model?: string;
     provider?: string;
   };
+  // Latest `write_todos` snapshot in this history — used to restore the Plan panel.
+  lastTodos: TodoItem[];
 } {
   const result: UIMessage[] = [];
   const totals: {
@@ -40,6 +42,7 @@ export function buildUiMessages(records: MessageRecord[]): {
   // flushes the pending text. Stash it here and attach to the message pushed by
   // the next flushText() call (the thinking/response from the same LLM call).
   let pendingUsage: UsagePayload | null = null;
+  let lastTodos: TodoItem[] = [];
 
   const flushText = (asThinking: boolean) => {
     if (pendingTextChunks.length === 0) return;
@@ -110,6 +113,13 @@ export function buildUiMessages(records: MessageRecord[]): {
         result.push({ id: m.id, event_type: "TOOL_CALL", role: "assistant", payload: m.payload, created_at: m.created_at });
         break;
 
+      case "TODOS": {
+        // Not rendered inline — feeds the Plan side-panel. Keep the latest.
+        const todos = (m.payload as { todos?: TodoItem[] }).todos;
+        if (Array.isArray(todos)) lastTodos = todos;
+        break;
+      }
+
       case "TOOL_RESULT":
       case "SQL":
       case "CHART":
@@ -163,5 +173,5 @@ export function buildUiMessages(records: MessageRecord[]): {
   }
 
   flushText(seenToolCallAfterText);
-  return { messages: result, totals };
+  return { messages: result, totals, lastTodos };
 }

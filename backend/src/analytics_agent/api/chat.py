@@ -318,7 +318,11 @@ async def _run_and_broadcast(
                 keepalive_interval=keepalive_interval,
                 history=history,
             ):
-                if evt.get("event") not in (None, "KEEPALIVE"):
+                # FILES_UPDATE carries the full virtual-FS snapshot (potentially
+                # large, re-sent on every write); don't persist it — the Files
+                # panel re-fetches via GET /files on reload. Everything else,
+                # including the small TODOS plan, is persisted for history.
+                if evt.get("event") not in (None, "KEEPALIVE", "FILES_UPDATE"):
                     with contextlib.suppress(Exception):
                         await _persist_message(
                             session,
@@ -464,6 +468,19 @@ async def send_message(
         media_type="text/event-stream",
         headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
     )
+
+
+@router.get("/{conversation_id}/files")
+async def get_virtual_files(conversation_id: str) -> dict[str, Any]:
+    """Return the deepagents virtual filesystem snapshot for this conversation.
+
+    The streaming layer maintains an in-memory snapshot (`FILES_SNAPSHOTS`) as
+    write_file / edit_file fire and at end-of-turn, so the UI's Files panel can
+    survive a reload without re-reading the (per-turn, ephemeral) checkpoint.
+    """
+    from analytics_agent.agent.streaming import FILES_SNAPSHOTS
+
+    return {"files": FILES_SNAPSHOTS.get(conversation_id, {})}
 
 
 @router.get("/{conversation_id}/stream")

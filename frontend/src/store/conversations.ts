@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
-import type { ConversationSummary, Engine, UIMessage, UsagePayload, TurnUsage } from "@/types";
+import type { ConversationSummary, Engine, UIMessage, UsagePayload, TurnUsage, TodoItem } from "@/types";
 
 export interface UsageTotals {
   input_tokens: number;
@@ -31,6 +31,11 @@ interface ConversationsState {
   // ID of the current turn's streaming TEXT message (reset each turn)
   streamingTextId: string | null;
   usageTotals: UsageTotals;
+  // deepagents side-panel state, reset per conversation:
+  // - todos: latest snapshot from the `write_todos` planning tool
+  // - files: virtual filesystem snapshot (path → content)
+  todos: TodoItem[];
+  files: Record<string, string>;
 
   setConversations: (list: ConversationSummary[]) => void;
   addConversation: (conv: ConversationSummary) => void;
@@ -49,6 +54,8 @@ interface ConversationsState {
   attachUsageToMessage: (messageId: string, usage: UsagePayload) => void;
   setFinalMsgTurnUsage: (tu: TurnUsage) => void;
   finalizeStreaming: () => void;
+  setTodos: (todos: TodoItem[]) => void;
+  setFiles: (files: Record<string, string>) => void;
 }
 
 export const useConversationsStore = create<ConversationsState>((set) => ({
@@ -59,6 +66,8 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
   isStreaming: false,
   streamingTextId: null,
   usageTotals: { ...EMPTY_USAGE },
+  todos: [],
+  files: {},
 
   setConversations: (list) => set({ conversations: list }),
   addConversation: (conv) =>
@@ -69,7 +78,14 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
       activeId: s.activeId === id ? null : s.activeId,
     })),
   setActiveId: (id) =>
-    set({ activeId: id, messages: [], streamingTextId: null, usageTotals: { ...EMPTY_USAGE } }),
+    set({
+      activeId: id,
+      messages: [],
+      streamingTextId: null,
+      usageTotals: { ...EMPTY_USAGE },
+      todos: [],
+      files: {},
+    }),
   setMessages: (msgs) => set({ messages: msgs }),
   appendMessage: (msg) =>
     set((s) => ({ messages: [...s.messages, msg] })),
@@ -161,4 +177,6 @@ export const useConversationsStore = create<ConversationsState>((set) => ({
         provider: usage.provider || s.usageTotals.provider,
       },
     })),
+  setTodos: (todos) => set({ todos }),
+  setFiles: (files) => set({ files }),
 }));

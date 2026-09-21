@@ -1,5 +1,5 @@
 ---
-name: improve_context
+name: improve-context
 description: Use this skill when the user types /improve-context or asks to capture learnings, improve documentation, or enrich the knowledge base based on this conversation.
 metadata:
   author: analytics-agent
