@@ -1,0 +1,146 @@
+.intent-chart {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  padding: 20px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+.chart-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.chart-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.chart-header p,
+.chart-reasoning {
+  font-size: 12px;
+  line-height: 1.6;
+  color: hsl(var(--muted-foreground));
+}
+.chart-header p {
+  margin-top: 4px;
+}
+.chart-actions {
+  display: flex;
+  gap: 3px;
+  flex-shrink: 0;
+}
+.chart-actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+.chart-actions button:hover,
+.chart-actions button[aria-pressed="true"] {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+.chart-actions button:disabled {
+  opacity: 0.5;
+}
+.intent-chart :focus-visible {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 3px;
+}
+.chart-graphic svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: hidden;
+  font-family: inherit;
+}
+.chart-graphic-hidden {
+  display: none;
+}
+.chart-label,
+.chart-secondary {
+  font-size: 11px;
+  fill: hsl(var(--foreground));
+  font-variant-numeric: tabular-nums;
+}
+.chart-secondary {
+  fill: hsl(var(--muted-foreground));
+}
+.chart-export-title {
+  font-size: 14px;
+  font-weight: 600;
+  fill: hsl(var(--foreground));
+}
+.chart-kpi {
+  font-weight: 600;
+  letter-spacing: -1.5px;
+  fill: hsl(var(--foreground));
+  font-variant-numeric: tabular-nums;
+}
+.chart-grid {
+  stroke: hsl(var(--border));
+  stroke-dasharray: 3 4;
+}
+.chart-zero {
+  stroke: hsl(var(--muted-foreground));
+  stroke-opacity: 0.45;
+}
+.chart-table {
+  overflow: auto;
+  max-height: 420px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+.chart-table table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.chart-table th {
+  font-weight: 600;
+  background: hsl(var(--muted));
+  position: sticky;
+  top: 0;
+}
+.chart-table th,
+.chart-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+  white-space: nowrap;
+}
+.chart-reasoning {
+  border-top: 1px solid hsl(var(--border));
+  margin-top: 14px;
+  padding-top: 12px;
+}
+@media print {
+  .intent-chart {
+    --background: 0 0% 100%;
+    --foreground: 229 29% 30%;
+    --muted-foreground: 229 16% 45%;
+    --border: 225 14% 90%;
+    --muted: 220 33% 98%;
+    print-color-adjust: exact;
+    break-inside: avoid;
+  }
+  .chart-actions {
+    display: none;
+  }
+  .chart-graphic-hidden {
+    display: block;
+  }
+  .chart-table {
+    max-height: none;
+    overflow: visible;
+  }
+}

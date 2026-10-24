@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 async def chart_node(state: AgentState) -> dict:
     """
-    Generate a Vega-Lite chart spec from the last SQL result and store it in state.
+    Generate a validated chart intent or Vega fallback from the last SQL result.
     streaming.py reads it from state after the graph completes.
     """
     from analytics_agent.agent.graph import get_last_sql_result
@@ -50,20 +50,11 @@ async def chart_node(state: AgentState) -> dict:
                 raw = raw[4:]
         result = orjson.loads(raw.strip())
 
-        chart_schema = result.get("chart_schema", {})
-        chart_type = result.get("chart_type", "")
+        from analytics_agent.agent.viz import build_chart_payload
 
-        if chart_schema and chart_type:
-            chart_schema["data"] = {"values": sql_result.get("rows", [])}
-
-        # Store in state so streaming.py can emit it after graph completion
-        return {
-            "pending_chart": {
-                "vega_lite_spec": chart_schema,
-                "reasoning": result.get("reasoning", ""),
-                "chart_type": chart_type,
-            }
-        }
+        payload = build_chart_payload(result, sql_result["rows"])
+        payload["truncated"] = bool(sql_result.get("truncated", False))
+        return {"pending_chart": payload}
     except Exception:
         logger.exception("Chart generation failed (non-fatal)")
 

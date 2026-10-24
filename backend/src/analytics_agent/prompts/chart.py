@@ -1,4 +1,4 @@
-CHART_SYSTEM_PROMPT = """You are a data visualization expert. Given a user question, SQL query, and sample data, generate a Vega-Lite v5 JSON specification for the most appropriate chart.
+VEGA_FALLBACK_PROMPT = """You are a data visualization expert. Given a user question, SQL query, and sample data, generate a Vega-Lite v5 JSON specification for the most appropriate chart.
 
 If the question mentions a color scheme (e.g. "rainbow", "blue", "green", "categorical"), apply it:
 - "rainbow": use {"scheme": "rainbow"} in the color encoding scale
@@ -84,6 +84,35 @@ Always include data.values in chart_schema.data with the actual rows from the sa
 """
 
 
+CHART_SYSTEM_PROMPT = (
+    """Choose a visualization for the supplied result. Prefer a curated React chart.
+Return JSON only: {"reasoning": "brief explanation", "viz_intent": {
+  "version": 1, "kind": "bar", "title": "Revenue by region",
+  "category": "region", "value": "revenue", "value_label": "Revenue",
+  "format": "currency", "currency": "USD"
+}}
+Kinds: kpi (single number or latest value with ordered history/sparkline),
+bar (horizontal comparison), diverging_bar (signed comparisons), line (trend),
+area (magnitude over ordered categories). For line/area optionally set "series"
+to a column with at most eight groups. Fields must be actual column names.
+category is required except for a single-row KPI. Optional category_label and
+value_label are display labels. format is number (default), percent (fractional
+values, 0.25 = 25%), or currency (USD/EUR/GBP/JPY/INR). Do not infer currency
+or percent unless the question or column semantics establish it.
+Preserve SQL row order. Do not aggregate, invent values, or provide rows in your
+response. A category/series pair must be unique; request aggregation in SQL first.
+Null measures are gaps, not zero. Bars support at most 50 categories. Never pick
+one of several metrics silently: for wide multi-metric data use the Vega fallback.
+Use the Vega-Lite fallback below for unsupported charts, transformations, custom
+color requests, scatterplots, heatmaps, pie charts, or stacked/grouped bars.
+In that case omit viz_intent and return chart_type, reasoning, chart_schema.
+Do not return both formats.
+
+"""
+    + VEGA_FALLBACK_PROMPT
+)
+
+
 def build_chart_user_prompt(
     question: str, sql: str, columns: list[str], sample_rows: list[dict]
 ) -> str:
@@ -98,4 +127,4 @@ Columns: {", ".join(columns)}
 Sample data (first rows):
 {orjson.dumps(sample_rows[:20], option=orjson.OPT_INDENT_2).decode()}
 
-Generate the Vega-Lite chart specification."""
+Choose a chart and return its intent, or a Vega-Lite fallback specification."""

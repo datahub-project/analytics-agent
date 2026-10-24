@@ -21,7 +21,7 @@ async def create_chart(
     color_scheme: str = "",
 ) -> str:
     """
-    Generate a Vega-Lite chart from structured data. Call this when the user asks
+    Generate a chart from structured data. Call this when the user asks
     for a chart, graph, or visualization. The chart renders automatically in the UI.
 
     Args:
@@ -46,7 +46,7 @@ async def create_chart(
 
     full_question = question or title
     if color_scheme:
-        full_question = f"{full_question} (use {color_scheme} color scheme)"
+        full_question = f"{full_question} (use {color_scheme} color scheme; use the Vega-Lite fallback for custom colors)"
 
     user_prompt = build_chart_user_prompt(
         question=full_question,
@@ -74,20 +74,12 @@ async def create_chart(
                 raw = raw[4:]
         result = orjson.loads(raw.strip())
 
-        chart_schema = result.get("chart_schema", {})
-        chart_type = result.get("chart_type", "")
+        from analytics_agent.agent.viz import build_chart_payload
 
-        if chart_schema and chart_type:
-            chart_schema["data"] = {"values": data}
-
-        # Store spec in side-channel — return a short human-readable summary so
-        # the model retains context for follow-up requests (e.g. "change color")
+        payload = build_chart_payload(result, data)
+        chart_type = payload["chart_type"]
         chart_id = str(uuid.uuid4())
-        _pending_charts[chart_id] = {
-            "vega_lite_spec": chart_schema,
-            "reasoning": result.get("reasoning", ""),
-            "chart_type": chart_type,
-        }
+        _pending_charts[chart_id] = payload
         color_note = f", color_scheme={color_scheme!r}" if color_scheme else ""
         # Include the full data inline so the model can reuse it on follow-up requests
         # (e.g. "redraw with different colors")
