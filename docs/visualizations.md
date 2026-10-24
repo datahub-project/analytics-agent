@@ -74,7 +74,8 @@ It is a Vite development entry, not a production app route.
   both generation paths, SSE payload preservation, legacy fallback, SQLite save/reload.
 - 16 new frontend tests: validation, signed/zero/null values, gaps in SVG paths,
   formatting, future-version table fallback, and persisted message reconstruction.
-- Production build, changed-file lint, and existing grouping/stress tests pass.
+- All 371 backend unit tests, production build, backend lint/format, frontend lint,
+  and existing grouping/stress tests pass. CI explicitly runs the new visualization tests.
 - Browser checks: light/dark themes, 390px mobile width, table toggle, legacy Vega,
   PNG download and inspection of the generated PNG.
 - Existing full frontend suite has an unrelated failing test in
