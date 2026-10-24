@@ -39,7 +39,11 @@ export interface SqlPayload {
 }
 
 export interface ChartPayload {
-  vega_lite_spec: Record<string, unknown>;
+  vega_lite_spec?: Record<string, unknown>;
+  viz_intent?: import("@/lib/viz").VizIntent;
+  rows?: Record<string, unknown>[];
+  viz_error?: string;
+  truncated?: boolean;
   reasoning: string;
   chart_type: string;
 }

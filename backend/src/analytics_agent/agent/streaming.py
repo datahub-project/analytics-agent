@@ -285,11 +285,7 @@ async def stream_graph_events(
             "event": "CHART",
             "conversation_id": conversation_id,
             "message_id": str(uuid.uuid4()),
-            "payload": {
-                "vega_lite_spec": state_chart.get("vega_lite_spec", {}),
-                "reasoning": state_chart.get("reasoning", ""),
-                "chart_type": state_chart.get("chart_type", ""),
-            },
+            "payload": state_chart,
         }
 
     # Fallback: model outputs chart spec as JSON text — only if no CHART was already emitted

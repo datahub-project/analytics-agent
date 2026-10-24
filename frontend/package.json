@@ -18,6 +18,8 @@
     "@radix-ui/react-select": "^2.1.2",
     "@radix-ui/react-tooltip": "^1.1.3",
     "@tanstack/react-virtual": "^3.14.6",
+    "@visx/scale": "^4.0.0",
+    "@visx/shape": "^4.0.0",
     "clsx": "^2.1.1",
     "lucide-react": "^0.453.0",
     "react": "^18.3.1",

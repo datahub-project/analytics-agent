@@ -135,3 +135,6 @@ jobs:
 
       - name: ESLint
         run: pnpm lint
+
+      - name: Visualization contract and rendering tests
+        run: pnpm exec vitest run src/lib/__tests__/viz.test.tsx

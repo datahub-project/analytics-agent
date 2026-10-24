@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Download } from "lucide-react";
-import vegaEmbed from "vega-embed";
+import { IntentChart } from "@/components/Charts/IntentChart";
 import type { ChartPayload } from "@/types";
 
 interface Props {
@@ -14,8 +14,23 @@ interface VegaView {
   toImageURL: (type: string, scale?: number) => Promise<string>;
 }
 
-export function ChartMessage({ payload, onRenderError }: Props) {
+export function ChartMessage(props: Props) {
+  if (
+    props.payload.viz_intent ||
+    props.payload.rows ||
+    props.payload.viz_error
+  ) {
+    return <IntentChart payload={props.payload} />;
+  }
+  return <VegaChartMessage {...props} />;
+}
+
+function VegaChartMessage({ payload, onRenderError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const errorCallback = useRef(onRenderError);
+  useEffect(() => {
+    errorCallback.current = onRenderError;
+  }, [onRenderError]);
   // Holds the live Vega view so it can be disposed on unmount. Without this the
   // view keeps its RAF loop and listeners alive; once the message list is
   // virtualized and unmounts off-screen charts, leaking them defeats the point.
@@ -30,6 +45,7 @@ export function ChartMessage({ payload, onRenderError }: Props) {
     setReady(false);
 
     const container = containerRef.current;
+    let disposed = false;
 
     const embed = (width: number) => {
       const spec = {
@@ -38,21 +54,32 @@ export function ChartMessage({ payload, onRenderError }: Props) {
         autosize: { type: "fit-x", contains: "padding" },
       } as never;
 
-      vegaEmbed(container, spec, {
-        mode: "vega-lite",
-        renderer: "svg",
-        actions: { export: true, editor: false, source: false },
-        tooltip: { theme: "custom" },
-      })
+      import("vega-embed")
+        .then(({ default: vegaEmbed }) => {
+          if (disposed) return null;
+          return vegaEmbed(container, spec, {
+            mode: "vega-lite",
+            renderer: "svg",
+            actions: { export: true, editor: false, source: false },
+            tooltip: { theme: "custom" },
+          });
+        })
         .then((result) => {
+          if (!result) return;
+          if (disposed) {
+            result.view.finalize();
+            return;
+          }
+          viewRef.current?.finalize();
           viewRef.current = result.view;
           setReady(true);
         })
         .catch((err) => {
+          if (disposed) return;
           console.error("Vega-Lite render error:", err);
           const msg = String(err?.message || err);
           setEmbedError(msg);
-          onRenderError?.(msg);
+          errorCallback.current?.(msg);
         });
     };
 
@@ -73,6 +100,7 @@ export function ChartMessage({ payload, onRenderError }: Props) {
     }
 
     return () => {
+      disposed = true;
       observer.disconnect();
       viewRef.current?.finalize();
       viewRef.current = null;
@@ -96,7 +124,10 @@ export function ChartMessage({ payload, onRenderError }: Props) {
     }
   };
 
-  if (!payload.vega_lite_spec || Object.keys(payload.vega_lite_spec).length === 0) {
+  if (
+    !payload.vega_lite_spec ||
+    Object.keys(payload.vega_lite_spec).length === 0
+  ) {
     return null;
   }
 
